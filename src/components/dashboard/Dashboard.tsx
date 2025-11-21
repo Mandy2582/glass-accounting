@@ -33,27 +33,14 @@ export default function Dashboard() {
         setLoading(true);
         setError(null);
         try {
-            const [invoices, parties, items] = await Promise.all([
-                db.invoices.getAll(),
-                db.parties.getAll(),
-                db.items.getAll()
+            // Use optimized queries
+            const [statsData, recentInvoicesData] = await Promise.all([
+                db.dashboard.getStats(),
+                db.invoices.getRecent(5)
             ]);
 
-            const totalSales = invoices.filter(i => (i.type || 'sale') === 'sale').reduce((sum, i) => sum + i.total, 0);
-            const totalPurchases = invoices.filter(i => i.type === 'purchase').reduce((sum, i) => sum + i.total, 0);
-            const totalReceivables = parties.filter(p => p.balance > 0).reduce((sum, p) => sum + p.balance, 0);
-            const totalPayables = parties.filter(p => p.balance < 0).reduce((sum, p) => sum + Math.abs(p.balance), 0);
-            const lowStockItems = items.filter(i => (i.stock || 0) < (i.minStock || 10)).length;
-
-            setStats({
-                totalSales,
-                totalPurchases,
-                totalReceivables,
-                totalPayables,
-                lowStockItems,
-                totalItems: items.length
-            });
-            setRecentInvoices(invoices.slice(-5).reverse());
+            setStats(statsData);
+            setRecentInvoices(recentInvoicesData);
         } catch (err: any) {
             console.error('Dashboard Error:', err);
             setError('Failed to load data. Please check your connection or database setup.');

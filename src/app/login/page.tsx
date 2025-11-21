@@ -32,8 +32,9 @@ export default function LoginPage() {
             setError(error.message);
             setLoading(false);
         } else {
-            router.refresh(); // Update client-side cookies
-            router.replace('/'); // Navigate to home
+            alert('Login Successful! Redirecting to Dashboard...');
+            router.refresh();
+            router.replace('/');
         }
     };
 

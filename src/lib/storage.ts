@@ -73,6 +73,28 @@ export const db = {
                 }))
             }));
         },
+        getRecent: async (limit: number): Promise<Invoice[]> => {
+            const { data, error } = await supabase
+                .from('invoices')
+                .select('id, type, date, party_name, total')
+                .order('created_at', { ascending: false })
+                .limit(limit);
+            handleSupabaseError(error);
+
+            return (data || []).map((inv: any) => ({
+                ...inv,
+                partyName: inv.party_name,
+                // Default values for unused fields in dashboard list
+                items: [],
+                partyId: '',
+                number: '',
+                subtotal: 0,
+                taxRate: 0,
+                taxAmount: 0,
+                paidAmount: 0,
+                status: 'pending'
+            } as Invoice));
+        },
         add: async (invoice: Invoice): Promise<void> => {
             // 1. Insert Invoice
             const dbInvoice = {
@@ -201,6 +223,42 @@ export const db = {
             // 2. Delete Invoice (Cascade deletes items)
             const { error } = await supabase.from('invoices').delete().eq('id', id);
             handleSupabaseError(error);
+        }
+    },
+    dashboard: {
+        getStats: async () => {
+            const [
+                { data: salesData },
+                { data: purchaseData },
+                { data: receivablesData },
+                { data: payablesData },
+                { count: totalItems },
+                { data: stockData }
+            ] = await Promise.all([
+                supabase.from('invoices').select('total').eq('type', 'sale'),
+                supabase.from('invoices').select('total').eq('type', 'purchase'),
+                supabase.from('parties').select('balance').gt('balance', 0),
+                supabase.from('parties').select('balance').lt('balance', 0),
+                supabase.from('items').select('*', { count: 'exact', head: true }),
+                supabase.from('items').select('stock, min_stock')
+            ]);
+
+            const totalSales = (salesData || []).reduce((sum: number, i: any) => sum + (i.total || 0), 0);
+            const totalPurchases = (purchaseData || []).reduce((sum: number, i: any) => sum + (i.total || 0), 0);
+            const totalReceivables = (receivablesData || []).reduce((sum: number, p: any) => sum + (p.balance || 0), 0);
+            const totalPayables = (payablesData || []).reduce((sum: number, p: any) => sum + Math.abs(p.balance || 0), 0);
+
+            // Calculate low stock items in JS since we can't compare columns easily in Supabase query
+            const lowStockItems = (stockData || []).filter((i: any) => (i.stock || 0) < (i.min_stock || 10)).length;
+
+            return {
+                totalSales,
+                totalPurchases,
+                totalReceivables,
+                totalPayables,
+                totalItems: totalItems || 0,
+                lowStockItems
+            };
         }
     },
     vouchers: {

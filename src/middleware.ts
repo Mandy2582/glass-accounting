@@ -17,14 +17,14 @@ export async function middleware(req: NextRequest) {
     } = await supabase.auth.getSession();
 
     // If no session and not on login page, redirect to login
-    if (!session && req.nextUrl.pathname !== '/login') {
-        return NextResponse.redirect(new URL('/login', req.url));
-    }
+    // if (!session && req.nextUrl.pathname !== '/login') {
+    //     return NextResponse.redirect(new URL('/login', req.url));
+    // }
 
     // If session and on login page, redirect to dashboard
-    if (session && req.nextUrl.pathname === '/login') {
-        return NextResponse.redirect(new URL('/', req.url));
-    }
+    // if (session && req.nextUrl.pathname === '/login') {
+    //     return NextResponse.redirect(new URL('/', req.url));
+    // }
 
     return res;
 }

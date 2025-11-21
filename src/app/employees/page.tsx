@@ -28,19 +28,24 @@ export default function EmployeesPage() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        const newEmployee: Employee = {
-            id: Math.random().toString(36).substr(2, 9),
-            name: formData.name!,
-            designation: formData.designation!,
-            phone: formData.phone!,
-            joiningDate: new Date().toISOString().split('T')[0],
-            basicSalary: Number(formData.basicSalary),
-            status: 'active'
-        };
-        await db.employees.add(newEmployee);
-        await loadEmployees();
-        setIsModalOpen(false);
-        setFormData({ name: '', designation: '', phone: '', basicSalary: 0, status: 'active' });
+        try {
+            const newEmployee: Employee = {
+                id: crypto.randomUUID(),
+                name: formData.name!,
+                designation: formData.designation!,
+                phone: formData.phone!,
+                joiningDate: new Date().toISOString().split('T')[0],
+                basicSalary: Number(formData.basicSalary),
+                status: 'active'
+            };
+            await db.employees.add(newEmployee);
+            await loadEmployees();
+            setIsModalOpen(false);
+            setFormData({ name: '', designation: '', phone: '', basicSalary: 0, status: 'active' });
+        } catch (error: any) {
+            console.error('Failed to save employee:', error);
+            alert(`Error saving employee: ${error.message}`);
+        }
     };
 
     return (
