@@ -1,0 +1,193 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { Plus, Search } from 'lucide-react';
+import { db } from '@/lib/storage';
+import { GlassItem } from '@/types';
+import styles from './inventory.module.css';
+import ItemModal from '@/components/inventory/ItemModal';
+import BreakageModal from '@/components/inventory/BreakageModal';
+
+export default function InventoryPage() {
+    const [items, setItems] = useState<GlassItem[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [search, setSearch] = useState('');
+
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isBreakageModalOpen, setIsBreakageModalOpen] = useState(false);
+
+    const [editingItem, setEditingItem] = useState<GlassItem | undefined>(undefined);
+
+    useEffect(() => {
+        loadItems();
+    }, []);
+
+    const loadItems = async () => {
+        const data = await db.items.getAll();
+        setItems(data);
+        setLoading(false);
+    };
+
+    const handleSaveItem = async (itemData: Omit<GlassItem, 'id'>) => {
+        if (editingItem) {
+            // Update existing
+            const updatedItem = { ...itemData, id: editingItem.id };
+            await db.items.update(updatedItem);
+        } else {
+            // Add new
+            const newItem: GlassItem = {
+                ...itemData,
+                id: Math.random().toString(36).substr(2, 9),
+            };
+            await db.items.add(newItem);
+        }
+        await loadItems();
+        setEditingItem(undefined);
+        setIsModalOpen(false);
+    };
+
+    const handleEditClick = (item: GlassItem) => {
+        setEditingItem(item);
+        setIsModalOpen(true);
+    };
+
+    const handleModalClose = () => {
+        setEditingItem(undefined);
+        setIsModalOpen(false);
+    };
+
+    const handleBreakageSaved = async () => {
+        await loadItems();
+    };
+
+    const filteredItems = items.filter(item =>
+        item.name.toLowerCase().includes(search.toLowerCase()) ||
+        item.type.toLowerCase().includes(search.toLowerCase()) ||
+        (item.make && item.make.toLowerCase().includes(search.toLowerCase()))
+    );
+
+    return (
+        <div className="container">
+            <div className={styles.header}>
+                <h1 className={styles.title}>Inventory Management</h1>
+                <div style={{ display: 'flex', gap: '1rem' }}>
+                    <button className="btn" style={{ background: '#fee2e2', color: '#ef4444', border: 'none' }} onClick={() => setIsBreakageModalOpen(true)}>
+                        Record Breakage
+                    </button>
+                    <button className="btn btn-primary" onClick={() => { setEditingItem(undefined); setIsModalOpen(true); }}>
+                        <Plus size={18} style={{ marginRight: '0.5rem' }} />
+                        Add New Item
+                    </button>
+                </div>
+            </div>
+
+            <div className="card">
+                <div className={styles.toolbar}>
+                    <div className={styles.searchWrapper}>
+                        <Search size={18} className={styles.searchIcon} />
+                        <input
+                            type="text"
+                            placeholder="Search items..."
+                            className="input"
+                            style={{ paddingLeft: '2.5rem' }}
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                        />
+                    </div>
+                </div>
+
+                {loading ? (
+                    <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>Loading inventory...</div>
+                ) : (
+                    <table className="table">
+                        <thead>
+                            <tr>
+                                <th>Item Name</th>
+                                <th>Make</th>
+                                <th>Type</th>
+                                <th>Dimensions / Model</th>
+                                <th>Thickness</th>
+                                <th>Stock</th>
+                                <th>Rate</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {filteredItems.map((item) => (
+                                <tr key={item.id}>
+                                    <td style={{ fontWeight: 500 }}>{item.name}</td>
+                                    <td>{item.make || '-'}</td>
+                                    <td>{item.type}</td>
+                                    <td>
+                                        {item.category === 'hardware' ? (
+                                            <span style={{ color: 'var(--color-text-muted)' }}>
+                                                {item.model || '-'}
+                                            </span>
+                                        ) : (
+                                            `${item.width}" x ${item.height}"`
+                                        )}
+                                    </td>
+                                    <td>
+                                        {item.category === 'hardware' ? '-' : `${item.thickness}mm`}
+                                    </td>
+                                    <td>
+                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                            <span style={{
+                                                padding: '0.25rem 0.5rem',
+                                                borderRadius: '999px',
+                                                background: item.stock < (item.minStock || 10) ? '#fee2e2' : '#dcfce7',
+                                                color: item.stock < (item.minStock || 10) ? '#ef4444' : '#166534',
+                                                fontSize: '0.75rem',
+                                                fontWeight: 600,
+                                                width: 'fit-content'
+                                            }}>
+                                                {item.stock} {item.unit === 'sqft' ? 'Sheets' : item.unit}
+                                            </span>
+                                            <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
+                                                A: {item.warehouseStock?.['Warehouse A'] || 0} | B: {item.warehouseStock?.['Warehouse B'] || 0}
+                                            </span>
+                                            {item.category !== 'hardware' && (
+                                                <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
+                                                    {((item.width! * item.height! / 144) * item.stock).toFixed(2)} sq.ft
+                                                </span>
+                                            )}
+                                        </div>
+                                    </td>
+                                    <td>₹{item.rate}</td>
+                                    <td>
+                                        <button
+                                            className="btn"
+                                            style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                                            onClick={() => handleEditClick(item)}
+                                        >
+                                            Edit
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                            {filteredItems.length === 0 && (
+                                <tr>
+                                    <td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: 'var(--color-text-muted)' }}>
+                                        No items found.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                )}
+            </div>
+
+            <ItemModal
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                onSave={handleSaveItem}
+            />
+
+            <BreakageModal
+                isOpen={isBreakageModalOpen}
+                onClose={() => setIsBreakageModalOpen(false)}
+                onSave={handleBreakageSaved}
+            />
+        </div>
+    );
+}
