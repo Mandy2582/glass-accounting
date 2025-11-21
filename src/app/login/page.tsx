@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useRouter } from 'next/navigation';
 import { Box } from 'lucide-react';
 
@@ -11,6 +11,12 @@ export default function LoginPage() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const router = useRouter();
+
+    // Use Auth Helpers client to set cookies for Middleware
+    const supabase = createClientComponentClient({
+        supabaseUrl: 'https://oboskguczgqmemycqtoy.supabase.co',
+        supabaseKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9ib3NrZ3VjemdxbWVteWNxdG95Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM3MTgyNzIsImV4cCI6MjA3OTI5NDI3Mn0.dqejOQNwAbmVPuhO9arnrYF-GAndRroiJQBwa-ydq0w'
+    });
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -26,7 +32,8 @@ export default function LoginPage() {
             setError(error.message);
             setLoading(false);
         } else {
-            router.push('/');
+            router.refresh(); // Update client-side cookies
+            router.replace('/'); // Navigate to home
         }
     };
 
