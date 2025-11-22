@@ -230,7 +230,6 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
                                             className="input"
                                             value={item.itemId}
                                             onChange={e => updateItem(index, 'itemId', e.target.value)}
-                                            style={{ padding: '0.25rem' }}
                                         >
                                             <option value="">Select Item</option>
                                             {items.map(i => (
@@ -245,7 +244,6 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
                                             className="input"
                                             value={item.warehouse || ''}
                                             onChange={e => updateItem(index, 'warehouse', e.target.value)}
-                                            style={{ padding: '0.25rem' }}
                                         >
                                             <option value="">Select</option>
                                             <option value="Warehouse A">Warehouse A</option>
@@ -258,7 +256,6 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
                                             className="input"
                                             value={item.width}
                                             onChange={e => updateItem(index, 'width', Number(e.target.value))}
-                                            style={{ padding: '0.25rem' }}
                                         />
                                     </td>
                                     <td>
@@ -267,7 +264,6 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
                                             className="input"
                                             value={item.height}
                                             onChange={e => updateItem(index, 'height', Number(e.target.value))}
-                                            style={{ padding: '0.25rem' }}
                                         />
                                     </td>
                                     <td>
@@ -276,7 +272,6 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
                                             className="input"
                                             value={item.quantity}
                                             onChange={e => updateItem(index, 'quantity', Number(e.target.value))}
-                                            style={{ padding: '0.25rem' }}
                                         />
                                     </td>
                                     <td style={{ textTransform: 'capitalize' }}>{item.unit}</td>
@@ -287,7 +282,6 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
                                             className="input"
                                             value={item.rate}
                                             onChange={e => updateItem(index, 'rate', Number(e.target.value))}
-                                            style={{ padding: '0.25rem' }}
                                         />
                                     </td>
                                     <td>{item.amount}</td>
