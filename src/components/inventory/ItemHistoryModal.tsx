@@ -54,6 +54,7 @@ export default function ItemHistoryModal({ isOpen, onClose, item }: ItemHistoryM
             isOpen={isOpen}
             onClose={onClose}
             title={`Purchase History: ${item?.name || ''}`}
+            maxWidth="1000px"
         >
             <div style={{ minWidth: '800px', maxWidth: '90vw' }}>
                 {loading ? (

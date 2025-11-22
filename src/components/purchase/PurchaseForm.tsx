@@ -288,7 +288,12 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
                                                 <option value="">Select Item</option>
                                                 <option value="NEW_ITEM" style={{ fontWeight: 'bold', color: 'var(--color-primary)' }}>+ Add New Item</option>
                                                 {items.map(i => (
-                                                    <option key={i.id} value={i.id}>{i.name}</option>
+                                                    <option key={i.id} value={i.id}>
+                                                        {i.name}
+                                                        {i.category === 'hardware'
+                                                            ? ` (${i.make || '-'} ${i.model || '-'})`
+                                                            : ` (${i.type} - ${i.thickness}mm)`}
+                                                    </option>
                                                 ))}
                                             </select>
                                             <button

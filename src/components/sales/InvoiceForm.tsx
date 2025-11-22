@@ -206,7 +206,12 @@ export default function InvoiceForm({ initialData, onSave, onCancel }: InvoiceFo
                                         >
                                             <option value="">Select Item</option>
                                             {items.map(i => (
-                                                <option key={i.id} value={i.id}>{i.name}</option>
+                                                <option key={i.id} value={i.id}>
+                                                    {i.name}
+                                                    {i.category === 'hardware'
+                                                        ? ` (${i.make || '-'} ${i.model || '-'})`
+                                                        : ` (${i.type} - ${i.thickness}mm)`}
+                                                </option>
                                             ))}
                                         </select>
                                     </td>
