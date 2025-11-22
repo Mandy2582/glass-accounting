@@ -35,27 +35,23 @@ export default function ProfitLossPage() {
         const revenue = sales.reduce((sum, i) => sum + i.subtotal, 0);
 
         // 2. COGS (Cost of Goods Sold)
-        // For each item sold, find its Purchase Rate.
+        // Use the stored 'cost_amount' from invoice_items which is calculated via FIFO at time of sale.
         let cogs = 0;
         sales.forEach(sale => {
             sale.items.forEach(invItem => {
-                const itemDef = items.find(i => i.id === invItem.itemId);
-                // If purchaseRate is set, use it. Else use 70% of selling rate as estimate?
-                // Or 0 if unknown. Let's use 0 but warn or use a fallback.
-                // Better: Use purchaseRate if available, else 0.
-                const costPrice = itemDef?.purchaseRate || 0;
-
-                // Calculate cost for this line item
-                // If unit is sqft, cost is per sqft * sqft
-                // If unit is sheets/nos, cost is per piece * qty
-
-                // Wait, purchaseRate in ItemModal is "Cost Price per unit".
-                // Unit matches the item's unit.
-
-                if (invItem.unit === 'sqft') {
-                    cogs += costPrice * invItem.sqft;
+                // If cost_amount exists (new system), use it.
+                // If not (old data), fallback to item.purchaseRate * qty (Estimation).
+                if (invItem.cost_amount !== undefined && invItem.cost_amount !== null) {
+                    cogs += Number(invItem.cost_amount);
                 } else {
-                    cogs += costPrice * invItem.quantity;
+                    // Fallback for old data
+                    const itemDef = items.find(i => i.id === invItem.itemId);
+                    const costPrice = itemDef?.purchaseRate || 0;
+                    if (invItem.unit === 'sqft') {
+                        cogs += costPrice * invItem.sqft;
+                    } else {
+                        cogs += costPrice * invItem.quantity;
+                    }
                 }
             });
         });

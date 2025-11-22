@@ -17,8 +17,8 @@ async function cleanup() {
     const { data: batches, error: batchError } = await supabase.from('stock_batches').select('id, invoice_id');
     if (batchError) throw batchError;
 
-    // Find orphans
-    const orphans = batches.filter(b => b.invoice_id && !invoiceIds.has(b.invoice_id));
+    // Find orphans (invoice_id is null OR invoice_id not in list)
+    const orphans = batches.filter(b => !b.invoice_id || !invoiceIds.has(b.invoice_id));
     console.log(`Found ${orphans.length} orphan batches.`);
 
     if (orphans.length > 0) {

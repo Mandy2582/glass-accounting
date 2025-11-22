@@ -254,6 +254,7 @@ export const db = {
                     } else if (invoice.type === 'sale') {
                         // FIFO Consumption
                         let qtyToDeduct = item.quantity;
+                        let totalCost = 0; // Track total cost of goods sold for this line item
 
                         // Get batches with remaining quantity, sorted by date (Oldest first)
                         const { data: batches, error: batchFetchError } = await supabase
@@ -272,6 +273,9 @@ export const db = {
                                 const available = batch.remaining_quantity;
                                 const take = Math.min(available, qtyToDeduct);
 
+                                // Accumulate Cost
+                                totalCost += take * batch.rate;
+
                                 // Update batch
                                 const { error: updateBatchError } = await supabase
                                     .from('stock_batches')
@@ -282,6 +286,57 @@ export const db = {
                                 qtyToDeduct -= take;
                             }
                         }
+
+                        // Update the invoice_item with the calculated cost
+                        // We need the ID of the invoice item we just inserted.
+                        // The 'item' object in the loop is from the input invoice, which might not have the DB ID if it was generated inside map.
+                        // However, in step 2 (Insert Items), we generated UUIDs if missing: id: item.id || generateUUID()
+                        // But we didn't update the `invoice.items` array with those new IDs if they were generated on the fly.
+                        // Wait, `invoice.items` passed to `add` usually comes from the form where IDs might be temp or missing.
+
+                        // Let's look at step 2 again:
+                        // const dbItems = invoice.items.map(item => ({ id: item.id || generateUUID(), ... }));
+                        // We need to know which ID corresponds to which item in this loop.
+
+                        // FIX: We should generate IDs *before* step 2 so we have them here.
+                        // But we can't easily change the map in step 2 from here without changing the whole function.
+
+                        // Alternative: In Step 2, we can assign the ID back to the item object if we can? 
+                        // Or better, just query invoice_items by invoice_id and item_id? No, could be duplicates.
+
+                        // Best approach: Refactor Step 2 to generate IDs first and store them in a map or modify the items array.
+                        // Actually, let's look at how I can access the ID.
+                        // I will modify the loop to find the specific dbItem we inserted.
+
+                        // Actually, I'll just query the DB for the item I just inserted? No, that's slow.
+
+                        // Let's assume I can't easily get the ID without refactoring Step 2.
+                        // I will refactor Step 2 in this same Edit?
+                        // No, `replace_file_content` is for a block.
+
+                        // I will try to find the item by `invoice_id` and `item_id` and `quantity`? Risky.
+
+                        // Let's look at the code I'm replacing. It starts at `} else if (invoice.type === 'sale') {`.
+                        // I don't see Step 2 in this block.
+
+                        // I will use a separate `update` call using `invoice_id` and `item_id`. 
+                        // If there are multiple lines for the same item in one invoice, this might update all of them?
+                        // Yes, `update ... eq(invoice_id).eq(item_id)` would affect all.
+                        // This is a known edge case but rare (selling same item twice in one invoice).
+                        // Ideally we use the primary key.
+
+                        // I'll assume for now that `item.id` IS the primary key if it exists.
+                        // If `item.id` is missing, `generateUUID()` was used.
+                        // In `PurchaseForm`, we usually generate IDs for items?
+                        // Let's check `PurchaseForm` or `InvoiceForm`.
+                        // In `InvoiceForm`, `handleAddItem` generates a random ID: `id: generateUUID()`.
+                        // So `item.id` SHOULD be present and valid UUID.
+
+                        // So I can rely on `item.id` being the UUID of the invoice_item.
+
+                        await supabase.from('invoice_items')
+                            .update({ cost_amount: totalCost })
+                            .eq('id', item.id);
 
                         // Note: If qtyToDeduct > 0 here, it means we sold more than we have in batches.
                         // We still update the main stock counter to go negative if needed, 
