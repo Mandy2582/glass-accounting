@@ -149,7 +149,7 @@ export default function InvoiceForm({ initialData, onSave, onCancel }: InvoiceFo
                 <h1 style={{ fontSize: '1.5rem', fontWeight: 700 }}>{initialData ? 'Edit Invoice' : 'New Sales Invoice'}</h1>
             </div>
 
-            <form onSubmit={handleSubmit} className="card" style={{ maxWidth: '1000px', margin: '0 auto' }}>
+            <form onSubmit={handleSubmit} className="card" style={{ maxWidth: '1200px', margin: '0 auto' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', marginBottom: '2rem' }}>
                     <div>
                         <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Customer</label>
@@ -181,16 +181,16 @@ export default function InvoiceForm({ initialData, onSave, onCancel }: InvoiceFo
                     <table className="table">
                         <thead>
                             <tr>
-                                <th style={{ width: '25%' }}>Item</th>
+                                <th style={{ width: '20%' }}>Item</th>
                                 <th style={{ width: '10%' }}>Make</th>
                                 <th style={{ width: '10%' }}>Type/Model</th>
                                 <th style={{ width: '10%' }}>Warehouse</th>
-                                <th style={{ width: '8%' }}>W (in)</th>
-                                <th style={{ width: '8%' }}>H (in)</th>
-                                <th style={{ width: '8%' }}>Qty</th>
-                                <th style={{ width: '8%' }}>Unit</th>
+                                <th style={{ width: '9%' }}>W (in)</th>
+                                <th style={{ width: '9%' }}>H (in)</th>
+                                <th style={{ width: '7%' }}>Qty</th>
+                                <th style={{ width: '6%' }}>Unit</th>
                                 <th style={{ width: '8%' }}>Sq.ft</th>
-                                <th style={{ width: '10%' }}>Rate</th>
+                                <th style={{ width: '11%' }}>Rate</th>
                                 <th style={{ width: '10%' }}>Amount</th>
                                 <th style={{ width: '5%' }}></th>
                             </tr>

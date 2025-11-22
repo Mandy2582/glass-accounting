@@ -83,15 +83,15 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
 
         // Recalculate
         if (item.width && item.height && item.quantity) {
-            item.sqft = (item.width * item.height / 144) * item.quantity;
+            item.sqft = Number(((item.width * item.height / 144) * item.quantity).toFixed(2));
         }
 
         if (item.rate) {
             const unit = item.unit || 'sqft';
             if (unit === 'sqft') {
-                item.amount = (item.sqft || 0) * item.rate;
+                item.amount = Number(((item.sqft || 0) * item.rate).toFixed(2));
             } else {
-                item.amount = (item.quantity || 0) * item.rate;
+                item.amount = Number(((item.quantity || 0) * item.rate).toFixed(2));
             }
         }
 
@@ -208,16 +208,16 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
                     <table className="table">
                         <thead>
                             <tr>
-                                <th style={{ width: '25%' }}>Item</th>
+                                <th style={{ width: '20%' }}>Item</th>
                                 <th style={{ width: '10%' }}>Make</th>
                                 <th style={{ width: '10%' }}>Type/Model</th>
                                 <th style={{ width: '10%' }}>Warehouse</th>
-                                <th style={{ width: '8%' }}>W (in)</th>
-                                <th style={{ width: '8%' }}>H (in)</th>
-                                <th style={{ width: '8%' }}>Qty</th>
-                                <th style={{ width: '8%' }}>Unit</th>
+                                <th style={{ width: '9%' }}>W (in)</th>
+                                <th style={{ width: '9%' }}>H (in)</th>
+                                <th style={{ width: '7%' }}>Qty</th>
+                                <th style={{ width: '6%' }}>Unit</th>
                                 <th style={{ width: '8%' }}>Sq.ft</th>
-                                <th style={{ width: '10%' }}>Rate</th>
+                                <th style={{ width: '11%' }}>Rate</th>
                                 <th style={{ width: '10%' }}>Amount</th>
                                 <th style={{ width: '5%' }}></th>
                             </tr>
