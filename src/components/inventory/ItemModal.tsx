@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { GlassItem, Unit } from '@/types';
 import Modal from '@/components/Modal';
 
@@ -12,24 +12,47 @@ interface ItemModalProps {
 }
 
 export default function ItemModal({ isOpen, onClose, onSave, initialData }: ItemModalProps) {
-    const [formData, setFormData] = useState<Partial<GlassItem>>(
-        initialData || {
-            name: '',
-            category: 'glass',
-            type: 'Toughened',
-            make: '',
-            model: '',
-            thickness: 0,
-            width: 0,
-            height: 0,
-            unit: 'sqft',
-            stock: 0,
-            warehouseStock: { 'Warehouse A': 0, 'Warehouse B': 0 },
-            rate: 0,
-            hsnCode: '',
-            conversionFactor: 0
+    const [formData, setFormData] = useState<Partial<GlassItem>>({
+        name: '',
+        category: 'glass',
+        type: 'Toughened',
+        make: '',
+        model: '',
+        thickness: 0,
+        width: 0,
+        height: 0,
+        unit: 'sqft',
+        stock: 0,
+        warehouseStock: { 'Warehouse A': 0, 'Warehouse B': 0 },
+        rate: 0,
+        hsnCode: '',
+        conversionFactor: 0
+    });
+
+    // Update form data when initialData changes (for Edit mode)
+    useEffect(() => {
+        if (initialData) {
+            setFormData(initialData);
+        } else {
+            // Reset for Add mode
+            setFormData({
+                name: '',
+                category: 'glass',
+                type: 'Toughened',
+                make: '',
+                model: '',
+                thickness: 0,
+                width: 0,
+                height: 0,
+                unit: 'sqft',
+                stock: 0,
+                warehouseStock: { 'Warehouse A': 0, 'Warehouse B': 0 },
+                rate: 0,
+                hsnCode: '',
+                conversionFactor: 0
+            });
         }
-    );
+    }, [initialData, isOpen]);
     const [loading, setLoading] = useState(false);
 
     const handleSubmit = async (e: React.FormEvent) => {

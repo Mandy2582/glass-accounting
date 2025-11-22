@@ -155,13 +155,27 @@ export default function InventoryPage() {
                                     </td>
                                     <td>₹{item.rate}</td>
                                     <td>
-                                        <button
-                                            className="btn"
-                                            style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
-                                            onClick={() => handleEditClick(item)}
-                                        >
-                                            Edit
-                                        </button>
+                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                            <button
+                                                className="btn"
+                                                style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                                                onClick={() => handleEditClick(item)}
+                                            >
+                                                Edit
+                                            </button>
+                                            <button
+                                                className="btn"
+                                                style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', background: '#fee2e2', color: '#ef4444', border: 'none' }}
+                                                onClick={async () => {
+                                                    if (confirm('Are you sure you want to delete this item?')) {
+                                                        await db.items.delete(item.id);
+                                                        await loadItems();
+                                                    }
+                                                }}
+                                            >
+                                                Delete
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             ))}
