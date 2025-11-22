@@ -55,7 +55,7 @@ export default function ItemHistoryModal({ isOpen, onClose, item }: ItemHistoryM
             onClose={onClose}
             title={`Purchase History: ${item?.name || ''}`}
         >
-            <div style={{ minWidth: '600px' }}>
+            <div style={{ minWidth: '800px', maxWidth: '90vw' }}>
                 {loading ? (
                     <div style={{ padding: '2rem', textAlign: 'center' }}>Loading history...</div>
                 ) : (
@@ -94,7 +94,8 @@ export default function ItemHistoryModal({ isOpen, onClose, item }: ItemHistoryM
                             {batches.length === 0 && (
                                 <tr>
                                     <td colSpan={6} style={{ textAlign: 'center', padding: '2rem', color: 'var(--color-text-muted)' }}>
-                                        No purchase history found.
+                                        No purchase history found.<br />
+                                        <span style={{ fontSize: '0.8rem' }}>History is tracked for new purchases made through the Purchase Form.</span>
                                     </td>
                                 </tr>
                             )}
