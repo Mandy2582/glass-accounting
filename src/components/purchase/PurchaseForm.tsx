@@ -292,7 +292,7 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
                                                         {i.name}
                                                         {i.category === 'hardware'
                                                             ? ` (${i.make || '-'} ${i.model || '-'})`
-                                                            : ` (${i.type} - ${i.thickness}mm)`}
+                                                            : ` (${i.make ? i.make + ' - ' : ''}${i.type} - ${i.thickness}mm)`}
                                                     </option>
                                                 ))}
                                             </select>
