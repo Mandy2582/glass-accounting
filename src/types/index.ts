@@ -28,7 +28,8 @@ export interface StockBatch {
     rate: number; // Purchase Rate
     quantity: number; // Original Qty
     remainingQuantity: number; // Current Qty available for sale
-    warehouse: string;
+    warehouse?: string;
+    cost_amount?: number; // FIFO cost at time of sale
 }
 
 export interface Party {
