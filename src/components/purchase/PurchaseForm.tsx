@@ -176,8 +176,9 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
 
             await db.invoices.add(invoice);
             onSave();
-        } catch (error) {
+        } catch (error: any) {
             console.error(error);
+            alert(`Failed to save purchase: ${error.message}`);
         } finally {
             setLoading(false);
         }

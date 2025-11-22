@@ -100,6 +100,8 @@ export const db = {
             } as Invoice));
         },
         add: async (invoice: Invoice): Promise<void> => {
+            console.log('db.invoices.add called with:', JSON.stringify(invoice, null, 2));
+
             // 1. Insert Invoice
             const dbInvoice = {
                 id: invoice.id,
@@ -116,7 +118,9 @@ export const db = {
                 paid_amount: invoice.paidAmount,
                 status: invoice.status
             };
+            console.log('Inserting invoice header:', dbInvoice);
             const { error: invError } = await supabase.from('invoices').insert(dbInvoice);
+            if (invError) console.error('Invoice insert error:', invError);
             handleSupabaseError(invError);
 
             // 2. Insert Items
@@ -135,7 +139,9 @@ export const db = {
                 amount: item.amount,
                 warehouse: item.warehouse
             }));
+            console.log('Inserting invoice items:', dbItems);
             const { error: itemsError } = await supabase.from('invoice_items').insert(dbItems);
+            if (itemsError) console.error('Invoice items insert error:', itemsError);
             handleSupabaseError(itemsError);
 
             // 3. Update Stock & Party Balance (Handled by triggers ideally, but doing manually for now)
