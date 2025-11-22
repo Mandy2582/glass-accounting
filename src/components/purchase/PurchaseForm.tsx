@@ -174,6 +174,18 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
                 status: 'unpaid'
             };
 
+            // DEBUG: Check payload
+            if (invoice.items.length === 0) {
+                alert('Error: No items to save!');
+                setLoading(false);
+                return;
+            }
+            // alert(`Saving ${invoice.items.length} items...`); // Commented out to avoid annoyance if working, but useful for now.
+            // Actually, let's log it to console and maybe show a toast if I had one.
+            // For now, I'll trust the previous alert I added in catch block.
+
+            console.log('Submitting Invoice:', invoice);
+
             await db.invoices.add(invoice);
             onSave();
         } catch (error: any) {

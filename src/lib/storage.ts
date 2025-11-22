@@ -140,9 +140,17 @@ export const db = {
                 warehouse: item.warehouse
             }));
             console.log('Inserting invoice items:', dbItems);
-            const { error: itemsError } = await supabase.from('invoice_items').insert(dbItems);
-            if (itemsError) console.error('Invoice items insert error:', itemsError);
-            handleSupabaseError(itemsError);
+            const { error: itemsError, count } = await supabase.from('invoice_items').insert(dbItems).select('id', { count: 'exact' });
+
+            if (itemsError) {
+                console.error('Invoice items insert error:', itemsError);
+                throw itemsError;
+            }
+
+            if (count !== dbItems.length) {
+                console.error(`Mismatch! Expected to insert ${dbItems.length} items, but inserted ${count}.`);
+                // throw new Error('Failed to save all items.'); // Optional: throw to alert user
+            }
 
             // 3. Update Stock & Party Balance (Handled by triggers ideally, but doing manually for now)
             // Note: This logic was previously in storage.ts. We should keep it or move to DB Triggers.
