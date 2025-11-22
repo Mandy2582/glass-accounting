@@ -7,6 +7,7 @@ import { GlassItem } from '@/types';
 import styles from './inventory.module.css';
 import ItemModal from '@/components/inventory/ItemModal';
 import BreakageModal from '@/components/inventory/BreakageModal';
+import ItemHistoryModal from '@/components/inventory/ItemHistoryModal';
 
 export default function InventoryPage() {
     const [items, setItems] = useState<GlassItem[]>([]);
@@ -15,8 +16,10 @@ export default function InventoryPage() {
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isBreakageModalOpen, setIsBreakageModalOpen] = useState(false);
+    const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
 
     const [editingItem, setEditingItem] = useState<GlassItem | undefined>(undefined);
+    const [selectedItemForHistory, setSelectedItemForHistory] = useState<GlassItem | null>(null);
 
     useEffect(() => {
         loadItems();
@@ -177,6 +180,16 @@ export default function InventoryPage() {
                                         <div style={{ display: 'flex', gap: '0.5rem' }}>
                                             <button
                                                 className="btn"
+                                                style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', background: '#e0e7ff', color: '#4338ca', border: 'none' }}
+                                                onClick={() => {
+                                                    setSelectedItemForHistory(item);
+                                                    setIsHistoryModalOpen(true);
+                                                }}
+                                            >
+                                                History
+                                            </button>
+                                            <button
+                                                className="btn"
                                                 style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
                                                 onClick={() => handleEditClick(item)}
                                             >
@@ -220,6 +233,12 @@ export default function InventoryPage() {
                 isOpen={isBreakageModalOpen}
                 onClose={() => setIsBreakageModalOpen(false)}
                 onSave={handleBreakageSaved}
+            />
+
+            <ItemHistoryModal
+                isOpen={isHistoryModalOpen}
+                onClose={() => setIsHistoryModalOpen(false)}
+                item={selectedItemForHistory}
             />
         </div>
     );

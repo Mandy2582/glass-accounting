@@ -153,28 +153,103 @@ export const db = {
                 await db.parties.update({ ...party, balance: newBalance });
             }
 
-            // Update Stock
+            // Update Stock & FIFO Batches
             for (const item of invoice.items) {
                 const glassItem = await db.items.getAll().then(items => items.find(i => i.id === item.itemId));
                 if (glassItem) {
                     const currentStock = glassItem.warehouseStock?.[item.warehouse || 'Warehouse A'] || 0;
-                    const newStock = invoice.type === 'sale'
-                        ? currentStock - item.quantity
-                        : currentStock + item.quantity;
 
-                    const updatedWarehouseStock = {
-                        ...glassItem.warehouseStock,
-                        [item.warehouse || 'Warehouse A']: newStock
-                    };
+                    if (invoice.type === 'purchase') {
+                        // 1. Create Stock Batch
+                        const batch = {
+                            item_id: item.itemId,
+                            invoice_id: invoice.id,
+                            date: invoice.date,
+                            rate: item.rate, // Purchase Rate
+                            quantity: item.quantity,
+                            remaining_quantity: item.quantity,
+                            warehouse: item.warehouse || 'Warehouse A'
+                        };
+                        const { error: batchError } = await supabase.from('stock_batches').insert(batch);
+                        handleSupabaseError(batchError);
 
-                    // Recalculate total stock
-                    const totalStock = Object.values(updatedWarehouseStock).reduce((a, b) => a + b, 0);
+                        // 2. Update Weighted Average Purchase Rate
+                        // Formula: ((OldStock * OldRate) + (NewQty * NewRate)) / (OldStock + NewQty)
+                        const oldStock = glassItem.stock;
+                        const oldRate = glassItem.purchaseRate || 0;
+                        const newRate = item.rate;
+                        const newQty = item.quantity;
 
-                    await db.items.update({
-                        ...glassItem,
-                        stock: totalStock,
-                        warehouseStock: updatedWarehouseStock
-                    });
+                        let avgRate = oldRate;
+                        if (oldStock + newQty > 0) {
+                            avgRate = ((oldStock * oldRate) + (newQty * newRate)) / (oldStock + newQty);
+                        }
+
+                        // 3. Update Item Stock
+                        const newStock = currentStock + item.quantity;
+                        const updatedWarehouseStock = {
+                            ...glassItem.warehouseStock,
+                            [item.warehouse || 'Warehouse A']: newStock
+                        };
+                        const totalStock = Object.values(updatedWarehouseStock).reduce((a, b) => a + b, 0);
+
+                        await db.items.update({
+                            ...glassItem,
+                            stock: totalStock,
+                            warehouseStock: updatedWarehouseStock,
+                            purchaseRate: Number(avgRate.toFixed(2))
+                        });
+
+                    } else if (invoice.type === 'sale') {
+                        // FIFO Consumption
+                        let qtyToDeduct = item.quantity;
+
+                        // Get batches with remaining quantity, sorted by date (Oldest first)
+                        const { data: batches, error: batchFetchError } = await supabase
+                            .from('stock_batches')
+                            .select('*')
+                            .eq('item_id', item.itemId)
+                            .gt('remaining_quantity', 0)
+                            .order('date', { ascending: true });
+
+                        handleSupabaseError(batchFetchError);
+
+                        if (batches) {
+                            for (const batch of batches) {
+                                if (qtyToDeduct <= 0) break;
+
+                                const available = batch.remaining_quantity;
+                                const take = Math.min(available, qtyToDeduct);
+
+                                // Update batch
+                                const { error: updateBatchError } = await supabase
+                                    .from('stock_batches')
+                                    .update({ remaining_quantity: available - take })
+                                    .eq('id', batch.id);
+                                handleSupabaseError(updateBatchError);
+
+                                qtyToDeduct -= take;
+                            }
+                        }
+
+                        // Note: If qtyToDeduct > 0 here, it means we sold more than we have in batches.
+                        // We still update the main stock counter to go negative if needed, 
+                        // but batches will just be empty.
+
+                        // Update Item Stock
+                        const newStock = currentStock - item.quantity;
+                        const updatedWarehouseStock = {
+                            ...glassItem.warehouseStock,
+                            [item.warehouse || 'Warehouse A']: newStock
+                        };
+                        const totalStock = Object.values(updatedWarehouseStock).reduce((a, b) => a + b, 0);
+
+                        await db.items.update({
+                            ...glassItem,
+                            stock: totalStock,
+                            warehouseStock: updatedWarehouseStock
+                        });
+                    }
                 }
             }
         },

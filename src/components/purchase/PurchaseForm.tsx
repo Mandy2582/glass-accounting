@@ -6,6 +6,7 @@ import { db } from '@/lib/storage';
 import { GlassItem, Party, Invoice, InvoiceItem } from '@/types';
 
 import PartyModal from '@/components/parties/PartyModal';
+import ItemModal from '@/components/inventory/ItemModal';
 
 interface PurchaseFormProps {
     onSave: () => void;
@@ -22,6 +23,7 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
     const [invoiceItems, setInvoiceItems] = useState<InvoiceItem[]>([]);
     const [loading, setLoading] = useState(false);
     const [showNewSupplierModal, setShowNewSupplierModal] = useState(false);
+    const [showNewItemModal, setShowNewItemModal] = useState(false);
 
     useEffect(() => {
         loadData();
@@ -46,6 +48,34 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
         await loadData();
         setSelectedPartyId(newParty.id);
         setShowNewSupplierModal(false);
+    };
+
+    const handleSaveNewItem = async (itemData: Omit<GlassItem, 'id'>) => {
+        // Check for duplicates (Copying logic from InventoryPage, ideally should be a shared helper)
+        const getItemKey = (item: Partial<GlassItem>) => {
+            if (item.category === 'hardware') {
+                return `hardware-${item.name}-${item.make || ''}-${item.model || ''}`.toLowerCase();
+            }
+            return `glass-${item.name}-${item.type}-${item.thickness}-${item.width}-${item.height}`.toLowerCase();
+        };
+
+        const newKey = getItemKey(itemData);
+        const isDuplicate = items.some(existingItem => getItemKey(existingItem) === newKey);
+
+        if (isDuplicate) {
+            alert('An item with these details already exists in the inventory.');
+            return;
+        }
+
+        const newItem: GlassItem = {
+            ...itemData,
+            id: crypto.randomUUID(),
+        };
+        await db.items.add(newItem);
+        await loadData();
+        // Auto-add the new item to the invoice items list? Or just let them select it?
+        // Let's just refresh the list so they can select it.
+        setShowNewItemModal(false);
     };
 
     const addItem = () => {
@@ -226,16 +256,28 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
                             {invoiceItems.map((item, index) => (
                                 <tr key={index}>
                                     <td>
-                                        <select
-                                            className="input"
-                                            value={item.itemId}
-                                            onChange={e => updateItem(index, 'itemId', e.target.value)}
-                                        >
-                                            <option value="">Select Item</option>
-                                            {items.map(i => (
-                                                <option key={i.id} value={i.id}>{i.name}</option>
-                                            ))}
-                                        </select>
+                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                            <select
+                                                className="input"
+                                                value={item.itemId}
+                                                onChange={e => updateItem(index, 'itemId', e.target.value)}
+                                                style={{ flex: 1 }}
+                                            >
+                                                <option value="">Select Item</option>
+                                                {items.map(i => (
+                                                    <option key={i.id} value={i.id}>{i.name}</option>
+                                                ))}
+                                            </select>
+                                            <button
+                                                type="button"
+                                                className="btn"
+                                                onClick={() => setShowNewItemModal(true)}
+                                                style={{ padding: '0.25rem 0.5rem', background: '#f3f4f6', border: '1px solid var(--color-border)' }}
+                                                title="Add New Item"
+                                            >
+                                                <Plus size={16} />
+                                            </button>
+                                        </div>
                                     </td>
                                     <td>{item.make || '-'}</td>
                                     <td>{item.model || item.type || '-'}</td>
@@ -321,6 +363,12 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
                 onClose={() => setShowNewSupplierModal(false)}
                 onSave={handleSaveNewSupplier}
                 initialData={{ type: 'supplier' } as Party}
+            />
+
+            <ItemModal
+                isOpen={showNewItemModal}
+                onClose={() => setShowNewItemModal(false)}
+                onSave={handleSaveNewItem}
             />
         </div>
     );

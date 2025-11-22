@@ -20,6 +20,17 @@ export interface GlassItem {
     conversionFactor?: number; // e.g. sqft per sheet
 }
 
+export interface StockBatch {
+    id: string;
+    itemId: string;
+    invoiceId?: string; // Link to Purchase Invoice
+    date: string; // Purchase Date
+    rate: number; // Purchase Rate
+    quantity: number; // Original Qty
+    remainingQuantity: number; // Current Qty available for sale
+    warehouse: string;
+}
+
 export interface Party {
     id: string;
     name: string;
