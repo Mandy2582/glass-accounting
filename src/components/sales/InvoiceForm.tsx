@@ -122,7 +122,7 @@ export default function InvoiceForm({ initialData, onSave, onCancel }: InvoiceFo
         const party = parties.find(p => p.id === selectedPartyId);
 
         const invoice: Invoice = {
-            id: initialData?.id || Math.random().toString(36).substr(2, 9),
+            id: initialData?.id || crypto.randomUUID(),
             type: 'sale',
             number: initialData?.number || `INV-${Date.now().toString().substr(-6)}`,
             date: invoiceDate,

@@ -79,6 +79,7 @@ export default function PurchasesPage() {
                                 <th>Supplier</th>
                                 <th>Items</th>
                                 <th style={{ textAlign: 'right' }}>Amount</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -90,6 +91,20 @@ export default function PurchasesPage() {
                                     <td style={{ fontWeight: 500 }}>{inv.partyName}</td>
                                     <td>{inv.items.length} items</td>
                                     <td style={{ textAlign: 'right', fontWeight: 600 }}>₹{inv.total.toFixed(2)}</td>
+                                    <td>
+                                        <button
+                                            className="btn"
+                                            style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', background: '#fee2e2', color: '#ef4444', border: 'none' }}
+                                            onClick={async () => {
+                                                if (confirm('Are you sure you want to delete this purchase? This will revert stock and balance changes.')) {
+                                                    await db.invoices.delete(inv.id);
+                                                    await loadInvoices();
+                                                }
+                                            }}
+                                        >
+                                            Delete
+                                        </button>
+                                    </td>
                                 </tr>
                             ))}
                             {filteredInvoices.length === 0 && (

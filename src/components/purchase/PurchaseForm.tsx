@@ -40,7 +40,7 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
     const handleSaveNewSupplier = async (partyData: Omit<Party, 'id'>) => {
         const newParty: Party = {
             ...partyData,
-            id: Math.random().toString(36).substr(2, 9),
+            id: crypto.randomUUID(),
         };
         await db.parties.add(newParty);
         await loadData();
@@ -126,7 +126,7 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
             const total = subtotal + taxAmount;
 
             const invoice: Invoice = {
-                id: Math.random().toString(36).substr(2, 9),
+                id: crypto.randomUUID(),
                 type: 'purchase',
                 number: `PUR-${Date.now().toString().substr(-6)}`,
                 supplierInvoiceNumber,

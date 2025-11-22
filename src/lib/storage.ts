@@ -48,6 +48,10 @@ export const db = {
         update: async (party: Party): Promise<void> => {
             const { error } = await supabase.from('parties').update(party).eq('id', party.id);
             handleSupabaseError(error);
+        },
+        delete: async (id: string): Promise<void> => {
+            const { error } = await supabase.from('parties').delete().eq('id', id);
+            handleSupabaseError(error);
         }
     },
     invoices: {

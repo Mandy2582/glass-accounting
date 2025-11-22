@@ -37,7 +37,7 @@ export default function InventoryPage() {
             // Add new
             const newItem: GlassItem = {
                 ...itemData,
-                id: Math.random().toString(36).substr(2, 9),
+                id: crypto.randomUUID(),
             };
             await db.items.add(newItem);
         }
