@@ -29,6 +29,25 @@ export default function InventoryPage() {
     };
 
     const handleSaveItem = async (itemData: Omit<GlassItem, 'id'>) => {
+        // Check for duplicates
+        const getItemKey = (item: Partial<GlassItem>) => {
+            if (item.category === 'hardware') {
+                return `hardware-${item.name}-${item.make || ''}-${item.model || ''}`.toLowerCase();
+            }
+            return `glass-${item.name}-${item.type}-${item.thickness}-${item.width}-${item.height}`.toLowerCase();
+        };
+
+        const newKey = getItemKey(itemData);
+        const isDuplicate = items.some(existingItem => {
+            if (editingItem && existingItem.id === editingItem.id) return false; // Ignore self when editing
+            return getItemKey(existingItem) === newKey;
+        });
+
+        if (isDuplicate) {
+            alert('An item with these details already exists in the inventory.');
+            return;
+        }
+
         if (editingItem) {
             // Update existing
             const updatedItem = { ...itemData, id: editingItem.id };
