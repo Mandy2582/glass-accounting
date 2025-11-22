@@ -8,10 +8,11 @@ interface ItemModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSave: (item: Omit<GlassItem, 'id'>) => Promise<void>;
+    onDelete?: (id: string) => Promise<void>;
     initialData?: GlassItem;
 }
 
-export default function ItemModal({ isOpen, onClose, onSave, initialData }: ItemModalProps) {
+export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialData }: ItemModalProps) {
     const [formData, setFormData] = useState<Partial<GlassItem>>({
         name: '',
         category: 'glass',
@@ -294,11 +295,30 @@ export default function ItemModal({ isOpen, onClose, onSave, initialData }: Item
                     </div>
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1rem' }}>
-                    <button type="button" onClick={onClose} className="btn" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>Cancel</button>
-                    <button type="submit" disabled={loading} className="btn btn-primary">
-                        {loading ? 'Saving...' : 'Save Item'}
-                    </button>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1rem' }}>
+                    {initialData && onDelete && (
+                        <button
+                            type="button"
+                            onClick={async () => {
+                                if (confirm('Are you sure you want to delete this item?')) {
+                                    setLoading(true);
+                                    await onDelete(initialData.id);
+                                    setLoading(false);
+                                    onClose();
+                                }
+                            }}
+                            className="btn"
+                            style={{ background: '#fee2e2', color: '#ef4444', border: 'none' }}
+                        >
+                            Delete Item
+                        </button>
+                    )}
+                    <div style={{ display: 'flex', gap: '1rem', marginLeft: 'auto' }}>
+                        <button type="button" onClick={onClose} className="btn" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>Cancel</button>
+                        <button type="submit" disabled={loading} className="btn btn-primary">
+                            {loading ? 'Saving...' : 'Save Item'}
+                        </button>
+                    </div>
                 </div>
             </form>
         </Modal>

@@ -66,6 +66,7 @@ export default function InventoryPage() {
         await loadItems();
         setEditingItem(undefined);
         setIsModalOpen(false);
+        alert('Item saved successfully!');
     };
 
     const handleEditClick = (item: GlassItem) => {
@@ -130,7 +131,7 @@ export default function InventoryPage() {
                                 <th>Dimensions / Model</th>
                                 <th>Thickness</th>
                                 <th>Stock</th>
-                                <th>Rate</th>
+                                <th>Avg Cost</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -175,7 +176,7 @@ export default function InventoryPage() {
                                             )}
                                         </div>
                                     </td>
-                                    <td>₹{item.rate}</td>
+                                    <td>₹{item.purchaseRate || 0}</td>
                                     <td>
                                         <div style={{ display: 'flex', gap: '0.5rem' }}>
                                             <button
@@ -200,8 +201,13 @@ export default function InventoryPage() {
                                                 style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', background: '#fee2e2', color: '#ef4444', border: 'none' }}
                                                 onClick={async () => {
                                                     if (confirm('Are you sure you want to delete this item?')) {
-                                                        await db.items.delete(item.id);
-                                                        await loadItems();
+                                                        try {
+                                                            await db.items.delete(item.id);
+                                                            await loadItems();
+                                                        } catch (e: any) {
+                                                            alert('Failed to delete item. It might be used in invoices.');
+                                                            console.error(e);
+                                                        }
                                                     }
                                                 }}
                                             >
@@ -227,6 +233,17 @@ export default function InventoryPage() {
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
                 onSave={handleSaveItem}
+                onDelete={async (id) => {
+                    try {
+                        await db.items.delete(id);
+                        await loadItems();
+                        alert('Item deleted successfully.');
+                    } catch (e: any) {
+                        alert('Failed to delete item. It might be used in invoices.');
+                        console.error(e);
+                    }
+                }}
+                initialData={editingItem}
             />
 
             <BreakageModal
