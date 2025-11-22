@@ -41,8 +41,9 @@ export default function PartyModal({ isOpen, onClose, onSave, initialData }: Par
         try {
             await onSave(formData as Omit<Party, 'id'>);
             onClose();
-        } catch (error) {
+        } catch (error: any) {
             console.error(error);
+            alert(`Failed to save party: ${error.message}`);
         } finally {
             setLoading(false);
         }

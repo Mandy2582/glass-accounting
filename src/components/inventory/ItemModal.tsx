@@ -62,8 +62,9 @@ export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialDa
         try {
             await onSave(formData as Omit<GlassItem, 'id'>);
             onClose();
-        } catch (error) {
+        } catch (error: any) {
             console.error(error);
+            alert(`Failed to save item: ${error.message}`);
         } finally {
             setLoading(false);
         }
