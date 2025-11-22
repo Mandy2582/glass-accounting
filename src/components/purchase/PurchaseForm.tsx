@@ -260,10 +260,17 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
                                             <select
                                                 className="input"
                                                 value={item.itemId}
-                                                onChange={e => updateItem(index, 'itemId', e.target.value)}
+                                                onChange={e => {
+                                                    if (e.target.value === 'NEW_ITEM') {
+                                                        setShowNewItemModal(true);
+                                                    } else {
+                                                        updateItem(index, 'itemId', e.target.value);
+                                                    }
+                                                }}
                                                 style={{ flex: 1 }}
                                             >
                                                 <option value="">Select Item</option>
+                                                <option value="NEW_ITEM" style={{ fontWeight: 'bold', color: 'var(--color-primary)' }}>+ Add New Item</option>
                                                 {items.map(i => (
                                                     <option key={i.id} value={i.id}>{i.name}</option>
                                                 ))}

@@ -35,6 +35,7 @@ export default function PartiesPage() {
         }
         await loadParties();
         setEditingParty(undefined);
+        alert('Party saved successfully!');
     };
 
     const handleEdit = (party: Party) => {
@@ -132,19 +133,14 @@ export default function PartiesPage() {
                                         style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', background: '#fee2e2', color: '#ef4444', border: 'none', marginLeft: '0.5rem' }}
                                         onClick={async () => {
                                             if (confirm('Are you sure you want to delete this party?')) {
-                                                // Note: Ideally check for dependencies (invoices) before deleting
-                                                // For now, assuming cascade or manual check
-                                                // But storage.ts doesn't have delete for parties yet? Let's check.
-                                                // Wait, I need to check if db.parties.delete exists.
-                                                // If not, I need to add it to storage.ts first.
-                                                // Let's assume I'll add it if missing.
-                                                // Actually, looking at previous storage.ts view, I don't recall seeing delete for parties.
-                                                // I should check storage.ts again or just add the button and implement the method.
-                                                // Let's add the button code assuming method exists or I will add it.
-                                                // Actually, better to check storage.ts first.
-                                                // But for this step, I'll add the UI.
-                                                // Wait, if I add UI that calls non-existent method, it will crash.
-                                                // I'll verify storage.ts in next step.
+                                                try {
+                                                    await db.parties.delete(party.id);
+                                                    await loadParties();
+                                                    alert('Party deleted successfully.');
+                                                } catch (e) {
+                                                    console.error(e);
+                                                    alert('Failed to delete party. They might have linked invoices.');
+                                                }
                                             }
                                         }}
                                     >
