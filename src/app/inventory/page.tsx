@@ -9,6 +9,8 @@ import ItemModal from '@/components/inventory/ItemModal';
 import BreakageModal from '@/components/inventory/BreakageModal';
 import ItemHistoryModal from '@/components/inventory/ItemHistoryModal';
 
+import { generateUUID } from '@/lib/utils';
+
 export default function InventoryPage() {
     const [items, setItems] = useState<GlassItem[]>([]);
     const [loading, setLoading] = useState(true);
@@ -59,7 +61,7 @@ export default function InventoryPage() {
             // Add new
             const newItem: GlassItem = {
                 ...itemData,
-                id: crypto.randomUUID(),
+                id: generateUUID(),
             };
             await db.items.add(newItem);
         }

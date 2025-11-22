@@ -7,6 +7,7 @@ import { GlassItem, Party, Invoice, InvoiceItem } from '@/types';
 
 import PartyModal from '@/components/parties/PartyModal';
 import ItemModal from '@/components/inventory/ItemModal';
+import { generateUUID } from '@/lib/utils';
 
 interface PurchaseFormProps {
     onSave: () => void;
@@ -42,7 +43,7 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
     const handleSaveNewSupplier = async (partyData: Omit<Party, 'id'>) => {
         const newParty: Party = {
             ...partyData,
-            id: crypto.randomUUID(),
+            id: generateUUID(),
         };
         await db.parties.add(newParty);
         await loadData();
@@ -67,9 +68,11 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
             return;
         }
 
+        // ...
+
         const newItem: GlassItem = {
             ...itemData,
-            id: crypto.randomUUID(),
+            id: generateUUID(),
         };
         await db.items.add(newItem);
         await loadData();
@@ -156,7 +159,7 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
             const total = subtotal + taxAmount;
 
             const invoice: Invoice = {
-                id: crypto.randomUUID(),
+                id: generateUUID(),
                 type: 'purchase',
                 number: `PUR-${Date.now().toString().substr(-6)}`,
                 supplierInvoiceNumber,

@@ -5,6 +5,7 @@ import { Plus, Search, User, Phone, MapPin } from 'lucide-react';
 import { db } from '@/lib/storage';
 import { Party } from '@/types';
 import PartyModal from '@/components/parties/PartyModal';
+import { generateUUID } from '@/lib/utils';
 
 export default function PartiesPage() {
     const [parties, setParties] = useState<Party[]>([]);
@@ -29,7 +30,7 @@ export default function PartiesPage() {
         } else {
             const newParty: Party = {
                 ...partyData,
-                id: crypto.randomUUID(),
+                id: generateUUID(),
             };
             await db.parties.add(newParty);
         }
