@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { generateUUID } from './utils';
 import { GlassItem, Party, Invoice, Voucher, Order, Employee, Attendance, SalarySlip } from '@/types';
 
 // Helper to handle Supabase errors
@@ -125,7 +126,7 @@ export const db = {
 
             // 2. Insert Items
             const dbItems = invoice.items.map(item => ({
-                id: item.id,
+                id: item.id || generateUUID(),
                 invoice_id: invoice.id,
                 item_id: item.itemId,
                 item_name: item.itemName,
@@ -140,16 +141,11 @@ export const db = {
                 warehouse: item.warehouse
             }));
             console.log('Inserting invoice items:', dbItems);
-            const { error: itemsError, count } = await supabase.from('invoice_items').insert(dbItems).select('id', { count: 'exact' });
+            const { error: itemsError } = await supabase.from('invoice_items').insert(dbItems);
 
             if (itemsError) {
                 console.error('Invoice items insert error:', itemsError);
                 throw itemsError;
-            }
-
-            if (count !== dbItems.length) {
-                console.error(`Mismatch! Expected to insert ${dbItems.length} items, but inserted ${count}.`);
-                // throw new Error('Failed to save all items.'); // Optional: throw to alert user
             }
 
             // 3. Update Stock & Party Balance (Handled by triggers ideally, but doing manually for now)
