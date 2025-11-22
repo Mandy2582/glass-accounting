@@ -254,7 +254,7 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
                                         <input
                                             type="number"
                                             className="input"
-                                            value={item.width}
+                                            value={item.width || ''}
                                             onChange={e => updateItem(index, 'width', Number(e.target.value))}
                                         />
                                     </td>
@@ -262,7 +262,7 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
                                         <input
                                             type="number"
                                             className="input"
-                                            value={item.height}
+                                            value={item.height || ''}
                                             onChange={e => updateItem(index, 'height', Number(e.target.value))}
                                         />
                                     </td>
@@ -270,7 +270,7 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
                                         <input
                                             type="number"
                                             className="input"
-                                            value={item.quantity}
+                                            value={item.quantity || ''}
                                             onChange={e => updateItem(index, 'quantity', Number(e.target.value))}
                                         />
                                     </td>
@@ -280,7 +280,7 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
                                         <input
                                             type="number"
                                             className="input"
-                                            value={item.rate}
+                                            value={item.rate || ''}
                                             onChange={e => updateItem(index, 'rate', Number(e.target.value))}
                                         />
                                     </td>
