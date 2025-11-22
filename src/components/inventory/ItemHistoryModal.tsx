@@ -28,6 +28,7 @@ export default function ItemHistoryModal({ isOpen, onClose, item }: ItemHistoryM
             .from('stock_batches')
             .select('*')
             .eq('item_id', item.id)
+            .gt('remaining_quantity', 0) // Only show active stock
             .order('date', { ascending: false }); // Newest first for viewing
 
         if (error) {

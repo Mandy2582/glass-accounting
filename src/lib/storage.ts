@@ -10,6 +10,32 @@ const handleSupabaseError = (error: any) => {
     }
 };
 
+// Helper to recalculate Avg Cost from active batches
+const recalculateItemAvgCost = async (itemId: string) => {
+    const { data: batches, error } = await supabase
+        .from('stock_batches')
+        .select('remaining_quantity, rate')
+        .eq('item_id', itemId)
+        .gt('remaining_quantity', 0);
+
+    if (error) {
+        console.error('Error fetching batches for avg cost:', error);
+        return;
+    }
+
+    let totalValue = 0;
+    let totalQty = 0;
+
+    batches?.forEach(b => {
+        totalValue += b.remaining_quantity * b.rate;
+        totalQty += b.remaining_quantity;
+    });
+
+    const avgCost = totalQty > 0 ? (totalValue / totalQty) : 0;
+
+    await supabase.from('items').update({ purchase_rate: Number(avgCost.toFixed(2)) }).eq('id', itemId);
+};
+
 export const db = {
     items: {
         getAll: async (): Promise<GlassItem[]> => {
@@ -100,6 +126,31 @@ export const db = {
                 status: 'pending'
             } as Invoice));
         },
+        // Helper to recalculate Avg Cost from active batches
+        recalculateItemAvgCost: async (itemId: string) => {
+            const { data: batches, error } = await supabase
+                .from('stock_batches')
+                .select('remaining_quantity, rate')
+                .eq('item_id', itemId)
+                .gt('remaining_quantity', 0);
+
+            if (error) {
+                console.error('Error fetching batches for avg cost:', error);
+                return;
+            }
+
+            let totalValue = 0;
+            let totalQty = 0;
+
+            batches?.forEach(b => {
+                totalValue += b.remaining_quantity * b.rate;
+                totalQty += b.remaining_quantity;
+            });
+
+            const avgCost = totalQty > 0 ? (totalValue / totalQty) : 0;
+
+            await supabase.from('items').update({ purchase_rate: Number(avgCost.toFixed(2)) }).eq('id', itemId);
+        },
         add: async (invoice: Invoice): Promise<void> => {
             console.log('db.invoices.add called with:', JSON.stringify(invoice, null, 2));
 
@@ -183,19 +234,7 @@ export const db = {
                         const { error: batchError } = await supabase.from('stock_batches').insert(batch);
                         handleSupabaseError(batchError);
 
-                        // 2. Update Weighted Average Purchase Rate
-                        // Formula: ((OldStock * OldRate) + (NewQty * NewRate)) / (OldStock + NewQty)
-                        const oldStock = glassItem.stock;
-                        const oldRate = glassItem.purchaseRate || 0;
-                        const newRate = item.rate;
-                        const newQty = item.quantity;
-
-                        let avgRate = oldRate;
-                        if (oldStock + newQty > 0) {
-                            avgRate = ((oldStock * oldRate) + (newQty * newRate)) / (oldStock + newQty);
-                        }
-
-                        // 3. Update Item Stock
+                        // 2. Update Item Stock
                         const newStock = currentStock + item.quantity;
                         const updatedWarehouseStock = {
                             ...glassItem.warehouseStock,
@@ -206,9 +245,11 @@ export const db = {
                         await db.items.update({
                             ...glassItem,
                             stock: totalStock,
-                            warehouseStock: updatedWarehouseStock,
-                            purchaseRate: Number(avgRate.toFixed(2))
+                            warehouseStock: updatedWarehouseStock
                         });
+
+                        // 3. Recalculate Avg Cost
+                        await recalculateItemAvgCost(item.itemId);
 
                     } else if (invoice.type === 'sale') {
                         // FIFO Consumption
@@ -259,6 +300,9 @@ export const db = {
                             stock: totalStock,
                             warehouseStock: updatedWarehouseStock
                         });
+                        // After sale, we should also recalculate avg cost because the mix of batches changed?
+                        // Yes, if we sold cheap stock, the remaining stock is now more expensive on average.
+                        await recalculateItemAvgCost(item.itemId);
                     }
                 }
             }
@@ -305,6 +349,14 @@ export const db = {
                             stock: totalStock,
                             warehouseStock: updatedWarehouseStock
                         });
+
+                        // Delete associated batches if purchase
+                        if (invoice.type === 'purchase') {
+                            await supabase.from('stock_batches').delete().eq('invoice_id', id).eq('item_id', item.itemId);
+                        }
+
+                        // Recalculate Avg Cost
+                        await recalculateItemAvgCost(item.itemId);
                     }
                 }
             }
