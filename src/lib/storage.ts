@@ -403,61 +403,81 @@ export const db = {
             await db.invoices.add(invoice);
         },
         delete: async (id: string): Promise<void> => {
-            // 1. Get Invoice to revert effects
+            // 1. Get Invoice data BEFORE deleting (we need it to revert effects)
             const invoices = await db.invoices.getAll();
             const invoice = invoices.find(i => i.id === id);
 
-            if (invoice) {
-                // Revert Party Balance
-                const party = await db.parties.getAll().then(ps => ps.find(p => p.id === invoice.partyId));
-                if (party) {
-                    let newBalance = party.balance;
-                    if (invoice.type === 'sale') newBalance -= invoice.total;
-                    if (invoice.type === 'purchase') newBalance += invoice.total;
-                    await db.parties.update({ ...party, balance: newBalance });
-                }
+            if (!invoice) {
+                console.warn(`Invoice ${id} not found for deletion`);
+                return;
+            }
 
-                // Revert Stock
-                for (const item of invoice.items) {
-                    const glassItem = await db.items.getAll().then(items => items.find(i => i.id === item.itemId));
-                    if (glassItem) {
-                        const currentStock = glassItem.warehouseStock?.[item.warehouse || 'Warehouse A'] || 0;
-                        const newStock = invoice.type === 'sale'
-                            ? currentStock + item.quantity
-                            : currentStock - item.quantity;
-
-                        const updatedWarehouseStock = {
-                            ...glassItem.warehouseStock,
-                            [item.warehouse || 'Warehouse A']: newStock
-                        };
-                        const totalStock = Object.values(updatedWarehouseStock).reduce((a, b) => a + b, 0);
-
-                        await db.items.update({
-                            ...glassItem,
-                            stock: totalStock,
-                            warehouseStock: updatedWarehouseStock
-                        });
-
-                        // Delete associated batches if purchase
-                        if (invoice.type === 'purchase') {
-                            console.log(`Deleting batches for purchase invoice ${id}, item ${item.itemId}`);
-                            await supabase.from('stock_batches').delete().eq('invoice_id', id).eq('item_id', item.itemId);
-                        } else if (invoice.type === 'sale') {
-                            // Restore stock by recalculating history
-                            console.log(`Recalculating stock for sale deletion, item ${item.itemId}`);
-                            await recalculateStockForItem(item.itemId);
-                            console.log(`Finished recalculating stock for item ${item.itemId}`);
-                        }
-
-                        // Recalculate Avg Cost
-                        await recalculateItemAvgCost(item.itemId);
+            // Store items that need batch recalculation (for sales)
+            const itemsToRecalculate: string[] = [];
+            if (invoice.type === 'sale') {
+                invoice.items.forEach(item => {
+                    if (!itemsToRecalculate.includes(item.itemId)) {
+                        itemsToRecalculate.push(item.itemId);
                     }
+                });
+            }
+
+            // 2. Delete Invoice FIRST (Cascade deletes invoice_items)
+            console.log(`Deleting invoice ${id} from database...`);
+            const { error } = await supabase.from('invoices').delete().eq('id', id);
+            handleSupabaseError(error);
+
+            // 3. NOW revert effects using the stored invoice data
+            // Revert Party Balance
+            const party = await db.parties.getAll().then(ps => ps.find(p => p.id === invoice.partyId));
+            if (party) {
+                let newBalance = party.balance;
+                if (invoice.type === 'sale') newBalance -= invoice.total;
+                if (invoice.type === 'purchase') newBalance += invoice.total;
+                await db.parties.update({ ...party, balance: newBalance });
+            }
+
+            // Revert Stock
+            for (const item of invoice.items) {
+                const glassItem = await db.items.getAll().then(items => items.find(i => i.id === item.itemId));
+                if (glassItem) {
+                    const currentStock = glassItem.warehouseStock?.[item.warehouse || 'Warehouse A'] || 0;
+                    const newStock = invoice.type === 'sale'
+                        ? currentStock + item.quantity
+                        : currentStock - item.quantity;
+
+                    const updatedWarehouseStock = {
+                        ...glassItem.warehouseStock,
+                        [item.warehouse || 'Warehouse A']: newStock
+                    };
+                    const totalStock = Object.values(updatedWarehouseStock).reduce((a, b) => a + b, 0);
+
+                    await db.items.update({
+                        ...glassItem,
+                        stock: totalStock,
+                        warehouseStock: updatedWarehouseStock
+                    });
+
+                    // Delete associated batches if purchase
+                    if (invoice.type === 'purchase') {
+                        console.log(`Deleting batches for purchase invoice ${id}, item ${item.itemId}`);
+                        await supabase.from('stock_batches').delete().eq('invoice_id', id).eq('item_id', item.itemId);
+                    }
+
+                    // Recalculate Avg Cost
+                    await recalculateItemAvgCost(item.itemId);
                 }
             }
 
-            // 2. Delete Invoice (Cascade deletes items)
-            const { error } = await supabase.from('invoices').delete().eq('id', id);
-            handleSupabaseError(error);
+            // 4. For sales, recalculate batches AFTER invoice is deleted
+            if (itemsToRecalculate.length > 0) {
+                console.log(`Recalculating batches for ${itemsToRecalculate.length} items after deletion`);
+                for (const itemId of itemsToRecalculate) {
+                    console.log(`Recalculating stock for item ${itemId}`);
+                    await recalculateStockForItem(itemId);
+                    console.log(`Finished recalculating stock for item ${itemId}`);
+                }
+            }
         }
     },
     dashboard: {
