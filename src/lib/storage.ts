@@ -70,29 +70,35 @@ const recalculateStockForItem = async (itemId: string) => {
         return;
     }
 
+    console.log(`Found ${salesItems?.length || 0} sales items for recalculation`);
+
     // 4. Replay consumption
-    for (const item of salesItems) {
-        let qty = item.quantity;
-        let cost = 0;
+    if (salesItems) {
+        for (const item of salesItems) {
+            let qty = item.quantity;
+            let cost = 0;
 
-        for (const batch of batchState) {
-            if (qty <= 0) break;
-            if (batch.remaining_quantity <= 0) continue;
+            for (const batch of batchState) {
+                if (qty <= 0) break;
+                if (batch.remaining_quantity <= 0) continue;
 
-            const take = Math.min(batch.remaining_quantity, qty);
-            cost += take * batch.rate;
-            batch.remaining_quantity -= take;
-            qty -= take;
-        }
+                const take = Math.min(batch.remaining_quantity, qty);
+                cost += take * batch.rate;
 
-        // Update item cost if changed (Self-healing history)
-        if (item.cost_amount !== cost) {
-            console.log(`Updating cost for sale item ${item.id}: ${item.cost_amount} -> ${cost}`);
-            await supabase.from('invoice_items').update({ cost_amount: cost }).eq('id', item.id);
+                batch.remaining_quantity -= take;
+                qty -= take;
+            }
+
+            // Update cost_amount if changed (Self-healing)
+            if (item.cost_amount !== cost) {
+                console.log(`Updating cost_amount for item ${item.id}: ${item.cost_amount} -> ${cost}`);
+                await supabase.from('invoice_items').update({ cost_amount: cost }).eq('id', item.id);
+            }
         }
     }
 
     // 5. Update batches in DB
+    console.log(`Updating ${batches.length} batches in DB`);
     for (const batch of batchState) {
         const original = batches.find(b => b.id === batch.id);
         if (original.remaining_quantity !== batch.remaining_quantity) {
@@ -434,10 +440,13 @@ export const db = {
 
                         // Delete associated batches if purchase
                         if (invoice.type === 'purchase') {
+                            console.log(`Deleting batches for purchase invoice ${id}, item ${item.itemId}`);
                             await supabase.from('stock_batches').delete().eq('invoice_id', id).eq('item_id', item.itemId);
                         } else if (invoice.type === 'sale') {
                             // Restore stock by recalculating history
+                            console.log(`Recalculating stock for sale deletion, item ${item.itemId}`);
                             await recalculateStockForItem(item.itemId);
+                            console.log(`Finished recalculating stock for item ${item.itemId}`);
                         }
 
                         // Recalculate Avg Cost
