@@ -137,6 +137,20 @@ export default function InvoiceForm({ initialData, onSave, onCancel }: InvoiceFo
             paidAmount: initialData?.paidAmount || 0
         };
 
+        // Validate stock availability for sales
+        if (!initialData) { // Only validate for new sales, not edits
+            for (const item of invoiceItems) {
+                const glassItem = items.find(i => i.id === item.itemId);
+                if (glassItem) {
+                    const availableStock = glassItem.warehouseStock?.[item.warehouse || 'Warehouse A'] || 0;
+                    if (item.quantity > availableStock) {
+                        alert(`Insufficient stock for ${item.itemName}!\n\nRequested: ${item.quantity} ${item.unit}\nAvailable: ${availableStock} ${item.unit}\n\nPlease reduce the quantity or add more stock.`);
+                        return;
+                    }
+                }
+            }
+        }
+
         await onSave(invoice);
     };
 
