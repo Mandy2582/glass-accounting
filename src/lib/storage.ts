@@ -36,38 +36,76 @@ const recalculateItemAvgCost = async (itemId: string) => {
     await supabase.from('items').update({ purchase_rate: Number(avgCost.toFixed(2)) }).eq('id', itemId);
 };
 
-// Helper to restore stock to batches (LIFO/Fill holes)
-const restoreStockToBatches = async (itemId: string, qtyToRestore: number) => {
-    // Get batches that are not full, sorted by Date ASC (Oldest first)
-    // We want to fill the oldest "holes" first because FIFO consumes oldest first.
-    const { data: batches, error } = await supabase
+// Helper to recalculate stock and COGS for an item (Replay History)
+const recalculateStockForItem = async (itemId: string) => {
+    console.log(`Recalculating stock for item: ${itemId}`);
+
+    // 1. Get all batches (Oldest First)
+    const { data: batches, error: batchError } = await supabase
         .from('stock_batches')
         .select('*')
         .eq('item_id', itemId)
         .order('date', { ascending: true });
 
-    if (error) {
-        console.error('Error fetching batches for restore:', error);
+    if (batchError) {
+        console.error('Error fetching batches for recalc:', batchError);
         return;
     }
 
-    let remaining = qtyToRestore;
+    // 2. Reset remaining_quantity in memory
+    const batchState = batches.map(b => ({ ...b, remaining_quantity: b.quantity }));
 
-    for (const batch of batches) {
-        if (remaining <= 0) break;
+    // 3. Get all active sales items (Ordered by Date)
+    // We need to join with invoices to filter by type 'sale' and order by date
+    const { data: salesItems, error: salesError } = await supabase
+        .from('invoice_items')
+        .select('*, invoices!inner(type, date, created_at)')
+        .eq('item_id', itemId)
+        .eq('invoices.type', 'sale')
+        .order('invoices(date)', { ascending: true })
+        .order('invoices(created_at)', { ascending: true });
 
-        const space = batch.quantity - batch.remaining_quantity;
-        if (space > 0) {
-            const add = Math.min(space, remaining);
+    if (salesError) {
+        console.error('Error fetching sales for recalc:', salesError);
+        return;
+    }
 
-            await supabase
-                .from('stock_batches')
-                .update({ remaining_quantity: batch.remaining_quantity + add })
-                .eq('id', batch.id);
+    // 4. Replay consumption
+    for (const item of salesItems) {
+        let qty = item.quantity;
+        let cost = 0;
 
-            remaining -= add;
+        for (const batch of batchState) {
+            if (qty <= 0) break;
+            if (batch.remaining_quantity <= 0) continue;
+
+            const take = Math.min(batch.remaining_quantity, qty);
+            cost += take * batch.rate;
+            batch.remaining_quantity -= take;
+            qty -= take;
+        }
+
+        // Update item cost if changed (Self-healing history)
+        if (item.cost_amount !== cost) {
+            console.log(`Updating cost for sale item ${item.id}: ${item.cost_amount} -> ${cost}`);
+            await supabase.from('invoice_items').update({ cost_amount: cost }).eq('id', item.id);
         }
     }
+
+    // 5. Update batches in DB
+    for (const batch of batchState) {
+        const original = batches.find(b => b.id === batch.id);
+        if (original.remaining_quantity !== batch.remaining_quantity) {
+            console.log(`Updating batch ${batch.id}: ${original.remaining_quantity} -> ${batch.remaining_quantity}`);
+            await supabase
+                .from('stock_batches')
+                .update({ remaining_quantity: batch.remaining_quantity })
+                .eq('id', batch.id);
+        }
+    }
+
+    // 6. Recalculate Avg Cost
+    await recalculateItemAvgCost(itemId);
 };
 
 export const db = {
@@ -209,50 +247,27 @@ export const db = {
             if (invError) console.error('Invoice insert error:', invError);
             handleSupabaseError(invError);
 
-            // 2. Insert Items
-            const dbItems = invoice.items.map(item => ({
-                id: item.id || generateUUID(),
-                invoice_id: invoice.id,
-                item_id: item.itemId,
-                item_name: item.itemName,
-                description: item.description,
-                quantity: item.quantity,
-                unit: item.unit,
-                width: item.width,
-                height: item.height,
-                sqft: item.sqft,
-                rate: item.rate,
-                amount: item.amount,
-                warehouse: item.warehouse
-            }));
-            console.log('Inserting invoice items:', dbItems);
-            const { error: itemsError } = await supabase.from('invoice_items').insert(dbItems);
+            // 2. Prepare Items & Calculate FIFO Cost (if sale)
+            const dbItems = [];
 
-            if (itemsError) {
-                console.error('Invoice items insert error:', itemsError);
-                throw itemsError;
-            }
+            for (const item of invoice.items) {
+                const dbItem: any = {
+                    id: item.id || generateUUID(),
+                    invoice_id: invoice.id,
+                    item_id: item.itemId,
+                    item_name: item.itemName,
+                    description: item.description,
+                    quantity: item.quantity,
+                    unit: item.unit,
+                    width: item.width,
+                    height: item.height,
+                    sqft: item.sqft,
+                    rate: item.rate,
+                    amount: item.amount,
+                    warehouse: item.warehouse
+                };
 
-            // 3. Update Stock & Party Balance (Handled by triggers ideally, but doing manually for now)
-            // Note: This logic was previously in storage.ts. We should keep it or move to DB Triggers.
-            // For MVP, let's keep it client-side but it's risky. 
-            // Better: We'll assume the user will run the Migration Tool which might handle initial state,
-            // but for new actions, we need to update related entities.
-
-            // Update Party Balance
-            const party = await db.parties.getAll().then(ps => ps.find(p => p.id === invoice.partyId));
-            if (party) {
-                let newBalance = party.balance;
-                if (invoice.type === 'sale') newBalance += invoice.total; // Receivable
-                if (invoice.type === 'purchase') newBalance -= invoice.total; // Payable
-                await db.parties.update({ ...party, balance: newBalance });
-            }
-
-            // 3. Update Stock & FIFO Batches
-            for (let i = 0; i < invoice.items.length; i++) {
-                const item = invoice.items[i];
-                const dbItem = dbItems[i]; // Use the DB item which has the generated ID
-
+                // Process Stock & Batches *before* insert to get cost_amount
                 const glassItem = await db.items.getAll().then(items => items.find(i => i.id === item.itemId));
                 if (glassItem) {
                     const currentStock = glassItem.warehouseStock?.[item.warehouse || 'Warehouse A'] || 0;
@@ -324,10 +339,9 @@ export const db = {
                             }
                         }
 
-                        // Update the invoice_item with the calculated cost using the correct ID
-                        await supabase.from('invoice_items')
-                            .update({ cost_amount: totalCost })
-                            .eq('id', dbItem.id);
+                        // Assign calculated cost to dbItem BEFORE insert
+                        dbItem.cost_amount = totalCost;
+                        console.log(`Calculated cost for item ${dbItem.id}: ${totalCost}`);
 
                         // Update Item Stock
                         const newStock = currentStock - item.quantity;
@@ -342,10 +356,36 @@ export const db = {
                             stock: totalStock,
                             warehouseStock: updatedWarehouseStock
                         });
-                        // After sale, we should also recalculate avg cost because the mix of batches changed?
+
                         await recalculateItemAvgCost(item.itemId);
                     }
                 }
+
+                dbItems.push(dbItem);
+            }
+
+            // 3. Insert Items (now with cost_amount)
+            console.log('Inserting invoice items:', dbItems);
+            const { error: itemsError } = await supabase.from('invoice_items').insert(dbItems);
+
+            if (itemsError) {
+                console.error('Invoice items insert error:', itemsError);
+                throw itemsError;
+            }
+
+            // 3. Update Stock & Party Balance (Handled by triggers ideally, but doing manually for now)
+            // Note: This logic was previously in storage.ts. We should keep it or move to DB Triggers.
+            // For MVP, let's keep it client-side but it's risky. 
+            // Better: We'll assume the user will run the Migration Tool which might handle initial state,
+            // but for new actions, we need to update related entities.
+
+            // Update Party Balance
+            const party = await db.parties.getAll().then(ps => ps.find(p => p.id === invoice.partyId));
+            if (party) {
+                let newBalance = party.balance;
+                if (invoice.type === 'sale') newBalance += invoice.total; // Receivable
+                if (invoice.type === 'purchase') newBalance -= invoice.total; // Payable
+                await db.parties.update({ ...party, balance: newBalance });
             }
         },
         update: async (invoice: Invoice): Promise<void> => {
@@ -395,8 +435,8 @@ export const db = {
                         if (invoice.type === 'purchase') {
                             await supabase.from('stock_batches').delete().eq('invoice_id', id).eq('item_id', item.itemId);
                         } else if (invoice.type === 'sale') {
-                            // Restore stock to batches
-                            await restoreStockToBatches(item.itemId, item.quantity);
+                            // Restore stock by recalculating history
+                            await recalculateStockForItem(item.itemId);
                         }
 
                         // Recalculate Avg Cost
