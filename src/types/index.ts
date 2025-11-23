@@ -71,6 +71,7 @@ export interface InvoiceItem {
     sqft: number; // Calculated sqft
     rate: number;
     amount: number;
+    cost_amount?: number; // FIFO Cost
 }
 
 export interface Invoice {

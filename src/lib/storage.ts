@@ -172,7 +172,8 @@ export const db = {
                 items: inv.items.map((item: any) => ({
                     ...item,
                     itemId: item.item_id,
-                    itemName: item.item_name
+                    itemName: item.item_name,
+                    cost_amount: item.cost_amount
                 }))
             }));
         },
