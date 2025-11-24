@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Voucher, Party, VoucherType } from '@/types';
+import { Voucher, Party, Employee, VoucherType, BankAccount } from '@/types';
 import Modal from '@/components/Modal';
 import { db } from '@/lib/storage';
 
@@ -13,6 +13,10 @@ interface VoucherModalProps {
 
 export default function VoucherModal({ isOpen, onClose, onSave }: VoucherModalProps) {
     const [parties, setParties] = useState<Party[]>([]);
+    const [employees, setEmployees] = useState<Employee[]>([]);
+    const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+    const [partyType, setPartyType] = useState<'party' | 'employee'>('party');
+
     const [formData, setFormData] = useState<Partial<Voucher>>({
         type: 'receipt',
         date: new Date().toISOString().split('T')[0],
@@ -23,26 +27,68 @@ export default function VoucherModal({ isOpen, onClose, onSave }: VoucherModalPr
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
-        const loadParties = async () => {
-            const data = await db.parties.getAll();
-            setParties(data);
+        const loadData = async () => {
+            const [partiesData, employeesData, bankData] = await Promise.all([
+                db.parties.getAll(),
+                db.employees.getAll(),
+                db.bankAccounts.getAll()
+            ]);
+            setParties(partiesData);
+            setEmployees(employeesData);
+            setBankAccounts(bankData);
         };
-        if (isOpen) loadParties();
+        if (isOpen) loadData();
     }, [isOpen]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        // Validate bank account selection for bank transfers
+        if (formData.mode === 'bank' && !formData.bankAccountId) {
+            alert('Please select a bank account for bank transfer');
+            return;
+        }
+
         setLoading(true);
         try {
-            const party = parties.find(p => p.id === formData.partyId);
-            await onSave({
+            let voucherData: Omit<Voucher, 'id'> = {
                 ...formData as Omit<Voucher, 'id'>,
-                partyName: party?.name,
                 number: `VCH-${Date.now().toString().substr(-6)}`
+            };
+
+            if (voucherData.mode === 'cash') {
+                voucherData.bankAccountId = undefined;
+            }
+
+            if (partyType === 'party') {
+                const party = parties.find(p => p.id === formData.partyId);
+                voucherData.partyName = party?.name;
+                voucherData.employeeId = undefined;
+                voucherData.employeeName = undefined;
+            } else {
+                const employee = employees.find(e => e.id === formData.employeeId);
+                voucherData.employeeId = employee?.id;
+                voucherData.employeeName = employee?.name;
+                voucherData.partyId = undefined;
+                voucherData.partyName = undefined;
+            }
+
+            await onSave(voucherData);
+
+            // Reset form
+            setFormData({
+                type: 'receipt',
+                date: new Date().toISOString().split('T')[0],
+                mode: 'cash',
+                amount: 0,
+                description: ''
             });
+            setPartyType('party');
+
             onClose();
         } catch (error) {
-            console.error(error);
+            console.error('Voucher save error:', error);
+            alert(`Failed to save voucher: ${error instanceof Error ? error.message : 'Unknown error'}`);
         } finally {
             setLoading(false);
         }
@@ -80,19 +126,60 @@ export default function VoucherModal({ isOpen, onClose, onSave }: VoucherModalPr
                     </div>
                 </div>
 
+                {/* Party Type Selector */}
+                {formData.type !== 'expense' && (
+                    <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.5rem' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                            <input
+                                type="radio"
+                                name="partyType"
+                                checked={partyType === 'party'}
+                                onChange={() => setPartyType('party')}
+                            />
+                            Customer / Supplier
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                            <input
+                                type="radio"
+                                name="partyType"
+                                checked={partyType === 'employee'}
+                                onChange={() => setPartyType('employee')}
+                            />
+                            Employee
+                        </label>
+                    </div>
+                )}
+
                 <div>
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Party / Account</label>
-                    <select
-                        className="input"
-                        required={formData.type !== 'expense'}
-                        value={formData.partyId || ''}
-                        onChange={e => setFormData({ ...formData, partyId: e.target.value })}
-                    >
-                        <option value="">Select Party</option>
-                        {parties.map(p => (
-                            <option key={p.id} value={p.id}>{p.name} ({p.type})</option>
-                        ))}
-                    </select>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>
+                        {partyType === 'party' ? 'Party / Account' : 'Employee'}
+                    </label>
+
+                    {partyType === 'party' ? (
+                        <select
+                            className="input"
+                            required={formData.type !== 'expense'}
+                            value={formData.partyId || ''}
+                            onChange={e => setFormData({ ...formData, partyId: e.target.value, employeeId: undefined })}
+                        >
+                            <option value="">Select Party</option>
+                            {parties.map(p => (
+                                <option key={p.id} value={p.id}>{p.name} ({p.type})</option>
+                            ))}
+                        </select>
+                    ) : (
+                        <select
+                            className="input"
+                            required={formData.type !== 'expense'}
+                            value={formData.employeeId || ''}
+                            onChange={e => setFormData({ ...formData, employeeId: e.target.value, partyId: undefined })}
+                        >
+                            <option value="">Select Employee</option>
+                            {employees.map(e => (
+                                <option key={e.id} value={e.id}>{e.name} ({e.designation})</option>
+                            ))}
+                        </select>
+                    )}
                 </div>
 
                 <div style={{ display: 'flex', gap: '1rem' }}>
@@ -118,6 +205,23 @@ export default function VoucherModal({ isOpen, onClose, onSave }: VoucherModalPr
                         </select>
                     </div>
                 </div>
+
+                {formData.mode === 'bank' && (
+                    <div>
+                        <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Bank Account</label>
+                        <select
+                            className="input"
+                            required
+                            value={formData.bankAccountId || ''}
+                            onChange={e => setFormData({ ...formData, bankAccountId: e.target.value })}
+                        >
+                            <option value="">Select Bank Account</option>
+                            {bankAccounts.map(b => (
+                                <option key={b.id} value={b.id}>{b.name} (Limit: ₹{(b.odLimit || 0).toLocaleString()})</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
 
                 <div>
                     <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Description</label>

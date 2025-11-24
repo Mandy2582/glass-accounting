@@ -66,7 +66,7 @@ export default function PayrollPage() {
             const netSalary = Math.round(perDay * presentDays);
 
             newSlips.push({
-                id: Math.random().toString(36).substr(2, 9),
+                id: crypto.randomUUID(),
                 employeeId: emp.id,
                 employeeName: emp.name,
                 month,
@@ -98,14 +98,15 @@ export default function PayrollPage() {
 
         // 2. Create Expense Voucher
         const voucher: Voucher = {
-            id: Math.random().toString(36).substr(2, 9),
+            id: crypto.randomUUID(),
             number: `EXP-${Date.now().toString().substr(-6)}`,
             date: updatedSlip.paymentDate!,
             type: 'expense',
             amount: slip.netSalary,
             description: `Salary for ${slip.employeeName} (${slip.month})`,
-            mode: 'cash', // Default to cash
-            partyName: slip.employeeName
+            mode: 'cash',
+            employeeId: slip.employeeId,
+            employeeName: slip.employeeName
         };
         await db.vouchers.add(voucher);
 

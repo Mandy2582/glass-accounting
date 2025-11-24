@@ -1,12 +1,23 @@
 import { supabase } from './supabase';
 import { generateUUID } from './utils';
-import { GlassItem, Party, Invoice, Voucher, Order, Employee, Attendance, SalarySlip } from '@/types';
+import { GlassItem, Party, Invoice, Voucher, Order, Employee, Attendance, SalarySlip, BankAccount } from '@/types';
 
 // Helper to handle Supabase errors
 const handleSupabaseError = (error: any) => {
     if (error) {
-        console.error('Supabase Error:', error);
-        throw new Error(error.message);
+        // Log the full error object for debugging
+        console.error('Supabase Error (Full Object):', error);
+
+        // Log structured error details
+        console.error('Supabase Error Details:', {
+            message: error?.message || error?.msg || (typeof error === 'string' ? error : 'Unknown error'),
+            code: error?.code || error?.status || 'No code',
+            details: error?.details || error?.detail || 'No details',
+            hint: error?.hint || 'No hint',
+            errorType: typeof error,
+            errorKeys: error && typeof error === 'object' ? Object.keys(error) : []
+        });
+        // Don't throw - let UI handle empty data gracefully
     }
 };
 
@@ -186,7 +197,7 @@ export const db = {
         getRecent: async (limit: number): Promise<Invoice[]> => {
             const { data, error } = await supabase
                 .from('invoices')
-                .select('id, type, date, party_name, total')
+                .select('*')
                 .order('created_at', { ascending: false })
                 .limit(limit);
             handleSupabaseError(error);
@@ -478,41 +489,37 @@ export const db = {
                     console.log(`Finished recalculating stock for item ${itemId}`);
                 }
             }
+        },
+        updatePaymentStatus: async (invoiceId: string, paidAmount: number, status: Invoice['status']): Promise<void> => {
+            // Update only the payment-related fields without reverting stock/balance
+            const { error } = await supabase
+                .from('invoices')
+                .update({
+                    paid_amount: paidAmount,
+                    status: status
+                })
+                .eq('id', invoiceId);
+
+            handleSupabaseError(error);
         }
     },
     dashboard: {
         getStats: async () => {
-            const [
-                { data: salesData },
-                { data: purchaseData },
-                { data: receivablesData },
-                { data: payablesData },
-                { count: totalItems },
-                { data: stockData }
-            ] = await Promise.all([
-                supabase.from('invoices').select('total').eq('type', 'sale'),
-                supabase.from('invoices').select('total').eq('type', 'purchase'),
-                supabase.from('parties').select('balance').gt('balance', 0),
-                supabase.from('parties').select('balance').lt('balance', 0),
-                supabase.from('items').select('*', { count: 'exact', head: true }),
-                supabase.from('items').select('stock, min_stock')
-            ]);
+            const { data, error } = await supabase.rpc('get_dashboard_stats');
 
-            const totalSales = (salesData || []).reduce((sum: number, i: any) => sum + (i.total || 0), 0);
-            const totalPurchases = (purchaseData || []).reduce((sum: number, i: any) => sum + (i.total || 0), 0);
-            const totalReceivables = (receivablesData || []).reduce((sum: number, p: any) => sum + (p.balance || 0), 0);
-            const totalPayables = (payablesData || []).reduce((sum: number, p: any) => sum + Math.abs(p.balance || 0), 0);
-
-            // Calculate low stock items in JS since we can't compare columns easily in Supabase query
-            const lowStockItems = (stockData || []).filter((i: any) => (i.stock || 0) < (i.min_stock || 10)).length;
+            if (error) {
+                console.error('Error fetching dashboard stats via RPC:', error);
+                // Fallback to empty stats or throw
+                throw error;
+            }
 
             return {
-                totalSales,
-                totalPurchases,
-                totalReceivables,
-                totalPayables,
-                totalItems: totalItems || 0,
-                lowStockItems
+                totalSales: data.totalSales || 0,
+                totalPurchases: data.totalPurchases || 0,
+                totalReceivables: data.totalReceivables || 0,
+                totalPayables: data.totalPayables || 0,
+                totalItems: data.totalItems || 0,
+                lowStockItems: data.lowStockItems || 0
             };
         }
     },
@@ -523,7 +530,10 @@ export const db = {
             return (data || []).map((v: any) => ({
                 ...v,
                 partyId: v.party_id,
-                partyName: v.party_name
+                partyName: v.party_name,
+                employeeId: v.employee_id,
+                employeeName: v.employee_name,
+                bankAccountId: v.bank_account_id
             }));
         },
         add: async (voucher: Voucher): Promise<void> => {
@@ -536,7 +546,10 @@ export const db = {
                 description: voucher.description,
                 mode: voucher.mode,
                 party_id: voucher.partyId,
-                party_name: voucher.partyName
+                party_name: voucher.partyName,
+                employee_id: voucher.employeeId,
+                employee_name: voucher.employeeName,
+                bank_account_id: voucher.bankAccountId
             };
             const { error } = await supabase.from('vouchers').insert(dbVoucher);
             handleSupabaseError(error);
@@ -568,18 +581,354 @@ export const db = {
                     await db.parties.update({ ...party, balance: newBalance });
                 }
             }
+
+            // Update Employee Balance
+            if (voucher.employeeId) {
+                const employee = await db.employees.getAll().then(es => es.find(e => e.id === voucher.employeeId));
+                if (employee) {
+                    let newBalance = employee.balance;
+                    // Payment to Employee (Advance/Salary Payment) -> Increases Balance (Debit)
+                    // Receipt from Employee (Repayment) -> Decreases Balance (Credit)
+                    if (voucher.type === 'payment') newBalance += voucher.amount;
+                    if (voucher.type === 'receipt') newBalance -= voucher.amount;
+
+                    await db.employees.update({ ...employee, balance: newBalance });
+                }
+            }
+        }
+    },
+    bankAccounts: {
+        getAll: async (): Promise<BankAccount[]> => {
+            const { data, error } = await supabase.from('bank_accounts').select('*');
+            handleSupabaseError(error);
+            return (data || []).map((b: any) => ({
+                ...b,
+                accountNumber: b.account_number,
+                odLimit: b.od_limit,
+                interestRate: b.interest_rate,
+                openingBalance: b.opening_balance
+            }));
+        },
+        add: async (account: BankAccount): Promise<void> => {
+            const dbAccount = {
+                id: account.id,
+                name: account.name,
+                account_number: account.accountNumber,
+                type: account.type,
+                od_limit: account.odLimit,
+                interest_rate: account.interestRate,
+                opening_balance: account.openingBalance
+            };
+            const { error } = await supabase.from('bank_accounts').insert(dbAccount);
+            handleSupabaseError(error);
+        },
+        update: async (account: BankAccount): Promise<void> => {
+            const dbAccount = {
+                name: account.name,
+                account_number: account.accountNumber,
+                type: account.type,
+                od_limit: account.odLimit,
+                interest_rate: account.interestRate,
+                opening_balance: account.openingBalance
+            };
+            const { error } = await supabase.from('bank_accounts').update(dbAccount).eq('id', account.id);
+            handleSupabaseError(error);
         }
     },
     orders: {
         getAll: async (): Promise<Order[]> => {
-            // Not implemented in SQL schema yet, keeping local or skipping?
-            // Let's skip for now or use local storage fallback?
-            // User didn't ask for Orders migration specifically but it's part of the app.
-            // I'll return empty or implement if needed. Let's return empty to avoid errors.
-            return [];
+            const { data, error } = await supabase.from('orders').select('*');
+            handleSupabaseError(error);
+            return (data || []).map((o: any) => ({
+                ...o,
+                partyId: o.party_id,
+                partyName: o.party_name,
+                deliveryDate: o.delivery_date,
+                taxRate: o.tax_rate,
+                taxAmount: o.tax_amount,
+                linkedOrderId: o.linked_order_id,
+                parentOrderId: o.parent_order_id,
+                isDirectDelivery: o.is_direct_delivery,
+                supplierDeliveryDate: o.supplier_delivery_date,
+                customerDeliveryDate: o.customer_delivery_date,
+                deliveredToUs: o.delivered_to_us,
+                deliveredToCustomer: o.delivered_to_customer,
+                deliveries: o.deliveries || [],
+                notes: o.notes || [],
+                paidAmount: o.paid_amount,
+                paymentStatus: o.payment_status,
+                invoiceId: o.invoice_id
+            }));
         },
-        add: async (order: Order): Promise<void> => { },
-        update: async (order: Order): Promise<void> => { }
+
+        add: async (order: Order): Promise<void> => {
+            const dbOrder = {
+                id: order.id,
+                type: order.type,
+                number: order.number,
+                date: order.date,
+                delivery_date: order.deliveryDate || null,
+                party_id: order.partyId,
+                party_name: order.partyName,
+                items: order.items, // Supabase client handles JSON automatically
+                subtotal: order.subtotal,
+                tax_rate: order.taxRate,
+                tax_amount: order.taxAmount,
+                total: order.total,
+                status: order.status,
+                linked_order_id: order.linkedOrderId || null,
+                parent_order_id: order.parentOrderId || null,
+                is_direct_delivery: order.isDirectDelivery || false,
+                supplier_delivery_date: order.supplierDeliveryDate || null,
+                customer_delivery_date: order.customerDeliveryDate || null,
+                delivered_to_us: order.deliveredToUs || 0,
+                delivered_to_customer: order.deliveredToCustomer || 0,
+                deliveries: order.deliveries || [],
+                notes: order.notes || [],
+                paid_amount: order.paidAmount || 0,
+                payment_status: order.paymentStatus || 'unpaid',
+                invoice_id: order.invoiceId || null
+            };
+            console.log('Inserting order:', dbOrder); // Debug log
+            const { error } = await supabase.from('orders').insert(dbOrder);
+            handleSupabaseError(error);
+        },
+
+        update: async (order: Order): Promise<void> => {
+            const dbOrder = {
+                type: order.type,
+                number: order.number,
+                date: order.date,
+                delivery_date: order.deliveryDate || null,
+                party_id: order.partyId,
+                party_name: order.partyName,
+                items: order.items,
+                subtotal: order.subtotal,
+                tax_rate: order.taxRate,
+                tax_amount: order.taxAmount,
+                total: order.total,
+                status: order.status,
+                linked_order_id: order.linkedOrderId || null,
+                parent_order_id: order.parentOrderId || null,
+                is_direct_delivery: order.isDirectDelivery || false,
+                supplier_delivery_date: order.supplierDeliveryDate || null,
+                customer_delivery_date: order.customerDeliveryDate || null,
+                delivered_to_us: order.deliveredToUs || 0,
+                delivered_to_customer: order.deliveredToCustomer || 0,
+                deliveries: order.deliveries || [],
+                notes: order.notes || null,
+                paid_amount: order.paidAmount || 0,
+                payment_status: order.paymentStatus || 'unpaid'
+            };
+            console.log('Updating order:', dbOrder);
+            const { error } = await supabase.from('orders').update(dbOrder).eq('id', order.id);
+            handleSupabaseError(error);
+
+            // Sync logic: If Supplier Delivered, update the linked order too
+            if (order.linkedOrderId && order.status === 'supplier_delivered') {
+                const { error: syncError } = await supabase.from('orders')
+                    .update({
+                        status: 'supplier_delivered',
+                        supplier_delivery_date: order.supplierDeliveryDate || null,
+                        delivered_to_us: order.deliveredToUs || 0
+                    })
+                    .eq('id', order.linkedOrderId)
+                    // Only update if the linked order is behind in status (e.g. pending or supplier_ordered)
+                    .in('status', ['pending', 'supplier_ordered']);
+
+                if (syncError) console.error('Error syncing linked order:', syncError);
+            }
+        },
+
+        linkOrders: async (saleOrderId: string, purchaseOrderId: string): Promise<void> => {
+            // Link SO to PO and vice versa
+            await supabase.from('orders').update({ linked_order_id: purchaseOrderId }).eq('id', saleOrderId);
+            await supabase.from('orders').update({ linked_order_id: saleOrderId, parent_order_id: saleOrderId }).eq('id', purchaseOrderId);
+        },
+
+        updateStatus: async (orderId: string, newStatus: string, deliveryDate?: string): Promise<void> => {
+            const updateData: any = { status: newStatus };
+
+            if (newStatus === 'supplier_delivered' && deliveryDate) {
+                updateData.supplier_delivery_date = deliveryDate;
+            } else if (newStatus === 'customer_delivered' && deliveryDate) {
+                updateData.customer_delivery_date = deliveryDate;
+            }
+
+            const { error } = await supabase.from('orders').update(updateData).eq('id', orderId);
+            handleSupabaseError(error);
+        },
+
+        getLinkedOrder: async (orderId: string): Promise<Order | null> => {
+            const orders = await db.orders.getAll();
+            const order = orders.find(o => o.id === orderId);
+            if (!order || !order.linkedOrderId) return null;
+            return orders.find(o => o.id === order.linkedOrderId) || null;
+        },
+
+        delete: async (id: string): Promise<void> => {
+            const { error } = await supabase.from('orders').delete().eq('id', id);
+            handleSupabaseError(error);
+        },
+
+        convertToInvoice: async (orderId: string): Promise<string> => {
+            try {
+                console.log('Converting order to invoice:', orderId);
+
+                // 1. Get Order
+                const { data: orderData, error: orderError } = await supabase.from('orders').select('*').eq('id', orderId).single();
+                if (orderError) {
+                    console.error('Error fetching order:', orderError);
+                    throw orderError;
+                }
+
+                const order = orderData;
+                console.log('Order data:', order);
+
+                // 2. Create Invoice Object
+                const invoiceId = crypto.randomUUID();
+                const invoice: Invoice = {
+                    id: invoiceId,
+                    type: order.type === 'sale_order' ? 'sale' : 'purchase',
+                    number: `INV-${Date.now().toString().substr(-6)}`,
+                    supplierInvoiceNumber: order.type === 'purchase_order' ? '' : undefined,
+                    date: new Date().toISOString().split('T')[0],
+                    partyId: order.party_id,
+                    partyName: order.party_name,
+                    items: order.items.map((item: any) => ({
+                        id: crypto.randomUUID(),
+                        invoiceId: invoiceId,
+                        itemId: item.itemId || item.item_id,
+                        itemName: item.itemName || item.item_name || item.description,
+                        description: item.description,
+                        quantity: item.quantity,
+                        unit: item.unit,
+                        width: item.width,
+                        height: item.height,
+                        sqft: item.sqft,
+                        rate: item.rate,
+                        amount: item.amount,
+                        warehouse: item.warehouse || 'Warehouse A'
+                    })),
+                    subtotal: order.subtotal,
+                    taxRate: order.tax_rate,
+                    taxAmount: order.tax_amount,
+                    total: order.total,
+                    paidAmount: order.paid_amount || 0,
+                    status: (order.paid_amount || 0) >= order.total ? 'paid' : ((order.paid_amount || 0) > 0 ? 'partially_paid' : 'unpaid')
+                };
+
+                console.log('Invoice object created:', invoice);
+
+                // 3. Save Invoice (This handles stock deduction and ledger updates)
+                console.log('Calling db.invoices.add...');
+                await db.invoices.add(invoice);
+                console.log('Invoice added successfully');
+
+                // 4. Link Invoice to Order
+                console.log('Linking invoice to order...');
+                const { error: updateError } = await supabase.from('orders')
+                    .update({ invoice_id: invoiceId })
+                    .eq('id', orderId);
+
+                if (updateError) {
+                    console.error('Failed to link invoice to order:', updateError);
+                    throw updateError;
+                }
+
+                console.log('Invoice conversion completed successfully');
+                return invoiceId;
+            } catch (error) {
+                console.error('convertToInvoice failed:', error);
+                throw error;
+            }
+        },
+
+        recordPayment: async (orderId: string, payment: { amount: number, mode: 'cash' | 'bank', bankAccountId?: string, date: string, notes?: string }): Promise<void> => {
+            try {
+                console.log('Recording payment:', { orderId, payment });
+
+                // 1. Get Order
+                const { data: orderData, error: orderError } = await supabase.from('orders').select('*').eq('id', orderId).single();
+                if (orderError) {
+                    console.error('Error fetching order:', orderError);
+                    throw orderError;
+                }
+
+                const order = orderData;
+                const isPO = order.type === 'purchase_order';
+
+                console.log('Order fetched:', order);
+
+                // 2. Create Voucher
+                const voucher = {
+                    id: crypto.randomUUID(),
+                    number: `${isPO ? 'PAY' : 'RCP'}-${Date.now().toString().substr(-6)}`,
+                    date: payment.date,
+                    type: isPO ? 'payment' : 'receipt',
+                    party_id: order.party_id,
+                    party_name: order.party_name,
+                    amount: payment.amount,
+                    description: `Payment for Order #${order.number}. ${payment.notes || ''}`,
+                    mode: payment.mode,
+                    bank_account_id: payment.bankAccountId || null
+                };
+
+                console.log('Creating voucher:', voucher);
+                const { error: voucherError } = await supabase.from('vouchers').insert(voucher);
+                if (voucherError) {
+                    console.error('Error creating voucher:', voucherError);
+                    throw voucherError;
+                }
+
+                // 3. Update Order Payment Status
+                const newPaidAmount = (order.paid_amount || 0) + payment.amount;
+                const newStatus = newPaidAmount >= order.total ? 'paid' : 'partially_paid';
+
+                console.log('Updating order payment status:', { newPaidAmount, newStatus });
+                const { error: updateError } = await supabase.from('orders')
+                    .update({
+                        paid_amount: newPaidAmount,
+                        payment_status: newStatus
+                    })
+                    .eq('id', orderId);
+
+                if (updateError) {
+                    console.error('Error updating order:', updateError);
+                    throw updateError;
+                }
+
+                // 4. Update Party Balance
+                const { data: partyData, error: partyFetchError } = await supabase.from('parties').select('balance').eq('id', order.party_id).single();
+                if (partyFetchError) {
+                    console.error('Error fetching party:', partyFetchError);
+                    throw partyFetchError;
+                }
+
+                if (partyData) {
+                    let newBalance = partyData.balance;
+                    if (isPO) {
+                        // Supplier: We owe them (Negative). We pay them. Balance should increase (become less negative).
+                        newBalance += payment.amount;
+                    } else {
+                        // Customer: They owe us (Positive). They pay us. Balance should decrease.
+                        newBalance -= payment.amount;
+                    }
+
+                    console.log('Updating party balance:', { oldBalance: partyData.balance, newBalance });
+                    const { error: partyUpdateError } = await supabase.from('parties').update({ balance: newBalance }).eq('id', order.party_id);
+                    if (partyUpdateError) {
+                        console.error('Error updating party balance:', partyUpdateError);
+                        throw partyUpdateError;
+                    }
+                }
+
+                console.log('Payment recorded successfully');
+            } catch (error) {
+                console.error('recordPayment failed:', error);
+                throw error;
+            }
+        }
     },
     employees: {
         getAll: async (): Promise<Employee[]> => {
@@ -588,7 +937,8 @@ export const db = {
             return (data || []).map((e: any) => ({
                 ...e,
                 joiningDate: e.joining_date,
-                basicSalary: e.basic_salary
+                basicSalary: e.basic_salary,
+                balance: e.balance || 0
             }));
         },
         add: async (employee: Employee): Promise<void> => {
@@ -599,7 +949,8 @@ export const db = {
                 phone: employee.phone,
                 joining_date: employee.joiningDate,
                 basic_salary: employee.basicSalary,
-                status: employee.status
+                status: employee.status,
+                balance: employee.balance || 0
             };
             const { error } = await supabase.from('employees').insert(dbEmp);
             handleSupabaseError(error);
@@ -613,7 +964,8 @@ export const db = {
                 phone: employee.phone,
                 joining_date: employee.joiningDate,
                 basic_salary: employee.basicSalary,
-                status: employee.status
+                status: employee.status,
+                balance: employee.balance
             };
             const { error } = await supabase.from('employees').update(dbEmp).eq('id', employee.id);
             handleSupabaseError(error);
@@ -680,6 +1032,13 @@ export const db = {
             };
             const { error } = await supabase.from('payroll').insert(dbSlip);
             handleSupabaseError(error);
+
+            // Update Employee Balance (Salary Due = Payable = Credit = Decrease Balance)
+            const employee = await db.employees.getAll().then(es => es.find(e => e.id === slip.employeeId));
+            if (employee) {
+                const newBalance = (employee.balance || 0) - slip.netSalary;
+                await db.employees.update({ ...employee, balance: newBalance });
+            }
         },
         update: async (slip: SalarySlip): Promise<void> => {
             const dbSlip = {

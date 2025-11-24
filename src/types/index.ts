@@ -50,9 +50,23 @@ export interface Voucher {
     type: VoucherType;
     partyId?: string; // Optional for some expenses
     partyName?: string;
+    employeeId?: string;
+    employeeName?: string;
     amount: number;
     description: string;
     mode: 'cash' | 'bank';
+    bankAccountId?: string;
+}
+
+export interface BankAccount {
+    id: string;
+    name: string;
+    accountNumber: string;
+    type: 'savings' | 'current' | 'od';
+    odLimit: number;
+    interestRate: number; // Percentage
+    openingBalance: number;
+    currentBalance?: number; // Calculated
 }
 
 export interface InvoiceItem {
@@ -92,13 +106,26 @@ export interface Invoice {
 }
 
 export type OrderType = 'sale_order' | 'purchase_order';
+export type OrderStatus = 'pending' | 'supplier_ordered' | 'supplier_delivered' | 'customer_delivered' | 'completed' | 'cancelled';
+
+export interface OrderDelivery {
+    id: string;
+    date: string;
+    type: 'supplier' | 'customer';
+    items: {
+        itemId: string;
+        quantity: number;
+        sqft: number;
+    }[];
+    notes?: string;
+}
 
 export interface Order {
     id: string;
     type: OrderType;
     number: string; // e.g., SO-001 or PO-001
     date: string;
-    deliveryDate?: string;
+    deliveryDate?: string; // Expected delivery date
     partyId: string;
     partyName: string;
     items: InvoiceItem[];
@@ -106,7 +133,31 @@ export interface Order {
     taxRate: number;
     taxAmount: number;
     total: number;
-    status: 'pending' | 'completed' | 'cancelled';
+
+    // Status and flow tracking
+    status: OrderStatus;
+
+    // Linking fields
+    linkedOrderId?: string; // For SO: links to PO, For PO: links to SO
+    parentOrderId?: string; // Customer order ID (for reference)
+    invoiceId?: string; // ID of the generated invoice
+
+    // Delivery tracking
+    isDirectDelivery?: boolean; // True if skipping supplier delivery
+    deliveries?: OrderDelivery[]; // Track partial deliveries
+    supplierDeliveryDate?: string; // When supplier delivered
+    customerDeliveryDate?: string; // When delivered to customer
+
+    // Quantities tracking for partial deliveries
+    deliveredToUs?: number; // Total sqft delivered by supplier
+    deliveredToCustomer?: number; // Total sqft delivered to customer
+
+    // Notes
+    notes?: string;
+
+    // Payment tracking
+    paidAmount?: number;
+    paymentStatus?: 'unpaid' | 'partially_paid' | 'paid';
 }
 
 export interface Employee {
@@ -117,6 +168,7 @@ export interface Employee {
     joiningDate: string;
     basicSalary: number;
     status: 'active' | 'inactive';
+    balance: number; // Positive = Advance Given, Negative = Salary Due
 }
 
 export interface Attendance {

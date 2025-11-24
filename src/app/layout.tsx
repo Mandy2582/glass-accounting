@@ -1,15 +1,14 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Inter, Cinzel } from "next/font/google";
 import "./globals.css";
-import Sidebar from "@/components/Sidebar";
-import Header from "@/components/Header";
-import styles from "@/components/Layout.module.css";
+import ClientLayout from "@/components/ClientLayout";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+const cinzel = Cinzel({ subsets: ["latin"], variable: "--font-cinzel" });
 
 export const metadata: Metadata = {
-  title: "Glass Wholesale Accounting",
-  description: "Accounting software for glass business",
+  title: "Arjun Glass House",
+  description: "Premium Glass Wholesale Management",
 };
 
 export default function RootLayout({
@@ -19,16 +18,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={inter.className}>
-        <div className={styles.layout}>
-          <Sidebar />
-          <div className={styles.mainContent}>
-            <Header />
-            <main className={styles.pageContent}>
-              {children}
-            </main>
-          </div>
-        </div>
+      <body className={`${inter.className} ${cinzel.variable}`}>
+        <ClientLayout>
+          {children}
+        </ClientLayout>
       </body>
     </html>
   );

@@ -254,17 +254,17 @@ export default function PurchaseForm({ onSave, onCancel }: PurchaseFormProps) {
                     <table className="table">
                         <thead>
                             <tr>
-                                <th style={{ width: '20%' }}>Item</th>
-                                <th style={{ width: '10%' }}>Make</th>
-                                <th style={{ width: '10%' }}>Type/Model</th>
-                                <th style={{ width: '10%' }}>Warehouse</th>
-                                <th style={{ width: '9%' }}>W (in)</th>
-                                <th style={{ width: '9%' }}>H (in)</th>
-                                <th style={{ width: '7%' }}>Qty</th>
+                                <th style={{ width: '18%' }}>Item</th>
+                                <th style={{ width: '9%' }}>Make</th>
+                                <th style={{ width: '9%' }}>Type/Model</th>
+                                <th style={{ width: '9%' }}>Warehouse</th>
+                                <th style={{ width: '8%' }}>W (in)</th>
+                                <th style={{ width: '8%' }}>H (in)</th>
+                                <th style={{ width: '10%' }}>Qty</th>
                                 <th style={{ width: '6%' }}>Unit</th>
                                 <th style={{ width: '8%' }}>Sq.ft</th>
-                                <th style={{ width: '11%' }}>Rate</th>
-                                <th style={{ width: '10%' }}>Amount</th>
+                                <th style={{ width: '12%' }}>Rate</th>
+                                <th style={{ width: '12%' }}>Amount</th>
                                 <th style={{ width: '5%' }}></th>
                             </tr>
                         </thead>

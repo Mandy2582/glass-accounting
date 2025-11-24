@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Invoice, Voucher } from '@/types';
+import { useState, useEffect } from 'react';
+import { Invoice, Voucher, BankAccount } from '@/types';
 import { db } from '@/lib/storage';
 import { X } from 'lucide-react';
 
@@ -15,62 +15,66 @@ export default function PaymentModal({ invoice, onClose, onSave }: PaymentModalP
     const [amount, setAmount] = useState<number>(invoice.total - (invoice.paidAmount || 0));
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
     const [mode, setMode] = useState<'cash' | 'bank'>('cash');
+    const [bankAccountId, setBankAccountId] = useState<string>('');
+    const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
     const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        loadBankAccounts();
+    }, []);
+
+    const loadBankAccounts = async () => {
+        const accounts = await db.bankAccounts.getAll();
+        setBankAccounts(accounts);
+        if (accounts.length > 0) {
+            setBankAccountId(accounts[0].id);
+        }
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        // Validate bank account selection for bank transfers
+        if (mode === 'bank' && !bankAccountId) {
+            alert('Please select a bank account for bank transfer');
+            return;
+        }
+
         setLoading(true);
 
-        // 1. Create Voucher (Receipt)
-        const voucher: Voucher = {
-            id: Math.random().toString(36).substr(2, 9),
-            number: `RCP-${Date.now().toString().substr(-6)}`,
-            date,
-            type: 'receipt',
-            partyId: invoice.partyId,
-            partyName: invoice.partyName,
-            amount,
-            description: `Payment for Invoice ${invoice.number}`,
-            mode
-        };
-        await db.vouchers.add(voucher);
+        try {
+            // 1. Create Voucher (Receipt)
+            const voucher: Voucher = {
+                id: crypto.randomUUID(),
+                number: `RCP-${Date.now().toString().substr(-6)}`,
+                date,
+                type: 'receipt',
+                partyId: invoice.partyId,
+                partyName: invoice.partyName,
+                amount,
+                description: `Payment for Invoice ${invoice.number}`,
+                mode,
+                ...(mode === 'bank' && { bankAccountId })
+            };
+            await db.vouchers.add(voucher);
 
-        // 2. Update Invoice Status
-        const newPaidAmount = (invoice.paidAmount || 0) + amount;
-        let newStatus: Invoice['status'] = 'partially_paid';
-        if (newPaidAmount >= invoice.total) {
-            newStatus = 'paid';
+            // 2. Update Invoice Payment Status
+            const newPaidAmount = (invoice.paidAmount || 0) + amount;
+            let newStatus: Invoice['status'] = 'partially_paid';
+            if (newPaidAmount >= invoice.total) {
+                newStatus = 'paid';
+            }
+
+            // Update invoice status and paid amount in Supabase
+            await db.invoices.updatePaymentStatus(invoice.id, newPaidAmount, newStatus);
+
+            setLoading(false);
+            onSave();
+        } catch (error) {
+            console.error('Payment error:', error);
+            alert('Failed to record payment. Please try again.');
+            setLoading(false);
         }
-
-        // We update the invoice directly without triggering the full "update" logic 
-        // because that would revert stock/balance which we don't want here.
-        // We ONLY want to update the status and paidAmount.
-        // However, our db.invoices.update implementation DOES revert.
-        // So we need to be careful.
-        // Actually, for status update, we should probably have a specific method or 
-        // just update the local storage directly for this specific field to avoid side effects.
-        // OR, we can use the update method but we need to make sure the 'balance' update in voucher 
-        // doesn't conflict with the balance reversion in invoice update.
-
-        // WAIT: db.invoices.update REVERTS the invoice effect on balance.
-        // But here we are just paying it. The invoice effect (Debit) remains valid.
-        // We are just adding a Credit (Receipt).
-        // So we should NOT call db.invoices.update because that would revert the original sale debit.
-
-        // CORRECT APPROACH: We need a way to update just the invoice metadata without side effects.
-        // Let's implement a lightweight update here or add a method to storage.
-        // For now, I will read, modify, and write back to localStorage directly here to avoid the heavy update logic.
-
-        const invoices = await db.invoices.getAll();
-        const index = invoices.findIndex(i => i.id === invoice.id);
-        if (index !== -1) {
-            invoices[index].paidAmount = newPaidAmount;
-            invoices[index].status = newStatus;
-            localStorage.setItem('glass_invoices', JSON.stringify(invoices));
-        }
-
-        setLoading(false);
-        onSave();
     };
 
     return (
@@ -126,6 +130,25 @@ export default function PaymentModal({ invoice, onClose, onSave }: PaymentModalP
                             <option value="bank">Bank Transfer</option>
                         </select>
                     </div>
+
+                    {mode === 'bank' && (
+                        <div style={{ marginBottom: '1.5rem' }}>
+                            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Bank Account</label>
+                            <select
+                                className="input"
+                                value={bankAccountId}
+                                onChange={e => setBankAccountId(e.target.value)}
+                                required
+                            >
+                                <option value="">Select Bank Account</option>
+                                {bankAccounts.map(account => (
+                                    <option key={account.id} value={account.id}>
+                                        {account.name} - {account.accountNumber}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
 
                     <button type="submit" disabled={loading} className="btn btn-primary" style={{ width: '100%' }}>
                         {loading ? 'Saving...' : 'Save Payment'}

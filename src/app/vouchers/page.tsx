@@ -24,7 +24,7 @@ export default function VouchersPage() {
     const handleSaveVoucher = async (voucherData: Omit<Voucher, 'id'>) => {
         const newVoucher: Voucher = {
             ...voucherData,
-            id: Math.random().toString(36).substr(2, 9),
+            id: crypto.randomUUID(),
         };
         await db.vouchers.add(newVoucher);
         await loadVouchers();

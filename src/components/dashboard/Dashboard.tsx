@@ -1,11 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
 import { db } from '@/lib/storage';
 import { Invoice } from '@/types';
 import { TrendingUp, Users, AlertCircle, DollarSign, RefreshCw, ArrowUpRight, ArrowDownRight, Package } from 'lucide-react';
 
 export default function Dashboard() {
+    const router = useRouter();
     const [stats, setStats] = useState({
         totalSales: 0,
         totalPurchases: 0,
@@ -19,6 +22,16 @@ export default function Dashboard() {
     const [currentDate, setCurrentDate] = useState('');
 
     useEffect(() => {
+        // Check auth on mount
+        const checkAuth = async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) {
+                router.push('/login');
+                return;
+            }
+        };
+
+        checkAuth();
         setCurrentDate(new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }));
         loadStats();
 
