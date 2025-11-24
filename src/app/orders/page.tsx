@@ -7,7 +7,7 @@ import { Order, Party } from '@/types';
 import Link from 'next/link';
 
 type ViewMode = 'tabs' | 'grouped';
-type TabType = 'sale_orders' | 'purchase_orders' | 'all';
+type TabType = 'sale_order' | 'purchase_order' | 'all';
 
 export default function OrdersPage() {
     const [orders, setOrders] = useState<Order[]>([]);

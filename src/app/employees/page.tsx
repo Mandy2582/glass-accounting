@@ -36,7 +36,8 @@ export default function EmployeesPage() {
                 phone: formData.phone!,
                 joiningDate: new Date().toISOString().split('T')[0],
                 basicSalary: Number(formData.basicSalary),
-                status: 'active'
+                status: 'active',
+                balance: 0 // Initialize with zero balance
             };
             await db.employees.add(newEmployee);
             await loadEmployees();
