@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Plus, Package, Truck, CheckCircle, XCircle, ArrowRight } from 'lucide-react';
+import { Plus, Package, Truck, CheckCircle, XCircle, ArrowRight, Search } from 'lucide-react';
 import { db } from '@/lib/storage';
 import { Order, Party } from '@/types';
 import Link from 'next/link';
@@ -16,6 +16,7 @@ export default function OrdersPage() {
     const [viewMode, setViewMode] = useState<ViewMode>('tabs');
     const [activeTab, setActiveTab] = useState<TabType>('all');
     const [filterStatus, setFilterStatus] = useState<string>('all');
+    const [search, setSearch] = useState('');
 
     useEffect(() => {
         loadData();
@@ -27,7 +28,11 @@ export default function OrdersPage() {
             db.orders.getAll(),
             db.parties.getAll()
         ]);
-        setOrders(ordersData.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+        setOrders(ordersData.sort((a, b) => {
+            const timeA = new Date((a as any).created_at || a.date).getTime();
+            const timeB = new Date((b as any).created_at || b.date).getTime();
+            return timeB - timeA;
+        }));
         setParties(partiesData);
         setLoading(false);
     };
@@ -60,30 +65,62 @@ export default function OrdersPage() {
         return progress[status] || 0;
     };
 
-    const filteredOrders = orders.filter(order => {
-        const matchesTab = activeTab === 'all' || order.type === activeTab;
-        const matchesStatus = filterStatus === 'all' || order.status === filterStatus;
-        return matchesTab && matchesStatus;
-    });
+    const generalOrdersList = (() => {
+        // Find all Sales Orders (SO is always the entry point for custom orders)
+        const saleOrders = orders.filter(o => o.type === 'sale_order');
+        
+        // Map each Sales Order to a combined object
+        const list = saleOrders.map(so => {
+            const po = so.linkedOrderId ? orders.find(o => o.id === so.linkedOrderId) : null;
+            return {
+                id: so.id,
+                generalNumber: so.generalNumber || so.number.replace('SO-', ''), // fallback if legacy
+                soNumber: so.soNumber || so.number,
+                poNumber: po ? (po.poNumber || po.number) : '',
+                customerName: so.partyName,
+                supplierName: po ? po.partyName : '',
+                date: so.date,
+                total: so.total,
+                status: so.status,
+                saleOrder: so,
+                purchaseOrder: po
+            };
+        });
 
-    // Group orders by parent/linked relationship
-    const groupedOrders = orders.reduce((acc, order) => {
-        if (order.type === 'sale_order') {
-            const key = order.id;
-            if (!acc[key]) {
-                acc[key] = { saleOrder: order, purchaseOrder: null };
-            } else {
-                acc[key].saleOrder = order;
-            }
+        // Add any standalone Purchase Orders that are not linked to any Sales Order (for backward compatibility)
+        const standalonePOs = orders.filter(o => o.type === 'purchase_order' && !orders.some(so => so.linkedOrderId === o.id));
+        standalonePOs.forEach(po => {
+            list.push({
+                id: po.id,
+                generalNumber: po.generalNumber || po.number.replace('PO-', ''),
+                soNumber: '',
+                poNumber: po.poNumber || po.number,
+                customerName: '',
+                supplierName: po.partyName,
+                date: po.date,
+                total: po.total,
+                status: po.status,
+                saleOrder: null as any,
+                purchaseOrder: po
+            });
+        });
 
-            // Find linked PO
-            if (order.linkedOrderId) {
-                const po = orders.find(o => o.id === order.linkedOrderId);
-                if (po) acc[key].purchaseOrder = po;
-            }
-        }
-        return acc;
-    }, {} as Record<string, { saleOrder: Order; purchaseOrder: Order | null }>);
+        // Apply filters & search
+        return list.filter(item => {
+            const matchesStatus = filterStatus === 'all' || item.status === filterStatus;
+            const matchesSearch = search === '' || 
+                (item.generalNumber || '').toLowerCase().includes(search.toLowerCase()) || 
+                (item.soNumber || '').toLowerCase().includes(search.toLowerCase()) || 
+                (item.poNumber || '').toLowerCase().includes(search.toLowerCase()) || 
+                (item.customerName || '').toLowerCase().includes(search.toLowerCase()) || 
+                (item.supplierName || '').toLowerCase().includes(search.toLowerCase());
+            return matchesStatus && matchesSearch;
+        }).sort((a, b) => {
+            const timeA = new Date((a.saleOrder as any)?.created_at || (a.purchaseOrder as any)?.created_at || a.date).getTime();
+            const timeB = new Date((b.saleOrder as any)?.created_at || (b.purchaseOrder as any)?.created_at || b.date).getTime();
+            return timeB - timeA;
+        });
+    })();
 
     const renderStatusDots = (status: string) => {
         const progress = getStatusProgress(status);
@@ -104,140 +141,6 @@ export default function OrdersPage() {
         );
     };
 
-    const renderTabsView = () => (
-        <div className="card">
-            <table className="table">
-                <thead>
-                    <tr>
-                        <th>Order #</th>
-                        <th>Date</th>
-                        <th>Party</th>
-                        <th>Items</th>
-                        <th>Total</th>
-                        <th>Status</th>
-                        <th>Progress</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {filteredOrders.map(order => (
-                        <tr key={order.id}>
-                            <td style={{ fontWeight: 600 }}>{order.number}</td>
-                            <td>{new Date(order.date).toLocaleDateString()}</td>
-                            <td>{order.partyName}</td>
-                            <td>{order.items?.length || 0} items</td>
-                            <td style={{ fontWeight: 600 }}>₹{order.total.toLocaleString()}</td>
-                            <td>
-                                <span style={{
-                                    padding: '0.25rem 0.5rem',
-                                    borderRadius: '999px',
-                                    fontSize: '0.75rem',
-                                    fontWeight: 600,
-                                    background: `${getStatusColor(order.status)}20`,
-                                    color: getStatusColor(order.status)
-                                }}>
-                                    {getStatusLabel(order.status)}
-                                </span>
-                            </td>
-                            <td>{renderStatusDots(order.status)}</td>
-                            <td>
-                                <Link href={`/orders/${order.id}`} className="btn" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}>
-                                    View
-                                </Link>
-                            </td>
-                        </tr>
-                    ))}
-                    {filteredOrders.length === 0 && (
-                        <tr>
-                            <td colSpan={8} style={{ textAlign: 'center', padding: '3rem', color: 'var(--color-text-muted)' }}>
-                                No orders found
-                            </td>
-                        </tr>
-                    )}
-                </tbody>
-            </table>
-        </div>
-    );
-
-    const renderGroupedView = () => (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {Object.values(groupedOrders).map(({ saleOrder, purchaseOrder }) => (
-                <div key={saleOrder.id} className="card" style={{ padding: '1.5rem' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: purchaseOrder ? '1fr auto 1fr' : '1fr', gap: '2rem', alignItems: 'center' }}>
-                        {/* Sale Order */}
-                        <div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: '0.5rem' }}>Customer Order</div>
-                            <div style={{ fontWeight: 700, fontSize: '1.1rem', marginBottom: '0.5rem' }}>{saleOrder.number}</div>
-                            <div style={{ marginBottom: '0.5rem' }}>{saleOrder.partyName}</div>
-                            <div style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
-                                {saleOrder.items?.length || 0} items • ₹{saleOrder.total.toLocaleString()}
-                            </div>
-                            <div style={{ marginTop: '0.75rem' }}>
-                                <span style={{
-                                    padding: '0.25rem 0.5rem',
-                                    borderRadius: '999px',
-                                    fontSize: '0.75rem',
-                                    fontWeight: 600,
-                                    background: `${getStatusColor(saleOrder.status)}20`,
-                                    color: getStatusColor(saleOrder.status)
-                                }}>
-                                    {getStatusLabel(saleOrder.status)}
-                                </span>
-                            </div>
-                            <Link href={`/orders/${saleOrder.id}`} className="btn" style={{ marginTop: '1rem', fontSize: '0.875rem' }}>
-                                View Details
-                            </Link>
-                        </div>
-
-                        {/* Arrow */}
-                        {purchaseOrder && (
-                            <div style={{ display: 'flex', justifyContent: 'center' }}>
-                                <ArrowRight size={32} color="var(--color-text-muted)" />
-                            </div>
-                        )}
-
-                        {/* Purchase Order */}
-                        {purchaseOrder && (
-                            <div>
-                                <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: '0.5rem' }}>Supplier Order</div>
-                                <div style={{ fontWeight: 700, fontSize: '1.1rem', marginBottom: '0.5rem' }}>{purchaseOrder.number}</div>
-                                <div style={{ marginBottom: '0.5rem' }}>{purchaseOrder.partyName}</div>
-                                <div style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
-                                    {purchaseOrder.items?.length || 0} items • ₹{purchaseOrder.total.toLocaleString()}
-                                </div>
-                                <div style={{ marginTop: '0.75rem' }}>
-                                    <span style={{
-                                        padding: '0.25rem 0.5rem',
-                                        borderRadius: '999px',
-                                        fontSize: '0.75rem',
-                                        fontWeight: 600,
-                                        background: `${getStatusColor(purchaseOrder.status)}20`,
-                                        color: getStatusColor(purchaseOrder.status)
-                                    }}>
-                                        {getStatusLabel(purchaseOrder.status)}
-                                    </span>
-                                </div>
-                                <Link href={`/orders/${purchaseOrder.id}`} className="btn" style={{ marginTop: '1rem', fontSize: '0.875rem' }}>
-                                    View Details
-                                </Link>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Progress indicator */}
-                    <div style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--color-border)' }}>
-                        {renderStatusDots(saleOrder.status)}
-                    </div>
-                </div>
-            ))}
-            {Object.keys(groupedOrders).length === 0 && (
-                <div className="card" style={{ padding: '3rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-                    No orders found
-                </div>
-            )}
-        </div>
-    );
-
     return (
         <div className="container">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
@@ -248,48 +151,19 @@ export default function OrdersPage() {
                 </Link>
             </div>
 
-            {/* View Mode Toggle */}
+            {/* Filters */}
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <button
-                        className={`btn ${viewMode === 'tabs' ? 'btn-primary' : 'btn-secondary'}`}
-                        onClick={() => setViewMode('tabs')}
-                    >
-                        Separate View
-                    </button>
-                    <button
-                        className={`btn ${viewMode === 'grouped' ? 'btn-primary' : 'btn-secondary'}`}
-                        onClick={() => setViewMode('grouped')}
-                    >
-                        Grouped View
-                    </button>
+                <div style={{ position: 'relative', width: '250px' }}>
+                    <Search size={18} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
+                    <input
+                        type="text"
+                        placeholder="Search orders..."
+                        className="input"
+                        style={{ paddingLeft: '2.5rem' }}
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                    />
                 </div>
-
-                {viewMode === 'tabs' && (
-                    <>
-                        <div style={{ width: '1px', height: '24px', background: 'var(--color-border)' }} />
-                        <div style={{ display: 'flex', gap: '0.5rem' }}>
-                            <button
-                                className={`btn ${activeTab === 'all' ? 'btn-primary' : 'btn-secondary'}`}
-                                onClick={() => setActiveTab('all')}
-                            >
-                                All Orders
-                            </button>
-                            <button
-                                className={`btn ${activeTab === 'sale_order' ? 'btn-primary' : 'btn-secondary'}`}
-                                onClick={() => setActiveTab('sale_order')}
-                            >
-                                Sale Orders
-                            </button>
-                            <button
-                                className={`btn ${activeTab === 'purchase_order' ? 'btn-primary' : 'btn-secondary'}`}
-                                onClick={() => setActiveTab('purchase_order')}
-                            >
-                                Purchase Orders
-                            </button>
-                        </div>
-                    </>
-                )}
 
                 <div style={{ width: '1px', height: '24px', background: 'var(--color-border)' }} />
 
@@ -314,7 +188,64 @@ export default function OrdersPage() {
                 <div style={{ textAlign: 'center', padding: '4rem', color: 'var(--color-text-muted)' }}>
                     Loading orders...
                 </div>
-            ) : viewMode === 'tabs' ? renderTabsView() : renderGroupedView()}
+            ) : (
+                <div className="card">
+                    <table className="table">
+                        <thead>
+                            <tr>
+                                <th>General Order #</th>
+                                <th>SO #</th>
+                                <th>PO #</th>
+                                <th>Customer</th>
+                                <th>Supplier</th>
+                                <th>Date</th>
+                                <th>Total</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {generalOrdersList.map(item => (
+                                <tr key={item.id}>
+                                    <td style={{ fontWeight: 700 }}>{item.generalNumber}</td>
+                                    <td style={{ fontWeight: 600, color: 'var(--color-primary)' }}>{item.soNumber || '-'}</td>
+                                    <td style={{ fontWeight: 600, color: '#e0465e' }}>{item.poNumber || '-'}</td>
+                                    <td>{item.customerName || '-'}</td>
+                                    <td>{item.supplierName || '-'}</td>
+                                    <td>{new Date(item.date).toLocaleDateString()}</td>
+                                    <td style={{ fontWeight: 600 }}>{item.total ? `₹${item.total.toLocaleString()}` : '-'}</td>
+                                    <td>
+                                        {item.status ? (
+                                            <span style={{
+                                                padding: '0.25rem 0.5rem',
+                                                borderRadius: '999px',
+                                                fontSize: '0.75rem',
+                                                fontWeight: 600,
+                                                background: `${getStatusColor(item.status)}20`,
+                                                color: getStatusColor(item.status)
+                                            }}>
+                                                {getStatusLabel(item.status)}
+                                            </span>
+                                        ) : '-'}
+                                    </td>
+                                    <td>
+                                        <Link href={`/orders/${item.id}`} className="btn" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}>
+                                            View
+                                        </Link>
+                                    </td>
+                                </tr>
+                            ))}
+                            {generalOrdersList.length === 0 && (
+                                <tr>
+                                    <td colSpan={9} style={{ textAlign: 'center', padding: '3rem', color: 'var(--color-text-muted)' }}>
+                                        No orders found
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            )}
         </div>
     );
 }

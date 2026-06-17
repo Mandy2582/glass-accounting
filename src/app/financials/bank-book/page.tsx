@@ -2,14 +2,17 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Printer, AlertCircle, TrendingDown, Plus } from 'lucide-react';
+import { ArrowLeft, Printer, TrendingDown, Plus } from 'lucide-react';
 import { db } from '@/lib/storage';
 import { BankAccount, Voucher } from '@/types';
+import { generateUUID } from '@/lib/utils';
 
 export default function BankBookPage() {
+    type BankBookTransaction = Voucher & { debit: number; credit: number; balance: number };
+
     const [accounts, setAccounts] = useState<BankAccount[]>([]);
     const [selectedAccount, setSelectedAccount] = useState<string>('');
-    const [transactions, setTransactions] = useState<any[]>([]);
+    const [transactions, setTransactions] = useState<BankBookTransaction[]>([]);
     const [loading, setLoading] = useState(true);
     const [stats, setStats] = useState({
         currentBalance: 0,
@@ -39,7 +42,7 @@ export default function BankBookPage() {
     const handleAddAccount = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            await db.bankAccounts.add(newAccount as BankAccount);
+            await db.bankAccounts.add({ ...newAccount, id: generateUUID() } as BankAccount);
             setShowAddModal(false);
             setNewAccount({
                 name: '',
@@ -124,7 +127,7 @@ export default function BankBookPage() {
                 const startDate = new Date(bankVouchers[0].date);
                 const endDate = new Date();
 
-                let currentDate = new Date(startDate);
+                const currentDate = new Date(startDate);
                 let dailyBalance = account.openingBalance || 0;
                 let txIndex = 0;
 
@@ -154,7 +157,7 @@ export default function BankBookPage() {
             setStats({
                 currentBalance: balance,
                 interestDue: totalInterest,
-                availableLimit: (account.odLimit || 0) + balance // If balance is -10L, Limit 50L. Available = 40L.
+                availableLimit: Math.max(0, (account.odLimit || 0) + Math.min(balance, 0))
             });
 
             setTransactions(processed.reverse());
@@ -316,13 +319,13 @@ export default function BankBookPage() {
                                     onChange={e => setNewAccount({ ...newAccount, accountNumber: e.target.value })}
                                 />
                             </div>
-                            <div style={{ display: 'flex', gap: '1rem' }}>
+                            <div className="responsive-row">
                                 <div style={{ flex: 1 }}>
                                     <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Type</label>
                                     <select
                                         className="input"
                                         value={newAccount.type}
-                                        onChange={e => setNewAccount({ ...newAccount, type: e.target.value as any })}
+                                        onChange={e => setNewAccount({ ...newAccount, type: e.target.value as BankAccount['type'] })}
                                     >
                                         <option value="current">Current</option>
                                         <option value="savings">Savings</option>
@@ -333,18 +336,22 @@ export default function BankBookPage() {
                                     <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>OD Limit (₹)</label>
                                     <input
                                         type="number"
-                                        className="input"
+                                        className="input money-input"
+                                        min="0"
+                                        step="0.01"
                                         value={newAccount.odLimit}
                                         onChange={e => setNewAccount({ ...newAccount, odLimit: Number(e.target.value) })}
                                     />
                                 </div>
                             </div>
-                            <div style={{ display: 'flex', gap: '1rem' }}>
+                            <div className="responsive-row">
                                 <div style={{ flex: 1 }}>
                                     <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Interest Rate (%)</label>
                                     <input
                                         type="number"
                                         className="input"
+                                        min="0"
+                                        step="0.01"
                                         placeholder="e.g. 10"
                                         value={newAccount.interestRate}
                                         onChange={e => setNewAccount({ ...newAccount, interestRate: Number(e.target.value) })}
@@ -354,13 +361,14 @@ export default function BankBookPage() {
                                     <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Opening Balance</label>
                                     <input
                                         type="number"
-                                        className="input"
+                                        className="input money-input"
+                                        step="0.01"
                                         value={newAccount.openingBalance}
                                         onChange={e => setNewAccount({ ...newAccount, openingBalance: Number(e.target.value) })}
                                     />
                                 </div>
                             </div>
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1rem' }}>
+                            <div className="form-actions" style={{ marginTop: '1rem' }}>
                                 <button type="button" onClick={() => setShowAddModal(false)} className="btn" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>Cancel</button>
                                 <button type="submit" className="btn btn-primary">Save Account</button>
                             </div>

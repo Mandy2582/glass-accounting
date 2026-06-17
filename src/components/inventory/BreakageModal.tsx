@@ -14,6 +14,7 @@ interface BreakageModalProps {
 export default function BreakageModal({ isOpen, onClose, onSave }: BreakageModalProps) {
     const [items, setItems] = useState<GlassItem[]>([]);
     const [selectedItemId, setSelectedItemId] = useState('');
+    const [warehouse, setWarehouse] = useState('Warehouse A');
     const [quantity, setQuantity] = useState(0);
     const [reason, setReason] = useState('');
     const [loading, setLoading] = useState(false);
@@ -34,8 +35,20 @@ export default function BreakageModal({ isOpen, onClose, onSave }: BreakageModal
         try {
             const item = items.find(i => i.id === selectedItemId);
             if (item) {
-                // Update stock
-                const updatedItem = { ...item, stock: item.stock - quantity };
+                const warehouseStock = item.warehouseStock?.[warehouse] || 0;
+                if (quantity > warehouseStock) {
+                    alert(`Only ${warehouseStock} ${item.unit} is available in ${warehouse}.`);
+                    return;
+                }
+                const updatedWarehouseStock = {
+                    ...item.warehouseStock,
+                    [warehouse]: warehouseStock - quantity
+                };
+                const updatedItem = {
+                    ...item,
+                    warehouseStock: updatedWarehouseStock,
+                    stock: Object.values(updatedWarehouseStock).reduce((sum, value) => sum + Number(value), 0)
+                };
                 await db.items.update(updatedItem);
 
                 // Ideally log this in a "Stock Journal" or "Expense" voucher
@@ -77,18 +90,27 @@ export default function BreakageModal({ isOpen, onClose, onSave }: BreakageModal
                 </div>
 
                 <div>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Warehouse</label>
+                    <select className="input" value={warehouse} onChange={e => setWarehouse(e.target.value)}>
+                        <option value="Warehouse A">Warehouse A</option>
+                        <option value="Warehouse B">Warehouse B</option>
+                    </select>
+                </div>
+
+                <div>
                     <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Quantity Broken</label>
                     <input
                         type="number"
                         required
-                        min="1"
+                        min="0.01"
+                        step="0.01"
                         className="input"
                         value={quantity}
                         onChange={e => setQuantity(Number(e.target.value))}
                     />
                     {selectedItem && (
                         <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
-                            Unit: {selectedItem.unit}
+                            Available in {warehouse}: {selectedItem.warehouseStock?.[warehouse] || 0} {selectedItem.unit}
                         </p>
                     )}
                 </div>

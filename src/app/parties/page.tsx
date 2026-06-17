@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Plus, Search, User, Phone, MapPin } from 'lucide-react';
+import Link from 'next/link';
 import { db } from '@/lib/storage';
 import { Party } from '@/types';
 import PartyModal from '@/components/parties/PartyModal';
@@ -20,7 +21,11 @@ export default function PartiesPage() {
 
     const loadParties = async () => {
         const data = await db.parties.getAll();
-        setParties(data);
+        setParties(data.sort((a, b) => {
+            const timeA = new Date((a as any).created_at || 0).getTime();
+            const timeB = new Date((b as any).created_at || 0).getTime();
+            return timeB - timeA || a.name.localeCompare(b.name);
+        }));
         setLoading(false);
     };
 
@@ -50,17 +55,22 @@ export default function PartiesPage() {
     };
 
     const filteredParties = parties.filter(p =>
-        p.name.toLowerCase().includes(search.toLowerCase()) ||
-        p.phone.includes(search)
+        (p.name || '').toLowerCase().includes(search.toLowerCase()) ||
+        (p.phone || '').includes(search)
     );
 
     return (
         <div className="container">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                <h1 style={{ fontSize: '1.5rem', fontWeight: 700 }}>Party Management</h1>
+                <div>
+                    <h1 style={{ fontSize: '1.5rem', fontWeight: 700 }}>Customers & Suppliers</h1>
+                    <p style={{ marginTop: '0.25rem', color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>
+                        Maintain customer and supplier profiles, balances, contact details, and statements.
+                    </p>
+                </div>
                 <button className="btn btn-primary" onClick={() => setIsModalOpen(true)}>
                     <Plus size={18} style={{ marginRight: '0.5rem' }} />
-                    Add New Party
+                    Add Customer / Supplier
                 </button>
             </div>
 
@@ -69,7 +79,7 @@ export default function PartiesPage() {
                     <Search size={18} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
                     <input
                         type="text"
-                        placeholder="Search parties..."
+                        placeholder="Search customers or suppliers..."
                         className="input"
                         style={{ paddingLeft: '2.5rem' }}
                         value={search}
@@ -117,36 +127,45 @@ export default function PartiesPage() {
 
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--color-border)', paddingTop: '0.75rem' }}>
                                     <div style={{ fontSize: '0.875rem' }}>
-                                        <span style={{ color: 'var(--color-text-muted)' }}>Balance: </span>
+                                    <span style={{ color: 'var(--color-text-muted)' }}>Ledger Balance: </span>
                                         <span style={{ fontWeight: 600, color: party.balance > 0 ? '#166534' : '#ef4444' }}>
                                             ₹{Math.abs(party.balance)} {party.balance > 0 ? 'Dr' : 'Cr'}
                                         </span>
                                     </div>
-                                    <button
-                                        className="btn"
-                                        style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
-                                        onClick={() => handleEdit(party)}
-                                    >
-                                        Edit
-                                    </button>
-                                    <button
-                                        className="btn"
-                                        style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', background: '#fee2e2', color: '#ef4444', border: 'none', marginLeft: '0.5rem' }}
-                                        onClick={async () => {
-                                            if (confirm('Are you sure you want to delete this party?')) {
-                                                try {
-                                                    await db.parties.delete(party.id);
-                                                    await loadParties();
-                                                    alert('Party deleted successfully.');
-                                                } catch (e) {
-                                                    console.error(e);
-                                                    alert('Failed to delete party. They might have linked invoices.');
+                                    <div style={{ display: 'flex', gap: '0.25rem' }}>
+                                        <Link
+                                            href={`/parties/${party.id}`}
+                                            className="btn btn-primary"
+                                            style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+                                        >
+                                            Statement
+                                        </Link>
+                                        <button
+                                            className="btn"
+                                            style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+                                            onClick={() => handleEdit(party)}
+                                        >
+                                            Edit
+                                        </button>
+                                        <button
+                                            className="btn"
+                                            style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', background: '#fee2e2', color: '#ef4444', border: 'none' }}
+                                            onClick={async () => {
+                                                if (confirm('Are you sure you want to delete this party?')) {
+                                                    try {
+                                                        await db.parties.delete(party.id);
+                                                        await loadParties();
+                                                        alert('Party deleted successfully.');
+                                                    } catch (e) {
+                                                        console.error(e);
+                                                        alert('Failed to delete party. They might have linked invoices.');
+                                                    }
                                                 }
-                                            }
-                                        }}
-                                    >
-                                        Delete
-                                    </button>
+                                            }}
+                                        >
+                                            Delete
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         ))}

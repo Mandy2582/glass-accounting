@@ -1,9 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Voucher, Party, Employee, VoucherType, BankAccount } from '@/types';
+import { Plus } from 'lucide-react';
+import { Voucher, Party, Employee, VoucherType, BankAccount, LedgerAccount } from '@/types';
 import Modal from '@/components/Modal';
+import PartyModal from '@/components/parties/PartyModal';
 import { db } from '@/lib/storage';
+import { formatIndianCurrency, generateUUID, roundCurrency } from '@/lib/utils';
 
 interface VoucherModalProps {
     isOpen: boolean;
@@ -15,7 +18,9 @@ export default function VoucherModal({ isOpen, onClose, onSave }: VoucherModalPr
     const [parties, setParties] = useState<Party[]>([]);
     const [employees, setEmployees] = useState<Employee[]>([]);
     const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
-    const [partyType, setPartyType] = useState<'party' | 'employee'>('party');
+    const [customAccounts, setCustomAccounts] = useState<LedgerAccount[]>([]);
+    const [partyType, setPartyType] = useState<'party' | 'employee' | 'general'>('party');
+    const [showNewPartyModal, setShowNewPartyModal] = useState(false);
 
     const [formData, setFormData] = useState<Partial<Voucher>>({
         type: 'receipt',
@@ -27,18 +32,34 @@ export default function VoucherModal({ isOpen, onClose, onSave }: VoucherModalPr
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
-        const loadData = async () => {
-            const [partiesData, employeesData, bankData] = await Promise.all([
-                db.parties.getAll(),
-                db.employees.getAll(),
-                db.bankAccounts.getAll()
-            ]);
-            setParties(partiesData);
-            setEmployees(employeesData);
-            setBankAccounts(bankData);
-        };
         if (isOpen) loadData();
     }, [isOpen]);
+
+    const loadData = async () => {
+        const [partiesData, employeesData, bankData, configData] = await Promise.all([
+            db.parties.getAll(),
+            db.employees.getAll(),
+            db.bankAccounts.getAll(),
+            db.businessConfig.get()
+        ]);
+        setParties(partiesData);
+        setEmployees(employeesData);
+        setBankAccounts(bankData);
+        setCustomAccounts(configData.customAccounts || []);
+    };
+
+    const handleSaveNewParty = async (partyData: Omit<Party, 'id'>) => {
+        const newParty: Party = {
+            ...partyData,
+            id: generateUUID(),
+        };
+
+        await db.parties.add(newParty);
+        await loadData();
+        setPartyType('party');
+        setFormData(prev => ({ ...prev, partyId: newParty.id, employeeId: undefined }));
+        setShowNewPartyModal(false);
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -51,8 +72,9 @@ export default function VoucherModal({ isOpen, onClose, onSave }: VoucherModalPr
 
         setLoading(true);
         try {
-            let voucherData: Omit<Voucher, 'id'> = {
+            const voucherData: Omit<Voucher, 'id'> = {
                 ...formData as Omit<Voucher, 'id'>,
+                amount: roundCurrency(formData.amount || 0),
                 number: `VCH-${Date.now().toString().substr(-6)}`
             };
 
@@ -65,12 +87,18 @@ export default function VoucherModal({ isOpen, onClose, onSave }: VoucherModalPr
                 voucherData.partyName = party?.name;
                 voucherData.employeeId = undefined;
                 voucherData.employeeName = undefined;
-            } else {
+            } else if (partyType === 'employee') {
                 const employee = employees.find(e => e.id === formData.employeeId);
                 voucherData.employeeId = employee?.id;
                 voucherData.employeeName = employee?.name;
                 voucherData.partyId = undefined;
                 voucherData.partyName = undefined;
+            } else if (partyType === 'general') {
+                const gAcc = customAccounts.find(a => a.id === formData.partyId);
+                voucherData.partyId = gAcc?.id;
+                voucherData.partyName = gAcc?.name;
+                voucherData.employeeId = undefined;
+                voucherData.employeeName = undefined;
             }
 
             await onSave(voucherData);
@@ -101,13 +129,21 @@ export default function VoucherModal({ isOpen, onClose, onSave }: VoucherModalPr
             title="New Voucher"
         >
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                <div style={{ display: 'flex', gap: '1rem' }}>
+                <div className="responsive-row">
                     <div style={{ flex: 1 }}>
                         <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Voucher Type</label>
                         <select
                             className="input"
                             value={formData.type}
-                            onChange={e => setFormData({ ...formData, type: e.target.value as VoucherType })}
+                            onChange={e => {
+                                const newType = e.target.value as VoucherType;
+                                setFormData({ ...formData, type: newType });
+                                if (newType === 'expense') {
+                                    setPartyType('general');
+                                } else {
+                                    setPartyType('party');
+                                }
+                            }}
                         >
                             <option value="receipt">Receipt (In)</option>
                             <option value="payment">Payment (Out)</option>
@@ -127,50 +163,76 @@ export default function VoucherModal({ isOpen, onClose, onSave }: VoucherModalPr
                 </div>
 
                 {/* Party Type Selector */}
-                {formData.type !== 'expense' && (
-                    <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.5rem' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                            <input
-                                type="radio"
-                                name="partyType"
-                                checked={partyType === 'party'}
-                                onChange={() => setPartyType('party')}
-                            />
-                            Customer / Supplier
-                        </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                            <input
-                                type="radio"
-                                name="partyType"
-                                checked={partyType === 'employee'}
-                                onChange={() => setPartyType('employee')}
-                            />
-                            Employee
-                        </label>
-                    </div>
-                )}
+                <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                        <input
+                            type="radio"
+                            name="partyType"
+                            checked={partyType === 'party'}
+                            onChange={() => setPartyType('party')}
+                        />
+                        Customer / Supplier
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                        <input
+                            type="radio"
+                            name="partyType"
+                            checked={partyType === 'employee'}
+                            onChange={() => setPartyType('employee')}
+                        />
+                        Employee
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                        <input
+                            type="radio"
+                            name="partyType"
+                            checked={partyType === 'general'}
+                            onChange={() => setPartyType('general')}
+                        />
+                        Ledger Account
+                    </label>
+                </div>
 
                 <div>
                     <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>
-                        {partyType === 'party' ? 'Party / Account' : 'Employee'}
+                        {partyType === 'party' ? 'Party / Account' : partyType === 'employee' ? 'Employee' : 'Ledger Account'}
                     </label>
 
-                    {partyType === 'party' ? (
+                    {partyType === 'party' && (
+                        <div className="quick-add-field">
+                            <select
+                                className="input"
+                                required
+                                value={formData.partyId || ''}
+                                onChange={e => {
+                                    if (e.target.value === '__add_party__') {
+                                        setShowNewPartyModal(true);
+                                    } else {
+                                        setFormData({ ...formData, partyId: e.target.value, employeeId: undefined });
+                                    }
+                                }}
+                            >
+                                <option value="">Select Party</option>
+                                <option value="__add_party__">+ Add New Customer / Supplier</option>
+                                {parties.map(p => (
+                                    <option key={p.id} value={p.id}>{p.name} ({p.type})</option>
+                                ))}
+                            </select>
+                            <button
+                                type="button"
+                                className="quick-add-button"
+                                onClick={() => setShowNewPartyModal(true)}
+                                title="Add New Customer / Supplier"
+                            >
+                                <Plus size={18} />
+                            </button>
+                        </div>
+                    )}
+
+                    {partyType === 'employee' && (
                         <select
                             className="input"
-                            required={formData.type !== 'expense'}
-                            value={formData.partyId || ''}
-                            onChange={e => setFormData({ ...formData, partyId: e.target.value, employeeId: undefined })}
-                        >
-                            <option value="">Select Party</option>
-                            {parties.map(p => (
-                                <option key={p.id} value={p.id}>{p.name} ({p.type})</option>
-                            ))}
-                        </select>
-                    ) : (
-                        <select
-                            className="input"
-                            required={formData.type !== 'expense'}
+                            required
                             value={formData.employeeId || ''}
                             onChange={e => setFormData({ ...formData, employeeId: e.target.value, partyId: undefined })}
                         >
@@ -180,15 +242,31 @@ export default function VoucherModal({ isOpen, onClose, onSave }: VoucherModalPr
                             ))}
                         </select>
                     )}
+
+                    {partyType === 'general' && (
+                        <select
+                            className="input"
+                            required
+                            value={formData.partyId || ''}
+                            onChange={e => setFormData({ ...formData, partyId: e.target.value, employeeId: undefined })}
+                        >
+                            <option value="">Select Ledger Account</option>
+                            {customAccounts.map(acc => (
+                                <option key={acc.id} value={acc.id}>{acc.name} ({acc.type.toUpperCase()})</option>
+                            ))}
+                        </select>
+                    )}
                 </div>
 
-                <div style={{ display: 'flex', gap: '1rem' }}>
+                <div className="responsive-row">
                     <div style={{ flex: 1 }}>
                         <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Amount (₹)</label>
                         <input
                             type="number"
                             required
-                            className="input"
+                            min="0.01"
+                            step="0.01"
+                            className="input money-input"
                             value={formData.amount}
                             onChange={e => setFormData({ ...formData, amount: Number(e.target.value) })}
                         />
@@ -217,7 +295,7 @@ export default function VoucherModal({ isOpen, onClose, onSave }: VoucherModalPr
                         >
                             <option value="">Select Bank Account</option>
                             {bankAccounts.map(b => (
-                                <option key={b.id} value={b.id}>{b.name} (Limit: ₹{(b.odLimit || 0).toLocaleString()})</option>
+                                <option key={b.id} value={b.id}>{b.name} (Limit: {formatIndianCurrency(b.odLimit || 0)})</option>
                             ))}
                         </select>
                     </div>
@@ -228,19 +306,25 @@ export default function VoucherModal({ isOpen, onClose, onSave }: VoucherModalPr
                     <textarea
                         className="input"
                         rows={2}
+                        required
                         value={formData.description}
                         onChange={e => setFormData({ ...formData, description: e.target.value })}
                         placeholder="Narration..."
                     />
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1rem' }}>
+                <div className="form-actions" style={{ marginTop: '1rem' }}>
                     <button type="button" onClick={onClose} className="btn" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>Cancel</button>
                     <button type="submit" disabled={loading} className="btn btn-primary">
                         {loading ? 'Saving...' : 'Save Voucher'}
                     </button>
                 </div>
             </form>
+            <PartyModal
+                isOpen={showNewPartyModal}
+                onClose={() => setShowNewPartyModal(false)}
+                onSave={handleSaveNewParty}
+            />
         </Modal>
     );
 }

@@ -40,7 +40,8 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = '50
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 50,
-            backdropFilter: 'blur(4px)'
+            backdropFilter: 'blur(4px)',
+            padding: 'clamp(0.5rem, 2vw, 1rem)'
         }}>
             <div style={{
                 backgroundColor: 'var(--color-surface)',
@@ -50,7 +51,7 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = '50
                 boxShadow: 'var(--shadow-lg)',
                 maxHeight: '90vh',
                 overflowY: 'auto',
-                margin: '1rem'
+                margin: 0
             }}>
                 <div style={{
                     display: 'flex',
@@ -72,7 +73,7 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = '50
                         <X size={20} />
                     </button>
                 </div>
-                <div style={{ padding: '1.5rem' }}>
+                <div style={{ padding: 'clamp(1rem, 3vw, 1.5rem)' }}>
                     {children}
                 </div>
             </div>

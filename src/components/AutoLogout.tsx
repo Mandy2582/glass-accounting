@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { supabase } from '@/lib/supabase';
 
 const TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -10,8 +11,8 @@ export default function AutoLogout() {
     useEffect(() => {
         const resetTimer = () => {
             if (timerRef.current) clearTimeout(timerRef.current);
-            timerRef.current = setTimeout(() => {
-                console.log('Auto-logging out due to inactivity');
+            timerRef.current = setTimeout(async () => {
+                await supabase.auth.signOut();
                 window.location.href = '/login';
             }, TIMEOUT_MS);
         };

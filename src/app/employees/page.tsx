@@ -5,6 +5,8 @@ import { db } from '@/lib/storage';
 import { Employee } from '@/types';
 import { Plus, User, Phone, Briefcase } from 'lucide-react';
 import Modal from '@/components/Modal';
+import Link from 'next/link';
+import { formatIndianCurrency, roundCurrency } from '@/lib/utils';
 
 export default function EmployeesPage() {
     const [employees, setEmployees] = useState<Employee[]>([]);
@@ -23,7 +25,11 @@ export default function EmployeesPage() {
 
     const loadEmployees = async () => {
         const data = await db.employees.getAll();
-        setEmployees(data);
+        setEmployees(data.sort((a, b) => {
+            const timeA = new Date(a.joiningDate).getTime();
+            const timeB = new Date(b.joiningDate).getTime();
+            return timeB - timeA || a.name.localeCompare(b.name);
+        }));
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -35,7 +41,7 @@ export default function EmployeesPage() {
                 designation: formData.designation!,
                 phone: formData.phone!,
                 joiningDate: new Date().toISOString().split('T')[0],
-                basicSalary: Number(formData.basicSalary),
+                basicSalary: roundCurrency(Number(formData.basicSalary)),
                 status: 'active',
                 balance: 0 // Initialize with zero balance
             };
@@ -80,9 +86,14 @@ export default function EmployeesPage() {
                                 <Briefcase size={16} style={{ opacity: 0.5 }} />
                                 <span>Joined: {new Date(emp.joiningDate).toLocaleDateString()}</span>
                             </div>
-                            <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between' }}>
+                            <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <span style={{ color: 'var(--color-text-muted)' }}>Basic Salary</span>
-                                <span style={{ fontWeight: 600 }}>₹{emp.basicSalary.toLocaleString()}</span>
+                                <span style={{ fontWeight: 600 }}>{formatIndianCurrency(emp.basicSalary)}</span>
+                            </div>
+                            <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem' }}>
+                                <Link href={`/employees/${emp.id}`} className="btn btn-primary" style={{ padding: '0.35rem', fontSize: '0.8rem', width: '100%', textAlign: 'center', display: 'flex', justifyContent: 'center', textDecoration: 'none' }}>
+                                    Manage Profile
+                                </Link>
                             </div>
                         </div>
                     </div>
@@ -105,7 +116,7 @@ export default function EmployeesPage() {
                     </div>
                     <div>
                         <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Basic Salary (₹)</label>
-                        <input type="number" required className="input" value={formData.basicSalary} onChange={e => setFormData({ ...formData, basicSalary: Number(e.target.value) })} />
+                        <input type="number" required min="0" step="0.01" className="input money-input" value={formData.basicSalary} onChange={e => setFormData({ ...formData, basicSalary: Number(e.target.value) })} />
                     </div>
                     <button type="submit" className="btn btn-primary" style={{ marginTop: '1rem' }}>Save Employee</button>
                 </form>

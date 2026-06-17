@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import Image from 'next/image';
 
 export default function LoginPage() {
     const router = useRouter();
@@ -15,46 +16,31 @@ export default function LoginPage() {
         e.preventDefault();
         setLoading(true);
         setError(null);
+        
+        const { error: loginError } = await supabase.auth.signInWithPassword({
+            email,
+            password,
+        });
 
-        try {
-            const { data, error } = await supabase.auth.signInWithPassword({
-                email,
-                password
-            });
-
-            if (error) {
-                throw error;
-            }
-
-            router.push('/');
-            router.refresh(); // Refresh to update middleware state
-        } catch (err: any) {
-            console.error('Login error:', err);
-            setError(err.message || 'Failed to login');
-        } finally {
+        if (loginError) {
+            setError(loginError.message);
             setLoading(false);
+            return;
         }
+
+        router.replace('/');
+        router.refresh();
     };
 
     return (
-        <div style={{
+        <div className="login-shell" style={{
             minHeight: '100vh',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: 'linear-gradient(-45deg, #ee7752, #e73c7e, #23a6d5, #23d5ab)',
-            backgroundSize: '400% 400%',
-            animation: 'gradient 15s ease infinite',
             padding: '2rem'
         }}>
-            <style jsx global>{`
-                @keyframes gradient {
-                    0% { background-position: 0% 50%; }
-                    50% { background-position: 100% 50%; }
-                    100% { background-position: 0% 50%; }
-                }
-            `}</style>
-            <div style={{
+            <div className="login-layout" style={{
                 display: 'flex',
                 maxWidth: '1000px',
                 width: '100%',
@@ -64,22 +50,25 @@ export default function LoginPage() {
                 gap: '4rem'
             }}>
                 {/* Left Side - Branding */}
-                <div style={{ flex: '1 1 400px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', marginBottom: '1.5rem' }}>
-                        <div style={{
+                <div className="login-branding" style={{ flex: '1 1 400px' }}>
+                    <div className="login-brand-row" style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', marginBottom: '1.5rem' }}>
+                        <div className="login-logo-tile" style={{
                             background: 'white',
                             padding: '16px',
                             borderRadius: '20px',
                             boxShadow: '0 10px 25px rgba(0,0,0,0.15)',
                             display: 'flex'
                         }}>
-                            <img
-                                src="/logo.png"
+                            <Image
+                                src="/logo.svg"
                                 alt="Arjun Glass House Logo"
-                                style={{ width: '64px', height: '64px' }}
+                                width={64}
+                                height={64}
+                                unoptimized
+                                style={{ width: '64px', height: '64px', objectFit: 'contain' }}
                             />
                         </div>
-                        <h1 style={{
+                        <h1 className="login-brand-title" style={{
                             fontFamily: 'var(--font-cinzel)',
                             fontSize: '4rem',
                             fontWeight: 800,
@@ -91,7 +80,7 @@ export default function LoginPage() {
                             ARJUN<br />GLASS HOUSE
                         </h1>
                     </div>
-                    <p style={{
+                    <p className="login-brand-copy" style={{
                         fontSize: '1.75rem',
                         lineHeight: '1.4',
                         color: '#1c1e21',
@@ -103,7 +92,7 @@ export default function LoginPage() {
 
                 {/* Right Side - Login Form */}
                 <div style={{ flex: '1 1 350px', maxWidth: '400px' }}>
-                    <div style={{
+                    <div className="login-form-card" style={{
                         background: 'white',
                         padding: '2rem',
                         borderRadius: '12px',
@@ -147,6 +136,7 @@ export default function LoginPage() {
                             <button
                                 type="submit"
                                 disabled={loading}
+                                className="login-submit"
                                 style={{
                                     background: '#1877f2',
                                     color: 'white',
@@ -164,32 +154,10 @@ export default function LoginPage() {
                                 {loading ? 'Logging in...' : 'Log In'}
                             </button>
 
-                            <div style={{ textAlign: 'center', marginTop: '1rem' }}>
-                                <a href="#" style={{ color: '#1877f2', fontSize: '0.9rem', textDecoration: 'none' }}>
-                                    Forgot Password?
-                                </a>
-                            </div>
-
-                            <div style={{ borderTop: '1px solid #dadde1', margin: '1.5rem 0' }}></div>
-
-                            <div style={{ textAlign: 'center' }}>
-                                <button type="button" style={{
-                                    background: '#42b72a',
-                                    color: 'white',
-                                    border: 'none',
-                                    padding: '0.75rem 1.5rem',
-                                    fontSize: '1.1rem',
-                                    fontWeight: 600,
-                                    borderRadius: '8px',
-                                    cursor: 'pointer'
-                                }}>
-                                    Create New Account
-                                </button>
-                            </div>
+                            <p style={{ textAlign: 'center', color: '#606770', fontSize: '0.85rem', lineHeight: 1.5, marginTop: '0.5rem' }}>
+                                Use your Arjun Glass House account to access the workspace.
+                            </p>
                         </form>
-                    </div>
-                    <div style={{ textAlign: 'center', marginTop: '1.5rem', fontSize: '0.9rem', color: '#606770' }}>
-                        <strong>Create a Page</strong> for a celebrity, brand or business.
                     </div>
                 </div>
             </div>

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowLeft, Printer, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
 import { db } from '@/lib/storage';
 import { Voucher } from '@/types';
+import { formatIndianCurrency, roundCurrency } from '@/lib/utils';
 
 export default function CashBookPage() {
     const [transactions, setTransactions] = useState<any[]>([]);
@@ -35,10 +36,10 @@ export default function CashBookPage() {
 
                 if (v.type === 'receipt') {
                     debit = v.amount;
-                    balance += v.amount;
+                    balance = roundCurrency(balance + v.amount);
                 } else {
                     credit = v.amount;
-                    balance -= v.amount;
+                    balance = roundCurrency(balance - v.amount);
                 }
 
                 return {
@@ -60,13 +61,7 @@ export default function CashBookPage() {
         }
     };
 
-    const formatCurrency = (amount: number) => {
-        return new Intl.NumberFormat('en-IN', {
-            style: 'currency',
-            currency: 'INR',
-            maximumFractionDigits: 0
-        }).format(amount);
-    };
+    const formatCurrency = formatIndianCurrency;
 
     return (
         <div className="container">

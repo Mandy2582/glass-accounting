@@ -3,6 +3,9 @@
 import { useState, useEffect } from 'react';
 import { GlassItem, Unit } from '@/types';
 import Modal from '@/components/Modal';
+import FractionInput from '@/components/FractionInput';
+import NumericInput from '@/components/NumericInput';
+import { convertRateForItemUnit, getUnitOptionsForItem, UNIT_OPTIONS_BY_GROUP } from '@/lib/units';
 
 interface ItemModalProps {
     isOpen: boolean;
@@ -13,7 +16,7 @@ interface ItemModalProps {
 }
 
 export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialData }: ItemModalProps) {
-    const [formData, setFormData] = useState<Partial<GlassItem>>({
+    const defaultItemData: Partial<GlassItem> = {
         name: '',
         category: 'glass',
         type: 'Toughened',
@@ -26,32 +29,25 @@ export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialDa
         stock: 0,
         warehouseStock: { 'Warehouse A': 0, 'Warehouse B': 0 },
         rate: 0,
+        rateUnit: 'sqft',
+        purchaseRateUnit: 'sqft',
         hsnCode: '',
         conversionFactor: 0
-    });
+    };
+    const [formData, setFormData] = useState<Partial<GlassItem>>(defaultItemData);
 
     // Update form data when initialData changes (for Edit mode)
     useEffect(() => {
         if (initialData) {
-            setFormData(initialData);
+            setFormData({
+                ...defaultItemData,
+                ...initialData,
+                rateUnit: initialData.rateUnit || initialData.unit || (initialData.category === 'hardware' ? 'nos' : 'sqft'),
+                purchaseRateUnit: initialData.purchaseRateUnit || initialData.rateUnit || initialData.unit || (initialData.category === 'hardware' ? 'nos' : 'sqft'),
+            });
         } else {
             // Reset for Add mode
-            setFormData({
-                name: '',
-                category: 'glass',
-                type: 'Toughened',
-                make: '',
-                model: '',
-                thickness: 0,
-                width: 0,
-                height: 0,
-                unit: 'sqft',
-                stock: 0,
-                warehouseStock: { 'Warehouse A': 0, 'Warehouse B': 0 },
-                rate: 0,
-                hsnCode: '',
-                conversionFactor: 0
-            });
+            setFormData(defaultItemData);
         }
     }, [initialData, isOpen]);
     const [loading, setLoading] = useState(false);
@@ -60,7 +56,11 @@ export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialDa
         e.preventDefault();
         setLoading(true);
         try {
-            await onSave(formData as Omit<GlassItem, 'id'>);
+            await onSave({
+                ...formData,
+                rateUnit: formData.rateUnit || formData.unit || 'nos',
+                purchaseRateUnit: formData.purchaseRateUnit || formData.rateUnit || formData.unit || 'nos',
+            } as Omit<GlassItem, 'id'>);
             onClose();
         } catch (error: any) {
             console.error(error);
@@ -70,11 +70,31 @@ export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialDa
         }
     };
 
+    const handleRateUnitChange = (unit: Unit, field: 'rateUnit' | 'purchaseRateUnit') => {
+        const previousUnit = formData[field] || formData.unit || 'nos';
+        const rateField = field === 'rateUnit' ? 'rate' : 'purchaseRate';
+        setFormData({
+            ...formData,
+            [field]: unit,
+            [rateField]: convertRateForItemUnit({
+                rate: Number(formData[rateField]) || 0,
+                fromUnit: previousUnit,
+                toUnit: unit,
+                width: formData.width,
+                height: formData.height,
+                conversionFactor: formData.conversionFactor,
+            }),
+        });
+    };
+
+    const rateUnitGroups = getUnitOptionsForItem({ category: formData.category, type: formData.type, unit: formData.unit });
+
     return (
         <Modal
             isOpen={isOpen}
             onClose={onClose}
-            title={initialData ? 'Edit Item' : 'Add New Item'}
+            title={initialData?.id ? 'Edit Item' : 'Add New Item'}
+            maxWidth="760px"
         >
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
@@ -88,7 +108,7 @@ export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialDa
                                 name="category"
                                 value="glass"
                                 checked={formData.category !== 'hardware'}
-                                onChange={() => setFormData({ ...formData, category: 'glass', unit: 'sqft' })}
+                                onChange={() => setFormData({ ...formData, category: 'glass', unit: 'sheets', rateUnit: 'sqft', purchaseRateUnit: 'sqft' })}
                             />
                             Glass
                         </label>
@@ -98,7 +118,7 @@ export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialDa
                                 name="category"
                                 value="hardware"
                                 checked={formData.category === 'hardware'}
-                                onChange={() => setFormData({ ...formData, category: 'hardware', unit: 'nos', width: 0, height: 0, thickness: 0 })}
+                                onChange={() => setFormData({ ...formData, category: 'hardware', unit: 'nos', rateUnit: 'nos', purchaseRateUnit: 'nos', width: 0, height: 0, thickness: 0 })}
                             />
                             Hardware
                         </label>
@@ -116,7 +136,7 @@ export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialDa
                     />
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div className="form-grid form-grid-2">
                     <div>
                         <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Type</label>
                         {formData.category === 'hardware' ? (
@@ -150,7 +170,7 @@ export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialDa
                         />
                     </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div className="form-grid form-grid-2">
                     <div>
                         <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>HSN Code</label>
                         <input
@@ -163,7 +183,7 @@ export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialDa
                 </div>
 
                 {formData.category === 'hardware' ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    <div className="form-grid form-grid-2">
                         <div>
                             <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Model</label>
                             <input
@@ -175,88 +195,124 @@ export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialDa
                         </div>
                     </div>
                 ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    <div className="form-grid form-grid-2">
+                        <div className="form-grid form-grid-2">
                             <div>
                                 <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Thickness (mm)</label>
-                                <input
-                                    type="number"
+                                <NumericInput
                                     required
                                     className="input"
-                                    value={formData.thickness}
-                                    onChange={e => setFormData({ ...formData, thickness: Number(e.target.value) })}
+                                    value={formData.thickness ?? ''}
+                                    onChange={val => setFormData({ ...formData, thickness: val })}
+                                    min={0}
+                                    step={0.01}
                                 />
                             </div>
-                            <div>
+                             <div>
                                 <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Width (inch)</label>
-                                <input
-                                    type="number"
-                                    required
+                                <FractionInput
                                     className="input"
-                                    value={formData.width}
-                                    onChange={e => setFormData({ ...formData, width: Number(e.target.value) })}
+                                    value={formData.width || 0}
+                                    onChange={val => setFormData({ ...formData, width: val })}
+                                    required
                                 />
                             </div>
                         </div>
                         <div>
                             <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Height (inch)</label>
-                            <input
-                                type="number"
-                                required
+                            <FractionInput
                                 className="input"
-                                value={formData.height}
-                                onChange={e => setFormData({ ...formData, height: Number(e.target.value) })}
+                                value={formData.height || 0}
+                                onChange={val => setFormData({ ...formData, height: val })}
+                                required
                             />
                         </div>
                     </div>
                 )}
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div className="form-grid form-grid-3">
                     <div>
-                        <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Unit</label>
+                        <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Stock Unit</label>
                         <select
                             className="input"
                             value={formData.unit}
                             onChange={e => setFormData({ ...formData, unit: e.target.value as Unit })}
-                            disabled={formData.category === 'hardware'}
                         >
-                            <option value="sqft">Sq. Ft</option>
-                            <option value="sheets">Sheets</option>
-                            <option value="nos">Nos</option>
+                            {UNIT_OPTIONS_BY_GROUP.map(group => (
+                                <optgroup key={group.label} label={group.label}>
+                                    {group.units.map(unit => (
+                                        <option key={unit.value} value={unit.value}>{unit.label}</option>
+                                    ))}
+                                </optgroup>
+                            ))}
                         </select>
                     </div>
                     <div>
                         <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Selling Rate (₹)</label>
-                        <input
-                            type="number"
+                        <NumericInput
                             required
-                            className="input"
-                            value={formData.rate}
-                            onChange={e => setFormData({ ...formData, rate: Number(e.target.value) })}
+                            className="input money-input"
+                            min="0"
+                            step="0.01"
+                            precision={2}
+                            value={formData.rate ?? ''}
+                            onChange={val => setFormData({ ...formData, rate: val })}
                         />
+                    </div>
+                    <div>
+                        <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Selling Rate Unit</label>
+                        <select
+                            className="input"
+                            value={formData.rateUnit || formData.unit || 'nos'}
+                            onChange={e => handleRateUnitChange(e.target.value as Unit, 'rateUnit')}
+                        >
+                            {rateUnitGroups.map(group => (
+                                <optgroup key={group.label} label={group.label}>
+                                    {group.units.map(unit => (
+                                        <option key={unit.value} value={unit.value}>{unit.label}</option>
+                                    ))}
+                                </optgroup>
+                            ))}
+                        </select>
                     </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div className="form-grid form-grid-2">
                     <div>
                         <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Purchase Rate (₹)</label>
-                        <input
-                            type="number"
-                            className="input"
+                        <NumericInput
+                            className="input money-input"
+                            min="0"
+                            step="0.01"
+                            precision={2}
                             value={formData.purchaseRate || ''}
-                            onChange={e => setFormData({ ...formData, purchaseRate: Number(e.target.value) })}
+                            onChange={val => setFormData({ ...formData, purchaseRate: val })}
                             placeholder="Cost Price (Optional)"
                         />
                     </div>
-                    <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    <div>
+                        <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Purchase Rate Unit</label>
+                        <select
+                            className="input"
+                            value={formData.purchaseRateUnit || formData.rateUnit || formData.unit || 'nos'}
+                            onChange={e => handleRateUnitChange(e.target.value as Unit, 'purchaseRateUnit')}
+                        >
+                            {rateUnitGroups.map(group => (
+                                <optgroup key={group.label} label={group.label}>
+                                    {group.units.map(unit => (
+                                        <option key={unit.value} value={unit.value}>{unit.label}</option>
+                                    ))}
+                                </optgroup>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="form-grid form-grid-2" style={{ gridColumn: '1 / -1' }}>
                         <div>
                             <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Stock (Warehouse A)</label>
-                            <input
-                                type="number"
+                            <NumericInput
                                 className="input"
                                 value={formData.warehouseStock?.['Warehouse A'] || 0}
-                                onChange={e => {
-                                    const val = Number(e.target.value);
+                                onChange={val => {
                                     const currentB = formData.warehouseStock?.['Warehouse B'] || 0;
                                     setFormData({
                                         ...formData,
@@ -268,12 +324,10 @@ export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialDa
                         </div>
                         <div>
                             <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Stock (Warehouse B)</label>
-                            <input
-                                type="number"
+                            <NumericInput
                                 className="input"
                                 value={formData.warehouseStock?.['Warehouse B'] || 0}
-                                onChange={e => {
-                                    const val = Number(e.target.value);
+                                onChange={val => {
                                     const currentA = formData.warehouseStock?.['Warehouse A'] || 0;
                                     setFormData({
                                         ...formData,
@@ -286,11 +340,10 @@ export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialDa
                     </div>
                     <div>
                         <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Min Stock Alert</label>
-                        <input
-                            type="number"
+                        <NumericInput
                             className="input"
                             value={formData.minStock || ''}
-                            onChange={e => setFormData({ ...formData, minStock: Number(e.target.value) })}
+                            onChange={val => setFormData({ ...formData, minStock: val })}
                             placeholder="Default: 10"
                         />
                     </div>

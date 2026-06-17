@@ -1,4 +1,23 @@
-export type Unit = 'sqft' | 'sheets' | 'nos';
+export type Unit =
+    | 'sqft'
+    | 'sqm'
+    | 'sqin'
+    | 'sqyd'
+    | 'sheets'
+    | 'nos'
+    | 'pcs'
+    | 'sets'
+    | 'pair'
+    | 'box'
+    | 'inch'
+    | 'ft'
+    | 'mm'
+    | 'cm'
+    | 'm'
+    | 'kg'
+    | 'g'
+    | 'ltr'
+    | (string & {});
 
 export interface GlassItem {
     id: string;
@@ -15,7 +34,9 @@ export interface GlassItem {
     warehouseStock?: { [key: string]: number }; // Breakdown by warehouse
     minStock?: number; // Minimum stock level for alerts
     rate: number; // Base rate per unit (Selling Price)
+    rateUnit?: Unit; // Unit in which selling rate was entered
     purchaseRate?: number; // Cost Price per unit
+    purchaseRateUnit?: Unit; // Unit in which purchase rate was entered
     hsnCode?: string;
     conversionFactor?: number; // e.g. sqft per sheet
 }
@@ -39,6 +60,8 @@ export interface Party {
     phone: string;
     address: string;
     balance: number; // Positive = Receivable (Dr), Negative = Payable (Cr)
+    gstin?: string;
+    email?: string;
 }
 
 export type VoucherType = 'payment' | 'receipt' | 'expense';
@@ -85,7 +108,11 @@ export interface InvoiceItem {
     sqft: number; // Calculated sqft
     rate: number;
     amount: number;
+    lineTotal?: number; // Customer-facing amount including tax, used to prevent paisa drift
     cost_amount?: number; // FIFO Cost
+    sourceType?: 'catalog' | 'text' | 'design';
+    designId?: string;
+    designPieceId?: string;
 }
 
 export interface Invoice {
@@ -106,14 +133,16 @@ export interface Invoice {
 }
 
 export type OrderType = 'sale_order' | 'purchase_order';
-export type OrderStatus = 'pending' | 'supplier_ordered' | 'supplier_delivered' | 'customer_delivered' | 'completed' | 'cancelled';
+export type OrderStatus = 'pending' | 'approved' | 'supplier_ordered' | 'supplier_delivered' | 'customer_delivered' | 'completed' | 'cancelled';
 
 export interface OrderDelivery {
     id: string;
     date: string;
     type: 'supplier' | 'customer';
     items: {
+        orderItemId?: string;
         itemId: string;
+        itemName?: string;
         quantity: number;
         sqft: number;
     }[];
@@ -124,6 +153,10 @@ export interface Order {
     id: string;
     type: OrderType;
     number: string; // e.g., SO-001 or PO-001
+    generalNumber?: string;
+    soNumber?: string;
+    poNumber?: string;
+    requiresDesign?: boolean;
     date: string;
     deliveryDate?: string; // Expected delivery date
     partyId: string;
@@ -192,4 +225,197 @@ export interface SalarySlip {
     netSalary: number;
     status: 'generated' | 'paid';
     paymentDate?: string;
+}
+
+// Custom Glass Designer Types
+export interface DrawingPoint {
+    x: number;
+    y: number;
+}
+
+export interface DrawingShape {
+    id: string;
+    type: 'rectangle' | 'circle' | 'polygon' | 'hole' | 'cut';
+    points: DrawingPoint[];
+    dimensions?: {
+        width?: number;
+        height?: number;
+        radius?: number;
+    };
+    label?: string;
+    color?: string;
+    thickness?: number; // Glass thickness in mm
+}
+
+// Multi-item design support
+export interface DesignItem {
+    id: string;
+    name: string; // e.g., "Window 1", "Door 2"
+    type: string; // e.g., "Window", "Door", "Partition"
+    thickness: number; // in mm
+    shapes: DrawingShape[]; // Shapes belonging to this item
+    canvasJSON?: any; // Fabric canvas JSON for full fidelity
+    area: number; // Calculated area for this item in sqft
+    cost?: number; // Calculated cost for this item
+}
+
+export interface DesignData {
+    items?: DesignItem[]; // Multi-item support
+    shapes: DrawingShape[]; // Keep for backward compatibility
+    dimensions: {
+        width: number;
+        height: number;
+        unit: 'inch' | 'mm' | 'ft';
+    };
+    holes: DrawingShape[];
+    cuts: DrawingShape[];
+    notes: string;
+    pieces?: any[];
+    pdfBase64?: string; // Cached high-fidelity PDF
+}
+
+export interface CustomDesign {
+    id: string;
+    name: string;
+    customerId?: string;
+    customerName?: string;
+    drawingData: DesignData;
+    baseShape?: string;
+    totalArea: number; // sqft after deductions
+    grossArea: number; // sqft before deductions
+    holes: number;
+    cuts: number;
+    complexityLevel: 'simple' | 'medium' | 'complex';
+
+    // Pricing
+    baseRate: number;
+    complexityCharge: number;
+    edgeFinishingCharge: number;
+    estimatedCost: number;
+
+    // Status
+    status: 'draft' | 'sent' | 'approved' | 'rejected' | 'converted';
+    createdDate: string;
+    approvedDate?: string;
+    notes?: string;
+
+    // Link to order if converted
+    orderId?: string;
+}
+
+// Thickness-based pricing
+export interface ThicknessPricing {
+    thickness: number; // in mm (e.g., 3.5, 4, 5, 6, 8, 10, 12, 15, 19)
+    ratePerSqft: number; // Direct rate per sqft for this thickness
+}
+
+export interface PricingConfig {
+    baseRatePerSqft: number;
+    thicknessPricing?: ThicknessPricing[]; // Thickness-based rates
+    holeCharge: number; // per hole
+    cutCharge: number; // per cut
+    complexityMultiplier: {
+        simple: number;
+        medium: number;
+        complex: number;
+    };
+    edgeFinishing: {
+        polished: number; // per linear foot
+        beveled: number;
+        none: number;
+    };
+    minimumCharge: number;
+    termsAndConditions?: string;
+}
+
+// GST Types
+export type GSTType = 'intra_state' | 'inter_state' | 'none';
+
+// Business Configuration
+export interface BusinessConfig {
+    businessName: string;
+    tagline?: string;
+    gstin?: string;
+    pan?: string;
+    address: string;
+    city: string;
+    state: string;
+    stateCode?: string;
+    pincode: string;
+    phone: string;
+    email?: string;
+    website?: string;
+    bankName?: string;
+    bankAccountNumber?: string;
+    bankIfsc?: string;
+    bankBranch?: string;
+    defaultGstRate: number; // e.g., 18
+    defaultGstType: GSTType;
+    invoicePrefix: string; // e.g., 'AGH'
+    financialYearStart: number; // month (1-12), typically 4 (April) in India
+    logo?: string; // base64 or URL
+    
+    // Tally Integration Settings
+    tallyServerIp?: string;
+    tallyServerPort?: string;
+    tallyCompanyName?: string;
+    tallyAutoSyncEnabled?: boolean;
+    tallySyncInterval?: number; // In minutes
+    tallyLastSyncTime?: string;
+    tallySyncLogs?: string[];
+    employeeConfigs?: Record<string, EmployeeConfig>;
+    customAccounts?: LedgerAccount[];
+}
+
+export interface AppNotification {
+    id: string;
+    title: string;
+    message: string;
+    type: 'insight' | 'pending_order' | 'overdue_payment' | 'low_stock';
+    severity: 'info' | 'warning' | 'error';
+    timestamp: string;
+    read: boolean;
+    link?: string;
+}
+
+export interface EmployeeAdvance {
+    id: string;
+    date: string;
+    amount: number;
+    deductionType: 'emi' | 'lump_sum';
+    emiAmount?: number;
+    remaining: number;
+    paidOff: boolean;
+    repayments?: { date: string; amount: number; salarySlipId?: string }[];
+}
+
+export interface EmployeeOvertimeLog {
+    id: string;
+    date: string;
+    hours: number;
+    description?: string;
+    rateApplied: number;
+    amount: number;
+    salarySlipId?: string;
+}
+
+export interface EmployeeConfig {
+    employeeId: string;
+    overtimeRate: number;
+    maxOvertimeCeiling: number;
+    advances: EmployeeAdvance[];
+    overtimeLogs: EmployeeOvertimeLog[];
+}
+
+export interface LedgerAccount {
+    id: string;
+    name: string;
+    type: 'asset' | 'liability' | 'equity' | 'revenue' | 'expense' | 'general';
+    system?: boolean;
+}
+
+export interface AttendanceTiming {
+    clockIn: string;
+    clockOut: string;
+    overtime: number;
 }

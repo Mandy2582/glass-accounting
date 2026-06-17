@@ -4,11 +4,12 @@ import { useState, useEffect } from 'react';
 import { db } from '@/lib/storage';
 import { Invoice, Voucher } from '@/types';
 import { Calendar } from 'lucide-react';
+import { formatIndianCurrency } from '@/lib/utils';
 
 type Transaction = {
     id: string;
     date: string;
-    type: 'Sale' | 'Receipt' | 'Payment' | 'Expense';
+    type: 'Sale' | 'Purchase' | 'Receipt' | 'Payment' | 'Expense';
     number: string;
     party: string;
     description: string;
@@ -21,34 +22,33 @@ export default function DayBookPage() {
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        loadData();
-    }, [date]);
-
-    const loadData = async () => {
+    async function loadData() {
         setLoading(true);
         const [invoices, vouchers] = await Promise.all([
             db.invoices.getAll(),
             db.vouchers.getAll()
         ]);
 
-        const dayInvoices = invoices.filter(i => i.date === date);
-        const dayVouchers = vouchers.filter(v => v.date === date);
+        const isSelectedDate = (recordDate: string) => recordDate.slice(0, 10) === date;
+        const dayInvoices = invoices.filter(i => isSelectedDate(i.date));
+        const dayVouchers = vouchers.filter(v => isSelectedDate(v.date));
 
-        const combined: Transaction[] = [
+        const combined: (Transaction & { createdAt?: string })[] = [
             ...dayInvoices.map(i => ({
                 id: i.id,
                 date: i.date,
-                type: 'Sale' as const,
+                createdAt: (i as Invoice & { created_at?: string }).created_at,
+                type: (i.type === 'purchase' ? 'Purchase' : 'Sale') as 'Sale' | 'Purchase',
                 number: i.number,
                 party: i.partyName,
-                description: `Invoice for ${i.items.length} items`,
-                amountIn: i.total, // Sales are inflow (Receivable)
-                amountOut: 0
+                description: `${i.type === 'purchase' ? 'Purchase' : 'Sales'} invoice for ${i.items.length} items`,
+                amountIn: i.type === 'purchase' ? 0 : i.total,
+                amountOut: i.type === 'purchase' ? i.total : 0
             })),
             ...dayVouchers.map(v => ({
                 id: v.id,
                 date: v.date,
+                createdAt: (v as Voucher & { created_at?: string }).created_at,
                 type: (v.type === 'receipt' ? 'Receipt' : v.type === 'payment' ? 'Payment' : 'Expense') as 'Receipt' | 'Payment' | 'Expense',
                 number: v.number,
                 party: v.partyName || 'Expense',
@@ -58,9 +58,21 @@ export default function DayBookPage() {
             }))
         ];
 
+        combined.sort((a, b) => {
+            const timeA = new Date(a.createdAt || a.date).getTime();
+            const timeB = new Date(b.createdAt || b.date).getTime();
+            return timeB - timeA || b.number.localeCompare(a.number);
+        });
+
         setTransactions(combined);
         setLoading(false);
-    };
+    }
+
+    useEffect(() => {
+        queueMicrotask(() => {
+            void loadData();
+        });
+    }, [date]);
 
     const totalIn = transactions.reduce((sum, t) => sum + t.amountIn, 0);
     const totalOut = transactions.reduce((sum, t) => sum + t.amountOut, 0);
@@ -85,16 +97,16 @@ export default function DayBookPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem', textAlign: 'center' }}>
                     <div>
                         <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>Total Inflow</p>
-                        <p style={{ fontSize: '1.25rem', fontWeight: 600, color: '#166534' }}>₹{totalIn.toFixed(2)}</p>
+                        <p style={{ fontSize: '1.25rem', fontWeight: 600, color: '#166534' }}>{formatIndianCurrency(totalIn)}</p>
                     </div>
                     <div>
                         <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>Total Outflow</p>
-                        <p style={{ fontSize: '1.25rem', fontWeight: 600, color: '#ef4444' }}>₹{totalOut.toFixed(2)}</p>
+                        <p style={{ fontSize: '1.25rem', fontWeight: 600, color: '#ef4444' }}>{formatIndianCurrency(totalOut)}</p>
                     </div>
                     <div>
                         <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>Net Change</p>
                         <p style={{ fontSize: '1.25rem', fontWeight: 600, color: (totalIn - totalOut) >= 0 ? '#166534' : '#ef4444' }}>
-                            ₹{(totalIn - totalOut).toFixed(2)}
+                            {formatIndianCurrency(totalIn - totalOut)}
                         </p>
                     </div>
                 </div>
@@ -126,10 +138,10 @@ export default function DayBookPage() {
                                         <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{t.description}</div>
                                     </td>
                                     <td style={{ textAlign: 'right', color: t.amountIn > 0 ? '#166534' : 'inherit' }}>
-                                        {t.amountIn > 0 ? `₹${t.amountIn.toFixed(2)}` : '-'}
+                                        {t.amountIn > 0 ? formatIndianCurrency(t.amountIn) : '-'}
                                     </td>
                                     <td style={{ textAlign: 'right', color: t.amountOut > 0 ? '#ef4444' : 'inherit' }}>
-                                        {t.amountOut > 0 ? `₹${t.amountOut.toFixed(2)}` : '-'}
+                                        {t.amountOut > 0 ? formatIndianCurrency(t.amountOut) : '-'}
                                     </td>
                                 </tr>
                             ))}

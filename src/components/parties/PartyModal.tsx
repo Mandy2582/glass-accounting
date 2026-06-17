@@ -12,26 +12,22 @@ interface PartyModalProps {
 }
 
 export default function PartyModal({ isOpen, onClose, onSave, initialData }: PartyModalProps) {
-    const [formData, setFormData] = useState<Partial<Party>>({
+    const defaultPartyData: Partial<Party> = {
         name: '',
         type: 'customer',
         phone: '',
+        email: '',
         address: '',
         balance: 0
-    });
+    };
+    const [formData, setFormData] = useState<Partial<Party>>(defaultPartyData);
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
         if (initialData) {
-            setFormData(initialData);
+            setFormData({ ...defaultPartyData, ...initialData });
         } else {
-            setFormData({
-                name: '',
-                type: 'customer',
-                phone: '',
-                address: '',
-                balance: 0
-            });
+            setFormData(defaultPartyData);
         }
     }, [initialData, isOpen]);
 
@@ -53,7 +49,7 @@ export default function PartyModal({ isOpen, onClose, onSave, initialData }: Par
         <Modal
             isOpen={isOpen}
             onClose={onClose}
-            title={initialData ? 'Edit Party' : 'Add New Party'}
+            title={initialData?.id ? 'Edit Party' : 'Add New Party'}
         >
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <div>
@@ -89,6 +85,17 @@ export default function PartyModal({ isOpen, onClose, onSave, initialData }: Par
                 </div>
 
                 <div>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Email Address</label>
+                    <input
+                        type="email"
+                        className="input"
+                        value={formData.email || ''}
+                        onChange={e => setFormData({ ...formData, email: e.target.value })}
+                        placeholder="e.g. contact@example.com"
+                    />
+                </div>
+
+                <div>
                     <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Address</label>
                     <textarea
                         className="input"
@@ -102,14 +109,15 @@ export default function PartyModal({ isOpen, onClose, onSave, initialData }: Par
                     <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Opening Balance</label>
                     <input
                         type="number"
-                        className="input"
+                        className="input money-input"
+                        step="0.01"
                         value={formData.balance}
                         onChange={e => setFormData({ ...formData, balance: Number(e.target.value) })}
                     />
                     <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>Positive = Receivable, Negative = Payable</p>
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1rem' }}>
+                <div className="form-actions" style={{ marginTop: '1rem' }}>
                     <button type="button" onClick={onClose} className="btn" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>Cancel</button>
                     <button type="submit" disabled={loading} className="btn btn-primary">
                         {loading ? 'Saving...' : 'Save Party'}

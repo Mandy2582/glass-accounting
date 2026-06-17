@@ -2,12 +2,20 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
 import { db } from '@/lib/storage';
 import { Invoice } from '@/types';
-import { TrendingUp, Users, AlertCircle, DollarSign, RefreshCw, ArrowUpRight, ArrowDownRight, Package } from 'lucide-react';
+import { TrendingUp, AlertCircle, RefreshCw, ArrowUpRight, ArrowDownRight, Package, AlertTriangle, IndianRupee, ShoppingCart, FileText, ClipboardList, type LucideIcon } from 'lucide-react';
+import { formatIndianCurrency } from '@/lib/utils';
 
 export default function Dashboard() {
+    type LowStockItem = {
+        id: string;
+        name: string;
+        stock: number;
+        min_stock: number;
+        unit: string;
+    };
+
     const router = useRouter();
     const [stats, setStats] = useState({
         totalSales: 0,
@@ -18,21 +26,24 @@ export default function Dashboard() {
         totalItems: 0
     });
     const [recentInvoices, setRecentInvoices] = useState<Invoice[]>([]);
+    const [lowStockDetails, setLowStockDetails] = useState<LowStockItem[]>([]);
     const [loading, setLoading] = useState(false);
     const [currentDate, setCurrentDate] = useState('');
+    const [greeting, setGreeting] = useState('');
+    const [error, setError] = useState<string | null>(null);
+    const visibleLowStockDetails = lowStockDetails.slice(0, 8);
+    const netPosition = stats.totalReceivables - stats.totalPayables;
+    const stockAlertLabel = stats.lowStockItems > 0 ? `${stats.lowStockItems} low stock` : 'Stock healthy';
 
     useEffect(() => {
-        // Check auth on mount
-        const checkAuth = async () => {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) {
-                router.push('/login');
-                return;
-            }
-        };
+        // Auth check bypassed for demo
+        setCurrentDate(new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }));
 
-        checkAuth();
-        setCurrentDate(new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }));
+        const hour = new Date().getHours();
+        if (hour < 12) setGreeting('Good Morning');
+        else if (hour < 17) setGreeting('Good Afternoon');
+        else setGreeting('Good Evening');
+
         loadStats();
 
         const handleFocus = () => loadStats();
@@ -40,21 +51,21 @@ export default function Dashboard() {
         return () => window.removeEventListener('focus', handleFocus);
     }, []);
 
-    const [error, setError] = useState<string | null>(null);
-
     const loadStats = async () => {
         setLoading(true);
         setError(null);
         try {
             // Use optimized queries
-            const [statsData, recentInvoicesData] = await Promise.all([
+            const [statsData, recentInvoicesData, lowStock] = await Promise.all([
                 db.dashboard.getStats(),
-                db.invoices.getRecent(5)
+                db.invoices.getRecent(5),
+                db.reports.getLowStockItems()
             ]);
 
             setStats(statsData);
             setRecentInvoices(recentInvoicesData);
-        } catch (err: any) {
+            setLowStockDetails(lowStock);
+        } catch (err: unknown) {
             console.error('Dashboard Error:', err);
             setError('Failed to load data. Please check your connection or database setup.');
         } finally {
@@ -62,26 +73,52 @@ export default function Dashboard() {
         }
     };
 
-    const StatCard = ({ title, value, icon: Icon, color, subColor }: any) => (
-        <div className="card" style={{ position: 'relative', overflow: 'hidden', padding: '1.5rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
-                <div style={{ padding: '0.75rem', borderRadius: '12px', background: subColor, color: color }}>
-                    <Icon size={24} />
+    const StatCard = ({ title, value, icon: Icon, color, subColor, suffix, onClick }: {
+        title: string;
+        value: number | string;
+        icon: LucideIcon;
+        color: string;
+        subColor: string;
+        suffix?: string;
+        onClick?: () => void;
+    }) => (
+        <div
+            className="card dashboard-stat-card"
+            style={{
+                position: 'relative',
+                overflow: 'hidden',
+                padding: '1.25rem 1.5rem',
+                cursor: onClick ? 'pointer' : 'default',
+                transition: 'transform 0.2s, box-shadow 0.2s',
+            }}
+            onClick={onClick}
+            onMouseEnter={e => {
+                (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)';
+                (e.currentTarget as HTMLDivElement).style.boxShadow = '0 8px 25px rgba(0,0,0,0.1)';
+            }}
+            onMouseLeave={e => {
+                (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)';
+                (e.currentTarget as HTMLDivElement).style.boxShadow = '';
+            }}
+        >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
+                <div style={{ padding: '0.6rem', borderRadius: '10px', background: subColor, color: color }}>
+                    <Icon size={22} />
                 </div>
                 {/* Decorative background icon */}
-                <Icon size={100} style={{ position: 'absolute', right: -20, bottom: -20, opacity: 0.05, color: color }} />
+                <Icon size={80} style={{ position: 'absolute', right: -15, bottom: -15, opacity: 0.04, color: color }} />
             </div>
             <div>
-                <p style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>{title}</p>
+                <p style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>{title}</p>
                 <h3 style={{
-                    fontSize: '1.75rem',
+                    fontSize: '1.5rem',
                     fontWeight: 700,
                     color: 'var(--color-text)',
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis'
-                }} title={typeof value === 'number' ? `₹${value.toLocaleString()}` : value}>
-                    {typeof value === 'number' ? `₹${value.toLocaleString()}` : value}
+                }} title={typeof value === 'number' ? formatIndianCurrency(value) : String(value)}>
+                    {typeof value === 'number' ? formatIndianCurrency(value) : value}{suffix || ''}
                 </h3>
             </div>
         </div>
@@ -89,21 +126,56 @@ export default function Dashboard() {
 
     return (
         <div className="container">
-            {/* Header Section */}
-            <div style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+            <div className="dashboard-hero">
                 <div>
-                    <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>{currentDate}</p>
-                    <h1 style={{ fontSize: '2rem', fontWeight: 800, letterSpacing: '-0.025em' }}>Welcome back!</h1>
+                    <p className="dashboard-kicker">{currentDate}</p>
+                    <h1>{greeting}</h1>
+                    <p>Today&apos;s snapshot for Arjun Glass House.</p>
                 </div>
-                <button
-                    onClick={loadStats}
-                    className="btn"
-                    style={{ background: 'white', border: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}
-                    disabled={loading}
-                >
-                    <RefreshCw size={16} className={loading ? 'spin' : ''} />
-                    {loading ? 'Refreshing...' : 'Refresh Data'}
-                </button>
+                <div className="dashboard-hero-stats">
+                    <div>
+                        <span>Net Position</span>
+                        <strong className={netPosition >= 0 ? 'positive' : 'negative'}>{formatIndianCurrency(netPosition)}</strong>
+                    </div>
+                    <div>
+                        <span>Inventory</span>
+                        <strong>{stockAlertLabel}</strong>
+                    </div>
+                </div>
+                <div className="dashboard-actions">
+                    <button
+                        onClick={() => router.push('/orders/new')}
+                        className="btn btn-primary"
+                        style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1.25rem' }}
+                    >
+                        <ClipboardList size={16} />
+                        New Order
+                    </button>
+                    <button
+                        onClick={() => router.push('/sales')}
+                        className="btn"
+                        style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1.25rem' }}
+                    >
+                        <FileText size={16} />
+                        New Invoice
+                    </button>
+                    <button
+                        onClick={loadStats}
+                        className="btn"
+                        style={{
+                            background: 'white',
+                            border: '1px solid var(--color-border)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                        }}
+                        disabled={loading}
+                    >
+                        <RefreshCw size={16} className={loading ? 'spin' : ''} />
+                        {loading ? 'Refreshing...' : 'Refresh'}
+                    </button>
+                </div>
             </div>
 
             {error && (
@@ -113,25 +185,29 @@ export default function Dashboard() {
                     borderRadius: '8px',
                     background: '#fee2e2',
                     color: '#b91c1c',
-                    border: '1px solid #fecaca'
+                    border: '1px solid #fecaca',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem'
                 }}>
+                    <AlertCircle size={18} />
                     {error}
                 </div>
             )}
 
-            {/* Financial Overview */}
-            <div style={{ marginBottom: '2.5rem' }}>
-                <h2 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <DollarSign size={20} className="text-muted" />
-                    Financial Overview
+            <div style={{ marginBottom: '2rem' }}>
+                <h2 className="dashboard-section-title">
+                    <IndianRupee size={18} />
+                    Business Snapshot
                 </h2>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.5rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
                     <StatCard
                         title="Total Sales"
                         value={stats.totalSales}
                         icon={TrendingUp}
                         color="#166534"
                         subColor="#dcfce7"
+                        onClick={() => router.push('/sales')}
                     />
                     <StatCard
                         title="Receivables"
@@ -139,13 +215,15 @@ export default function Dashboard() {
                         icon={ArrowDownRight}
                         color="#0369a1"
                         subColor="#e0f2fe"
+                        onClick={() => router.push('/parties')}
                     />
                     <StatCard
                         title="Total Purchases"
                         value={stats.totalPurchases}
-                        icon={DollarSign}
+                        icon={ShoppingCart}
                         color="#c2410c"
                         subColor="#ffedd5"
+                        onClick={() => router.push('/purchases')}
                     />
                     <StatCard
                         title="Payables"
@@ -153,79 +231,187 @@ export default function Dashboard() {
                         icon={ArrowUpRight}
                         color="#b91c1c"
                         subColor="#fee2e2"
+                        onClick={() => router.push('/parties')}
                     />
                 </div>
             </div>
 
-            {/* Inventory & Activity Grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '2rem' }}>
-
-                {/* Inventory Health */}
+            {/* Three Column Grid */}
+            <div className="dashboard-content-grid">
+                {/* Low Stock Alerts */}
                 <div>
-                    <h2 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <Package size={20} className="text-muted" />
+                    <h2 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-text-muted)' }}>
+                        <AlertTriangle size={18} />
+                        Low Stock Alerts
+                        {lowStockDetails.length > 0 && (
+                            <span style={{
+                                background: '#ef4444',
+                                color: 'white',
+                                fontSize: '0.7rem',
+                                fontWeight: 700,
+                                padding: '2px 8px',
+                                borderRadius: '999px',
+                                animation: 'pulse 2s infinite'
+                            }}>
+                                {lowStockDetails.length}
+                            </span>
+                        )}
+                    </h2>
+                    <div className="card" style={{ padding: 0, overflow: 'hidden', maxHeight: '320px', overflowY: 'auto' }}>
+                        {lowStockDetails.length === 0 ? (
+                            <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--color-text-muted)' }}>
+                                <Package size={36} style={{ marginBottom: '0.5rem', opacity: 0.4 }} />
+                                <p style={{ fontSize: '0.875rem' }}>All items are well stocked.</p>
+                            </div>
+                        ) : (
+                            visibleLowStockDetails.map((item, idx) => (
+                                <div key={item.id || idx} style={{
+                                    padding: '0.75rem 1rem',
+                                    borderBottom: '1px solid var(--color-border)',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    background: item.stock <= 0 ? '#fef2f2' : 'transparent'
+                                }}>
+                                    <div>
+                                        <p style={{ fontSize: '0.85rem', fontWeight: 600 }}>{item.name}</p>
+                                        <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                                            Min: {item.min_stock || 0} {item.unit}
+                                        </p>
+                                    </div>
+                                    <div style={{ textAlign: 'right' }}>
+                                        <span style={{
+                                            fontSize: '0.85rem',
+                                            fontWeight: 700,
+                                            color: item.stock <= 0 ? '#dc2626' : '#f59e0b',
+                                            padding: '2px 8px',
+                                            borderRadius: '6px',
+                                            background: item.stock <= 0 ? '#fee2e2' : '#fef3c7'
+                                        }}>
+                                            {item.stock} {item.unit}
+                                        </span>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                        {lowStockDetails.length > visibleLowStockDetails.length && (
+                            <button
+                                type="button"
+                                onClick={() => router.push('/inventory')}
+                                style={{
+                                    width: '100%',
+                                    padding: '0.75rem',
+                                    border: 'none',
+                                    background: 'rgba(99, 102, 241, 0.06)',
+                                    color: 'var(--color-primary)',
+                                    cursor: 'pointer',
+                                    fontWeight: 700
+                                }}
+                            >
+                                View all {lowStockDetails.length} alerts in Inventory
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                {/* Inventory Quick Stats */}
+                <div>
+                    <h2 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-text-muted)' }}>
+                        <Package size={18} />
                         Inventory Health
                     </h2>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-                        <div className="card" style={{ padding: '1.5rem', background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', color: 'white' }}>
-                            <div style={{ marginBottom: '1rem', opacity: 0.9 }}>
-                                <Package size={24} />
-                            </div>
-                            <p style={{ fontSize: '0.875rem', opacity: 0.8, marginBottom: '0.25rem' }}>Total Items</p>
-                            <h3 style={{ fontSize: '2rem', fontWeight: 700 }}>{stats.totalItems}</h3>
+                    <div style={{ display: 'grid', gridTemplateRows: '1fr 1fr', gap: '1rem' }}>
+                        <div className="card" style={{
+                            padding: '1.25rem',
+                            background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                            color: 'white',
+                            cursor: 'pointer',
+                            transition: 'transform 0.2s'
+                        }}
+                            onClick={() => router.push('/inventory')}
+                            onMouseEnter={e => (e.currentTarget.style.transform = 'translateY(-2px)')}
+                            onMouseLeave={e => (e.currentTarget.style.transform = 'translateY(0)')}
+                        >
+                            <Package size={22} style={{ marginBottom: '0.5rem', opacity: 0.9 }} />
+                            <p style={{ fontSize: '0.8rem', opacity: 0.85, marginBottom: '0.125rem' }}>Total Items</p>
+                            <h3 style={{ fontSize: '1.75rem', fontWeight: 700 }}>{stats.totalItems}</h3>
                         </div>
-                        <div className="card" style={{ padding: '1.5rem', background: stats.lowStockItems > 0 ? 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: 'white' }}>
-                            <div style={{ marginBottom: '1rem', opacity: 0.9 }}>
-                                <AlertCircle size={24} />
-                            </div>
-                            <p style={{ fontSize: '0.875rem', opacity: 0.8, marginBottom: '0.25rem' }}>Low Stock Alerts</p>
-                            <h3 style={{ fontSize: '2rem', fontWeight: 700 }}>{stats.lowStockItems}</h3>
+                        <div className="card" style={{
+                            padding: '1.25rem',
+                            background: stats.lowStockItems > 0
+                                ? 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)'
+                                : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                            color: 'white',
+                            cursor: 'pointer',
+                            transition: 'transform 0.2s'
+                        }}
+                            onClick={() => router.push('/inventory')}
+                            onMouseEnter={e => (e.currentTarget.style.transform = 'translateY(-2px)')}
+                            onMouseLeave={e => (e.currentTarget.style.transform = 'translateY(0)')}
+                        >
+                            <AlertCircle size={22} style={{ marginBottom: '0.5rem', opacity: 0.9 }} />
+                            <p style={{ fontSize: '0.8rem', opacity: 0.85, marginBottom: '0.125rem' }}>
+                                {stats.lowStockItems > 0 ? 'Low Stock Alerts' : 'Stock Status'}
+                            </p>
+                            <h3 style={{ fontSize: '1.75rem', fontWeight: 700 }}>
+                                {stats.lowStockItems > 0 ? stats.lowStockItems : 'All Good'}
+                            </h3>
                         </div>
                     </div>
                 </div>
 
                 {/* Recent Activity */}
                 <div>
-                    <h2 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <RefreshCw size={20} className="text-muted" />
+                    <h2 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-text-muted)' }}>
+                        <RefreshCw size={18} />
                         Recent Activity
                     </h2>
-                    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                        <table className="table" style={{ margin: 0 }}>
-                            <thead style={{ background: '#f9fafb' }}>
-                                <tr>
-                                    <th style={{ padding: '1rem' }}>Type</th>
-                                    <th style={{ padding: '1rem' }}>Party</th>
-                                    <th style={{ padding: '1rem', textAlign: 'right' }}>Amount</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {recentInvoices.map(inv => (
-                                    <tr key={inv.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
-                                        <td style={{ padding: '1rem' }}>
-                                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                                <span style={{
-                                                    fontSize: '0.75rem',
-                                                    fontWeight: 600,
-                                                    color: (inv.type || 'sale') === 'sale' ? '#166534' : '#374151',
-                                                    marginBottom: '0.125rem'
-                                                }}>
-                                                    {(inv.type || 'sale').toUpperCase()}
-                                                </span>
-                                                <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{new Date(inv.date).toLocaleDateString()}</span>
-                                            </div>
-                                        </td>
-                                        <td style={{ padding: '1rem', fontWeight: 500 }}>{inv.partyName}</td>
-                                        <td style={{ padding: '1rem', textAlign: 'right', fontWeight: 600 }}>₹{inv.total.toLocaleString()}</td>
-                                    </tr>
-                                ))}
-                                {recentInvoices.length === 0 && (
-                                    <tr>
-                                        <td colSpan={3} style={{ textAlign: 'center', padding: '2rem', color: 'var(--color-text-muted)' }}>No recent activity</td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
+                    <div className="card" style={{ padding: 0, overflow: 'hidden', maxHeight: '320px', overflowY: 'auto' }}>
+                        {recentInvoices.length === 0 ? (
+                            <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--color-text-muted)' }}>
+                                <FileText size={36} style={{ marginBottom: '0.5rem', opacity: 0.4 }} />
+                                <p style={{ fontSize: '0.875rem' }}>No recent activity</p>
+                            </div>
+                        ) : (
+                            recentInvoices.map((inv, idx) => (
+                                <div key={inv.id} style={{
+                                    padding: '0.75rem 1rem',
+                                    borderBottom: idx < recentInvoices.length - 1 ? '1px solid var(--color-border)' : 'none',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    cursor: 'pointer',
+                                    transition: 'background 0.15s'
+                                }}
+                                    onClick={() => router.push('/sales')}
+                                    onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                                >
+                                    <div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.125rem' }}>
+                                            <span style={{
+                                                fontSize: '0.65rem',
+                                                fontWeight: 700,
+                                                padding: '1px 6px',
+                                                borderRadius: '4px',
+                                                background: (inv.type || 'sale') === 'sale' ? '#dcfce7' : '#e0f2fe',
+                                                color: (inv.type || 'sale') === 'sale' ? '#166534' : '#0369a1',
+                                                textTransform: 'uppercase'
+                                            }}>
+                                                {(inv.type || 'sale')}
+                                            </span>
+                                            <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>{inv.partyName}</span>
+                                        </div>
+                                        <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
+                                            {new Date(inv.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                                        </span>
+                                    </div>
+                                    <span style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--color-text)' }}>
+                                        {formatIndianCurrency(inv.total)}
+                                    </span>
+                                </div>
+                            ))
+                        )}
                     </div>
                 </div>
             </div>

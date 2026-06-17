@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Invoice, Voucher, BankAccount } from '@/types';
 import { db } from '@/lib/storage';
 import { X } from 'lucide-react';
+import { formatIndianCurrency, roundCurrency } from '@/lib/utils';
 
 interface PaymentModalProps {
     invoice: Invoice;
@@ -39,27 +40,34 @@ export default function PaymentModal({ invoice, onClose, onSave }: PaymentModalP
             alert('Please select a bank account for bank transfer');
             return;
         }
+        if (amount <= 0 || amount > roundCurrency(invoice.total - (invoice.paidAmount || 0))) {
+            alert('Please enter an amount greater than zero and not more than the balance due.');
+            return;
+        }
 
         setLoading(true);
 
         try {
-            // 1. Create Voucher (Receipt)
+            const isPurchase = invoice.type === 'purchase';
+            // 1. Create Voucher (Receipt or Payment)
             const voucher: Voucher = {
                 id: crypto.randomUUID(),
-                number: `RCP-${Date.now().toString().substr(-6)}`,
+                number: `${isPurchase ? 'PMT' : 'RCP'}-${Date.now().toString().substr(-6)}`,
                 date,
-                type: 'receipt',
+                type: isPurchase ? 'payment' : 'receipt',
                 partyId: invoice.partyId,
                 partyName: invoice.partyName,
-                amount,
-                description: `Payment for Invoice ${invoice.number}`,
+                amount: roundCurrency(amount),
+                description: isPurchase 
+                    ? `Payment to Supplier for Invoice ${invoice.number}`
+                    : `Payment for Invoice ${invoice.number}`,
                 mode,
                 ...(mode === 'bank' && { bankAccountId })
             };
             await db.vouchers.add(voucher);
 
             // 2. Update Invoice Payment Status
-            const newPaidAmount = (invoice.paidAmount || 0) + amount;
+            const newPaidAmount = roundCurrency((invoice.paidAmount || 0) + amount);
             let newStatus: Invoice['status'] = 'partially_paid';
             if (newPaidAmount >= invoice.total) {
                 newStatus = 'paid';
@@ -84,7 +92,9 @@ export default function PaymentModal({ invoice, onClose, onSave }: PaymentModalP
         }}>
             <div className="card" style={{ width: '400px', maxWidth: '90%' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                    <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Record Payment</h2>
+                    <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>
+                        {invoice.type === 'purchase' ? 'Record Payment' : 'Record Receipt'}
+                    </h2>
                     <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
                         <X size={24} />
                     </button>
@@ -92,9 +102,9 @@ export default function PaymentModal({ invoice, onClose, onSave }: PaymentModalP
 
                 <div style={{ marginBottom: '1rem', padding: '0.75rem', background: '#f3f4f6', borderRadius: '0.5rem' }}>
                     <div style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>Invoice Total</div>
-                    <div style={{ fontWeight: 600 }}>₹{invoice.total.toFixed(2)}</div>
+                    <div style={{ fontWeight: 600 }}>{formatIndianCurrency(invoice.total)}</div>
                     <div style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>Already Paid</div>
-                    <div style={{ fontWeight: 600 }}>₹{(invoice.paidAmount || 0).toFixed(2)}</div>
+                    <div style={{ fontWeight: 600 }}>{formatIndianCurrency(invoice.paidAmount || 0)}</div>
                 </div>
 
                 <form onSubmit={handleSubmit}>
@@ -102,8 +112,10 @@ export default function PaymentModal({ invoice, onClose, onSave }: PaymentModalP
                         <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Amount</label>
                         <input
                             type="number"
-                            className="input"
+                            className="input money-input"
                             required
+                            min="0.01"
+                            step="0.01"
                             max={invoice.total - (invoice.paidAmount || 0)}
                             value={amount}
                             onChange={e => setAmount(Number(e.target.value))}

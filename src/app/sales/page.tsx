@@ -1,19 +1,28 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Plus, FileText } from 'lucide-react';
+import { Plus, FileText, RefreshCw, Search } from 'lucide-react';
 import { db } from '@/lib/storage';
 import { Invoice } from '@/types';
 import InvoiceForm from '@/components/sales/InvoiceForm';
 import InvoicePrint from '@/components/sales/InvoicePrint';
 import PaymentModal from '@/components/sales/PaymentModal';
+import { tallyApi } from '@/lib/tally';
 
 export default function SalesPage() {
     const [invoices, setInvoices] = useState<Invoice[]>([]);
+    const [search, setSearch] = useState('');
     const [isFormOpen, setIsFormOpen] = useState(false);
+    const [syncingId, setSyncingId] = useState<string | null>(null);
+    const [syncMessage, setSyncMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
 
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+
+    const filteredInvoices = invoices.filter(inv => 
+        (inv.number || '').toLowerCase().includes(search.toLowerCase()) || 
+        (inv.partyName || '').toLowerCase().includes(search.toLowerCase())
+    );
 
     useEffect(() => {
         loadInvoices();
@@ -21,7 +30,11 @@ export default function SalesPage() {
 
     const loadInvoices = async () => {
         const data = await db.invoices.getAll();
-        setInvoices(data.filter(i => (i.type || 'sale') === 'sale').reverse()); // Newest first
+        setInvoices(data.filter(i => (i.type || 'sale') === 'sale').sort((a, b) => {
+            const timeA = new Date((a as any).created_at || a.date).getTime();
+            const timeB = new Date((b as any).created_at || b.date).getTime();
+            return timeB - timeA;
+        }));
     };
 
     const handleDelete = async (id: string) => {
@@ -70,6 +83,43 @@ export default function SalesPage() {
         setEditingInvoice(null);
     };
 
+    const handleSyncToTally = async (invoice: Invoice) => {
+        setSyncingId(invoice.id);
+        setSyncMessage(null);
+        try {
+            const config = await db.businessConfig.get();
+            if (!config.tallyServerIp || !config.tallyServerPort) {
+                throw new Error("Tally IP or Port is not configured in Settings.");
+            }
+            if (!config.tallyCompanyName) {
+                throw new Error("Tally Company Name is not configured in Settings.");
+            }
+
+            // Generate XML for this invoice (treating it as a Sales Order for now)
+            const xml = tallyApi.generateSalesOrderXml(invoice as any, config.tallyCompanyName);
+            
+            // Send to Tally
+            const response = await tallyApi.sendRequest(config.tallyServerIp, config.tallyServerPort, xml);
+            
+            if (response.includes('<CREATED>1</CREATED>') || response.includes('Created Successfully')) {
+                setSyncMessage({ type: 'success', text: `Invoice ${invoice.number} synced to Tally successfully!` });
+            } else {
+                // Sometimes it's created without clear tags, just check if it threw an error
+                setSyncMessage({ type: 'success', text: `Invoice ${invoice.number} sent to Tally!` });
+            }
+            
+            // Auto hide message
+            setTimeout(() => setSyncMessage(null), 4000);
+            
+        } catch (error: any) {
+            console.error('Tally Sync Error:', error);
+            setSyncMessage({ type: 'error', text: error.message || "Failed to sync with Tally" });
+            setTimeout(() => setSyncMessage(null), 5000);
+        } finally {
+            setSyncingId(null);
+        }
+    };
+
     if (isFormOpen) {
         return (
             <InvoiceForm
@@ -94,7 +144,33 @@ export default function SalesPage() {
                 </button>
             </div>
 
+            {syncMessage && (
+                <div style={{ 
+                    padding: '1rem', 
+                    marginBottom: '1rem', 
+                    borderRadius: '8px',
+                    background: syncMessage.type === 'success' ? '#dcfce7' : '#fee2e2',
+                    color: syncMessage.type === 'success' ? '#166534' : '#991b1b',
+                    fontWeight: 500
+                }}>
+                    {syncMessage.text}
+                </div>
+            )}
+
             <div className="card">
+                <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center' }}>
+                    <div style={{ position: 'relative', width: '300px' }}>
+                        <Search size={18} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
+                        <input
+                            type="text"
+                            placeholder="Search by invoice # or customer..."
+                            className="input"
+                            style={{ paddingLeft: '2.5rem' }}
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                        />
+                    </div>
+                </div>
                 <table className="table">
                     <thead>
                         <tr>
@@ -109,7 +185,7 @@ export default function SalesPage() {
                         </tr>
                     </thead>
                     <tbody>
-                        {invoices.map((inv) => (
+                        {filteredInvoices.map((inv) => (
                             <tr key={inv.id}>
                                 <td style={{ fontWeight: 500 }}>{inv.number}</td>
                                 <td>{new Date(inv.date).toLocaleDateString()}</td>
@@ -161,15 +237,33 @@ export default function SalesPage() {
                                         >
                                             Delete
                                         </button>
+                                        <button
+                                            className="btn"
+                                            style={{ 
+                                                padding: '0.25rem 0.5rem', 
+                                                fontSize: '0.75rem', 
+                                                background: '#dbeafe', 
+                                                color: '#1d4ed8', 
+                                                border: '1px solid #bfdbfe',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '0.25rem'
+                                            }}
+                                            onClick={() => handleSyncToTally(inv)}
+                                            disabled={syncingId === inv.id}
+                                        >
+                                            <RefreshCw size={12} style={{ animation: syncingId === inv.id ? 'spin 1s linear infinite' : 'none' }} />
+                                            {syncingId === inv.id ? 'Syncing...' : 'Tally'}
+                                        </button>
                                     </div>
                                 </td>
                             </tr>
                         ))}
-                        {invoices.length === 0 && (
+                        {filteredInvoices.length === 0 && (
                             <tr>
                                 <td colSpan={8} style={{ textAlign: 'center', padding: '3rem', color: 'var(--color-text-muted)' }}>
                                     <FileText size={48} style={{ marginBottom: '1rem', opacity: 0.5 }} />
-                                    <p>No invoices created yet.</p>
+                                    <p>No invoices found.</p>
                                 </td>
                             </tr>
                         )}

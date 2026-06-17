@@ -2,23 +2,16 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Search, Filter, ArrowRight, User, Briefcase } from 'lucide-react';
+import { Search, ArrowRight } from 'lucide-react';
 import { db } from '@/lib/storage';
-import { Party, Employee } from '@/types';
-
-type LedgerItem = {
-    id: string;
-    name: string;
-    type: 'customer' | 'supplier' | 'employee';
-    balance: number;
-    phone?: string;
-};
+import { formatIndianCurrency } from '@/lib/utils';
+import { buildJournal, buildLedgerSummaries, formatDrCr, LedgerSummary, LedgerType } from '@/lib/accounting';
 
 export default function LedgersListPage() {
-    const [items, setItems] = useState<LedgerItem[]>([]);
+    const [items, setItems] = useState<LedgerSummary[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
-    const [filterType, setFilterType] = useState<'all' | 'customer' | 'supplier' | 'employee'>('all');
+    const [filterType, setFilterType] = useState<'all' | LedgerType>('all');
 
     useEffect(() => {
         loadData();
@@ -27,29 +20,26 @@ export default function LedgersListPage() {
     const loadData = async () => {
         setLoading(true);
         try {
-            const [parties, employees] = await Promise.all([
+            const [parties, employees, config, vouchers, invoices, salarySlips, bankAccounts] = await Promise.all([
                 db.parties.getAll(),
-                db.employees.getAll()
+                db.employees.getAll(),
+                db.businessConfig.get(),
+                db.vouchers.getAll(),
+                db.invoices.getAll(),
+                db.payroll.getAll(),
+                db.bankAccounts.getAll()
             ]);
 
-            const ledgerItems: LedgerItem[] = [
-                ...parties.map(p => ({
-                    id: p.id,
-                    name: p.name,
-                    type: p.type,
-                    balance: p.balance,
-                    phone: p.phone
-                })),
-                ...employees.map(e => ({
-                    id: e.id,
-                    name: e.name,
-                    type: 'employee' as const,
-                    balance: e.balance || 0,
-                    phone: e.phone
-                }))
-            ];
-
-            setItems(ledgerItems.sort((a, b) => a.name.localeCompare(b.name)));
+            const journal = buildJournal({
+                invoices,
+                vouchers,
+                parties,
+                employees,
+                salarySlips,
+                bankAccounts,
+                config,
+            });
+            setItems(buildLedgerSummaries({ parties, employees, config, journal }));
         } catch (error) {
             console.error('Error loading ledgers:', error);
         } finally {
@@ -63,52 +53,17 @@ export default function LedgersListPage() {
         return matchesSearch && matchesType;
     });
 
-    const formatCurrency = (amount: number) => {
-        return new Intl.NumberFormat('en-IN', {
-            style: 'currency',
-            currency: 'INR',
-            maximumFractionDigits: 0
-        }).format(Math.abs(amount));
-    };
+    const formatCurrency = (amount: number) => formatIndianCurrency(Math.abs(amount));
 
-    const getBalanceColor = (item: LedgerItem) => {
+    const getBalanceColor = (item: LedgerSummary) => {
         if (item.balance === 0) return 'var(--color-text-muted)';
-
-        if (item.type === 'customer') {
-            return item.balance > 0 ? '#dc2626' : '#16a34a'; // Positive = Receivable (Red/Asset?), wait. 
-            // Receivable is Asset. Usually Dr. 
-            // Let's stick to: Receivable (Positive) = Green? No, usually Red in accounting software means "Due".
-            // Let's use: Positive (Receivable) = Orange/Red (Money to come), Negative (Advance) = Green.
-            // Actually, let's keep it simple:
-            // > 0 : Dr (Receivable)
-            // < 0 : Cr (Payable/Advance)
-        }
-
-        if (item.type === 'supplier') {
-            return item.balance < 0 ? '#dc2626' : '#16a34a'; // Negative = Payable (Red/Liability)
-        }
-
-        if (item.type === 'employee') {
-            return item.balance < 0 ? '#dc2626' : '#16a34a'; // Negative = Salary Due (Payable)
-        }
-
-        return 'inherit';
+        return item.balance >= 0 ? '#16a34a' : '#dc2626';
     };
 
-    const getBalanceLabel = (item: LedgerItem) => {
+    const getBalanceLabel = (item: LedgerSummary) => {
         if (item.balance === 0) return '-';
-        const amount = formatCurrency(item.balance);
-
-        if (item.type === 'customer') {
-            return item.balance > 0 ? `${amount} Dr (Receivable)` : `${amount} Cr (Advance)`;
-        }
-        if (item.type === 'supplier') {
-            return item.balance < 0 ? `${amount} Cr (Payable)` : `${amount} Dr (Advance)`;
-        }
-        if (item.type === 'employee') {
-            return item.balance < 0 ? `${amount} Cr (Salary Due)` : `${amount} Dr (Advance)`;
-        }
-        return amount;
+        const side = formatDrCr(item.balance, item.accountType);
+        return `${formatCurrency(side.amount)} ${side.suffix}`;
     };
 
     return (
@@ -138,6 +93,12 @@ export default function LedgersListPage() {
                     </div>
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                         <button
+                            className={`btn ${filterType === 'system' ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => setFilterType('system')}
+                        >
+                            System Accounts
+                        </button>
+                        <button
                             className={`btn ${filterType === 'all' ? 'btn-primary' : 'btn-secondary'}`}
                             onClick={() => setFilterType('all')}
                         >
@@ -160,6 +121,12 @@ export default function LedgersListPage() {
                             onClick={() => setFilterType('employee')}
                         >
                             Employees
+                        </button>
+                        <button
+                            className={`btn ${filterType === 'general' ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => setFilterType('general')}
+                        >
+                            Custom Ledgers
                         </button>
                     </div>
                 </div>
@@ -190,11 +157,11 @@ export default function LedgersListPage() {
                                             padding: '0.25rem 0.5rem',
                                             borderRadius: '999px',
                                             fontSize: '0.75rem',
-                                            background: item.type === 'employee' ? '#eff6ff' : '#f3f4f6',
-                                            color: item.type === 'employee' ? '#2563eb' : '#4b5563',
+                                            background: item.type === 'system' ? '#ecfeff' : item.type === 'employee' ? '#eff6ff' : item.type === 'general' ? '#faf5ff' : '#f3f4f6',
+                                            color: item.type === 'system' ? '#0e7490' : item.type === 'employee' ? '#2563eb' : item.type === 'general' ? '#7c3aed' : '#4b5563',
                                             textTransform: 'capitalize'
                                         }}>
-                                            {item.type}
+                                            {item.type === 'general' ? 'custom ledger' : item.type === 'system' ? item.accountType : item.type}
                                         </span>
                                     </td>
                                     <td>{item.phone || '-'}</td>

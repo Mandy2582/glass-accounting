@@ -4,6 +4,11 @@ import { useState, useEffect } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { db } from '@/lib/storage';
 import { GlassItem, Party, Order, InvoiceItem, OrderType } from '@/types';
+import FractionInput from '@/components/FractionInput';
+import PartyModal from '@/components/parties/PartyModal';
+import ItemModal from '@/components/inventory/ItemModal';
+import { generateUUID, roundCurrency } from '@/lib/utils';
+import { calculateLineAmounts, convertRateForItemUnit, UNIT_OPTIONS_BY_GROUP } from '@/lib/units';
 
 interface OrderFormProps {
     onSave: () => void;
@@ -20,6 +25,9 @@ export default function OrderForm({ onSave, onCancel }: OrderFormProps) {
 
     const [orderItems, setOrderItems] = useState<InvoiceItem[]>([]);
     const [loading, setLoading] = useState(false);
+    const [showNewPartyModal, setShowNewPartyModal] = useState(false);
+    const [showNewItemModal, setShowNewItemModal] = useState(false);
+    const [pendingItemRowIndex, setPendingItemRowIndex] = useState<number | null>(null);
 
     useEffect(() => {
         loadData();
@@ -35,6 +43,74 @@ export default function OrderForm({ onSave, onCancel }: OrderFormProps) {
         const partyType = orderType === 'sale_order' ? 'customer' : 'supplier';
         setParties(partiesData.filter(p => p.type === partyType));
         setItems(itemsData);
+    };
+
+    const handleSaveNewParty = async (partyData: Omit<Party, 'id'>) => {
+        const partyType = orderType === 'sale_order' ? 'customer' : 'supplier';
+        const newParty: Party = {
+            ...partyData,
+            id: generateUUID(),
+            type: partyType,
+        };
+
+        await db.parties.add(newParty);
+        const partiesData = await db.parties.getAll();
+        setParties(partiesData.filter(p => p.type === partyType));
+        setSelectedPartyId(newParty.id);
+        setShowNewPartyModal(false);
+    };
+
+    const handleSaveNewItem = async (itemData: Omit<GlassItem, 'id'>) => {
+        const newItem: GlassItem = {
+            ...itemData,
+            id: generateUUID(),
+        };
+
+        await db.items.add(newItem);
+        const itemsData = await db.items.getAll();
+        setItems(itemsData);
+
+        if (pendingItemRowIndex !== null) {
+            setOrderItems(prev => prev.map((row, index) => {
+                if (index !== pendingItemRowIndex) return row;
+
+                const width = newItem.width || 0;
+                const height = newItem.height || 0;
+                const qty = Number(row.quantity) || 1;
+                const unit = newItem.rateUnit || newItem.unit || (newItem.category === 'hardware' ? 'nos' : 'sqft');
+                const rate = Number(newItem.rate) || 0;
+                const calculated = calculateLineAmounts({
+                    width,
+                    height,
+                    quantity: qty,
+                    unit,
+                    rate,
+                    taxRate: 18,
+                    conversionFactor: newItem.conversionFactor,
+                });
+
+                return {
+                    ...row,
+                    itemId: newItem.id,
+                    itemName: newItem.name,
+                    make: newItem.make,
+                    model: newItem.model,
+                    type: newItem.category === 'hardware' ? 'Hardware' : newItem.type,
+                    warehouse: row.warehouse || 'Warehouse A',
+                    width,
+                    height,
+                    quantity: qty,
+                    unit,
+                    sqft: calculated.sqft,
+                    rate,
+                    amount: calculated.amount,
+                    lineTotal: calculated.lineTotal,
+                };
+            }));
+        }
+
+        setPendingItemRowIndex(null);
+        setShowNewItemModal(false);
     };
 
     const addItem = () => {
@@ -53,6 +129,7 @@ export default function OrderForm({ onSave, onCancel }: OrderFormProps) {
 
     const updateItem = (index: number, field: keyof InvoiceItem, value: any) => {
         const newItems = [...orderItems];
+        const previousUnit = newItems[index].unit || 'nos';
         const item = { ...newItems[index], [field]: value };
 
         if (field === 'itemId') {
@@ -66,22 +143,43 @@ export default function OrderForm({ onSave, onCancel }: OrderFormProps) {
                 item.width = selectedItem.width || 0;
                 item.height = selectedItem.height || 0;
                 item.rate = selectedItem.rate;
-                item.unit = selectedItem.unit;
+                item.unit = selectedItem.rateUnit || selectedItem.unit;
             }
         }
 
-        // Recalculate
-        if (item.width && item.height && item.quantity) {
-            item.sqft = (item.width * item.height / 144) * item.quantity;
+        if (field === 'unit') {
+            const catalogItem = items.find(i => i.id === item.itemId);
+            item.rate = convertRateForItemUnit({
+                rate: Number(item.rate) || 0,
+                fromUnit: previousUnit,
+                toUnit: String(value),
+                width: item.width || catalogItem?.width,
+                height: item.height || catalogItem?.height,
+                conversionFactor: catalogItem?.conversionFactor,
+            });
         }
 
-        if (item.rate) {
-            const unit = item.unit || 'sqft';
-            if (unit === 'sqft') {
-                item.amount = (item.sqft || 0) * item.rate;
-            } else {
-                item.amount = (item.quantity || 0) * item.rate;
-            }
+        // Calculate Sqft and Amount
+        if (['width', 'height', 'quantity', 'rate', 'itemId', 'unit'].includes(field)) {
+            const width = field === 'width' ? Number(value) : item.width;
+            const height = field === 'height' ? Number(value) : item.height;
+            const qty = field === 'quantity' ? Number(value) : item.quantity;
+            const rate = field === 'rate' ? Number(value) : item.rate;
+            const unit = field === 'unit' ? value : item.unit;
+
+            const catalogItem = items.find(i => i.id === item.itemId);
+            const calculated = calculateLineAmounts({
+                width,
+                height,
+                quantity: qty,
+                unit,
+                rate,
+                taxRate: 18,
+                conversionFactor: catalogItem?.conversionFactor,
+            });
+            item.sqft = calculated.sqft;
+            item.amount = calculated.amount;
+            item.lineTotal = calculated.lineTotal;
         }
 
         newItems[index] = item;
@@ -93,7 +191,7 @@ export default function OrderForm({ onSave, onCancel }: OrderFormProps) {
     };
 
     const calculateTotal = () => {
-        return orderItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+        return roundCurrency(orderItems.reduce((sum, item) => sum + (item.amount || 0), 0));
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -111,15 +209,15 @@ export default function OrderForm({ onSave, onCancel }: OrderFormProps) {
             const party = parties.find(p => p.id === selectedPartyId);
             const subtotal = calculateTotal();
             const taxRate = 18;
-            const taxAmount = subtotal * (taxRate / 100);
-            const total = subtotal + taxAmount;
+            const taxAmount = roundCurrency(subtotal * (taxRate / 100));
+            const total = roundCurrency(subtotal + taxAmount);
 
-            const prefix = orderType === 'sale_order' ? 'SO' : 'PO';
+            const orderNumber = await db.orders.generateNextOrderNumber(orderType, party?.name || '');
 
             const order: Order = {
-                id: Math.random().toString(36).substr(2, 9),
+                id: crypto.randomUUID(),
                 type: orderType,
-                number: `${prefix}-${Date.now().toString().substr(-6)}`,
+                number: orderNumber,
                 date: orderDate,
                 deliveryDate,
                 partyId: selectedPartyId,
@@ -169,22 +267,39 @@ export default function OrderForm({ onSave, onCancel }: OrderFormProps) {
                     </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
+                <div className="form-grid form-grid-3" style={{ marginBottom: '1.5rem' }}>
                     <div>
                         <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>
                             {orderType === 'sale_order' ? 'Customer' : 'Supplier'}
                         </label>
-                        <select
-                            className="input"
-                            required
-                            value={selectedPartyId}
-                            onChange={e => setSelectedPartyId(e.target.value)}
-                        >
-                            <option value="">Select Party</option>
-                            {parties.map(p => (
-                                <option key={p.id} value={p.id}>{p.name}</option>
-                            ))}
-                        </select>
+                        <div className="quick-add-field">
+                            <select
+                                className="input"
+                                required
+                                value={selectedPartyId}
+                                onChange={e => {
+                                    if (e.target.value === '__add_party__') {
+                                        setShowNewPartyModal(true);
+                                    } else {
+                                        setSelectedPartyId(e.target.value);
+                                    }
+                                }}
+                            >
+                                <option value="">Select Party</option>
+                                <option value="__add_party__">+ Add New {orderType === 'sale_order' ? 'Customer' : 'Supplier'}</option>
+                                {parties.map(p => (
+                                    <option key={p.id} value={p.id}>{p.name}</option>
+                                ))}
+                            </select>
+                            <button
+                                type="button"
+                                className="quick-add-button"
+                                onClick={() => setShowNewPartyModal(true)}
+                                title={`Add New ${orderType === 'sale_order' ? 'Customer' : 'Supplier'}`}
+                            >
+                                <Plus size={18} />
+                            </button>
+                        </div>
                     </div>
                     <div>
                         <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Order Date</label>
@@ -207,7 +322,7 @@ export default function OrderForm({ onSave, onCancel }: OrderFormProps) {
                     </div>
                 </div>
 
-                <div style={{ marginBottom: '1.5rem' }}>
+                <div className="table-responsive" style={{ marginBottom: '1.5rem' }}>
                     <table className="table">
                         <thead>
                             <tr>
@@ -229,17 +344,38 @@ export default function OrderForm({ onSave, onCancel }: OrderFormProps) {
                             {orderItems.map((item, index) => (
                                 <tr key={index}>
                                     <td>
-                                        <select
-                                            className="input"
-                                            value={item.itemId}
-                                            onChange={e => updateItem(index, 'itemId', e.target.value)}
-                                            style={{ padding: '0.25rem' }}
-                                        >
-                                            <option value="">Select Item</option>
-                                            {items.map(i => (
-                                                <option key={i.id} value={i.id}>{i.name}</option>
-                                            ))}
-                                        </select>
+                                        <div className="quick-add-field">
+                                            <select
+                                                className="input"
+                                                value={item.itemId}
+                                                onChange={e => {
+                                                    if (e.target.value === '__add_item__') {
+                                                        setPendingItemRowIndex(index);
+                                                        setShowNewItemModal(true);
+                                                    } else {
+                                                        updateItem(index, 'itemId', e.target.value);
+                                                    }
+                                                }}
+                                                style={{ padding: '0.25rem' }}
+                                            >
+                                                <option value="">Select Item</option>
+                                                <option value="__add_item__">+ Add New Item</option>
+                                                {items.map(i => (
+                                                    <option key={i.id} value={i.id}>{i.name}</option>
+                                                ))}
+                                            </select>
+                                            <button
+                                                type="button"
+                                                className="quick-add-button quick-add-button-compact"
+                                                onClick={() => {
+                                                    setPendingItemRowIndex(index);
+                                                    setShowNewItemModal(true);
+                                                }}
+                                                title="Add New Item"
+                                            >
+                                                <Plus size={16} />
+                                            </button>
+                                        </div>
                                     </td>
                                     <td>{item.make || '-'}</td>
                                     <td>{item.model || item.type || '-'}</td>
@@ -256,20 +392,18 @@ export default function OrderForm({ onSave, onCancel }: OrderFormProps) {
                                         </select>
                                     </td>
                                     <td>
-                                        <input
-                                            type="number"
+                                        <FractionInput
                                             className="input"
-                                            value={item.width}
-                                            onChange={e => updateItem(index, 'width', Number(e.target.value))}
+                                            value={item.width || 0}
+                                            onChange={val => updateItem(index, 'width', val)}
                                             style={{ padding: '0.25rem' }}
                                         />
                                     </td>
                                     <td>
-                                        <input
-                                            type="number"
+                                        <FractionInput
                                             className="input"
-                                            value={item.height}
-                                            onChange={e => updateItem(index, 'height', Number(e.target.value))}
+                                            value={item.height || 0}
+                                            onChange={val => updateItem(index, 'height', val)}
                                             style={{ padding: '0.25rem' }}
                                         />
                                     </td>
@@ -282,12 +416,29 @@ export default function OrderForm({ onSave, onCancel }: OrderFormProps) {
                                             style={{ padding: '0.25rem' }}
                                         />
                                     </td>
-                                    <td style={{ textTransform: 'capitalize' }}>{item.unit}</td>
+                                    <td>
+                                        <select
+                                            className="input"
+                                            value={item.unit || 'sqft'}
+                                            onChange={e => updateItem(index, 'unit', e.target.value)}
+                                            style={{ padding: '0.25rem', width: '100%', fontSize: '0.875rem' }}
+                                        >
+                                            {UNIT_OPTIONS_BY_GROUP.map(group => (
+                                                <optgroup key={group.label} label={group.label}>
+                                                    {group.units.map(unit => (
+                                                        <option key={unit.value} value={unit.value}>{unit.label}</option>
+                                                    ))}
+                                                </optgroup>
+                                            ))}
+                                        </select>
+                                    </td>
                                     <td>{item.sqft}</td>
                                     <td>
                                         <input
                                             type="number"
-                                            className="input"
+                                            className="input money-input"
+                                            min="0"
+                                            step="0.01"
                                             value={item.rate}
                                             onChange={e => updateItem(index, 'rate', Number(e.target.value))}
                                             style={{ padding: '0.25rem' }}
@@ -324,6 +475,20 @@ export default function OrderForm({ onSave, onCancel }: OrderFormProps) {
                     </button>
                 </div>
             </form>
+            <PartyModal
+                isOpen={showNewPartyModal}
+                onClose={() => setShowNewPartyModal(false)}
+                onSave={handleSaveNewParty}
+                initialData={{ type: orderType === 'sale_order' ? 'customer' : 'supplier' } as Party}
+            />
+            <ItemModal
+                isOpen={showNewItemModal}
+                onClose={() => {
+                    setPendingItemRowIndex(null);
+                    setShowNewItemModal(false);
+                }}
+                onSave={handleSaveNewItem}
+            />
         </div>
     );
 }

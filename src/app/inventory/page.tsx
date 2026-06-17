@@ -9,12 +9,13 @@ import ItemModal from '@/components/inventory/ItemModal';
 import BreakageModal from '@/components/inventory/BreakageModal';
 import ItemHistoryModal from '@/components/inventory/ItemHistoryModal';
 
-import { generateUUID } from '@/lib/utils';
+import { generateUUID, formatInchesToFraction, formatIndianCurrency } from '@/lib/utils';
 
 export default function InventoryPage() {
     const [items, setItems] = useState<GlassItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
+    const [topSellingItems, setTopSellingItems] = useState<Array<{ name: string; quantity: number }>>([]);
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isBreakageModalOpen, setIsBreakageModalOpen] = useState(false);
@@ -22,14 +23,48 @@ export default function InventoryPage() {
 
     const [editingItem, setEditingItem] = useState<GlassItem | undefined>(undefined);
     const [selectedItemForHistory, setSelectedItemForHistory] = useState<GlassItem | null>(null);
+    const [categoryFilter, setCategoryFilter] = useState<'all' | 'glass' | 'hardware'>('all');
+
+    const [filters, setFilters] = useState({
+        category: 'all',
+        name: '',
+        make: '',
+        type: '',
+        dimensions: '',
+        thickness: '',
+        stock: '',
+        avgCost: ''
+    });
 
     useEffect(() => {
         loadItems();
     }, []);
 
     const loadItems = async () => {
-        const data = await db.items.getAll();
-        setItems(data);
+        setLoading(true);
+        const [itemsData, invoicesData] = await Promise.all([
+            db.items.getAll(),
+            db.invoices.getAll()
+        ]);
+        
+        setItems(itemsData);
+
+        // Calculate top selling items from sale invoices
+        const salesMap: Record<string, number> = {};
+        invoicesData.filter(inv => inv.type === 'sale').forEach(inv => {
+            inv.items?.forEach(item => {
+                const name = item.itemName || item.description;
+                if (name) {
+                    salesMap[name] = (salesMap[name] || 0) + (item.quantity || 0);
+                }
+            });
+        });
+        const sortedSales = Object.entries(salesMap)
+            .map(([name, qty]) => ({ name, quantity: qty }))
+            .sort((a, b) => b.quantity - a.quantity)
+            .slice(0, 3);
+        setTopSellingItems(sortedSales);
+
         setLoading(false);
     };
 
@@ -85,11 +120,85 @@ export default function InventoryPage() {
         await loadItems();
     };
 
-    const filteredItems = items.filter(item =>
-        item.name.toLowerCase().includes(search.toLowerCase()) ||
-        item.type.toLowerCase().includes(search.toLowerCase()) ||
-        (item.make && item.make.toLowerCase().includes(search.toLowerCase()))
-    );
+    const filteredItems = items.filter(item => {
+        const matchesSearch = !search ||
+            (item.name || '').toLowerCase().includes(search.toLowerCase()) ||
+            (item.type || '').toLowerCase().includes(search.toLowerCase()) ||
+            ((item.make || '').toLowerCase().includes(search.toLowerCase()));
+
+        const matchesCategoryTab = categoryFilter === 'all' || 
+            (categoryFilter === 'glass' && item.category !== 'hardware') || 
+            (categoryFilter === 'hardware' && item.category === 'hardware');
+
+        const matchesColCategory = filters.category === 'all' ||
+            (filters.category === 'glass' && item.category !== 'hardware') ||
+            (filters.category === 'hardware' && item.category === 'hardware');
+
+        const matchesColName = !filters.name ||
+            (item.name || '').toLowerCase().includes(filters.name.toLowerCase());
+
+        const matchesColMake = !filters.make ||
+            (item.make || '').toLowerCase().includes(filters.make.toLowerCase());
+
+        const matchesColType = !filters.type ||
+            (item.type || '').toLowerCase().includes(filters.type.toLowerCase());
+
+        const dimsString = item.category === 'hardware'
+            ? (item.model || '')
+            : (item.width && item.height) ? `${item.width} x ${item.height}` : '';
+        const matchesColDimensions = !filters.dimensions ||
+            dimsString.toLowerCase().includes(filters.dimensions.toLowerCase());
+
+        const thicknessString = item.category === 'hardware' ? '' : `${item.thickness || 0}`;
+        const matchesColThickness = !filters.thickness ||
+            thicknessString.toLowerCase().includes(filters.thickness.toLowerCase());
+
+        const stockString = `${item.stock || 0}`;
+        const matchesColStock = !filters.stock ||
+            stockString.toLowerCase().includes(filters.stock.toLowerCase());
+
+        const costString = `${item.purchaseRate || 0}`;
+        const matchesColAvgCost = !filters.avgCost ||
+            costString.toLowerCase().includes(filters.avgCost.toLowerCase());
+
+        return matchesSearch && matchesCategoryTab && matchesColCategory && matchesColName && matchesColMake && matchesColType && matchesColDimensions && matchesColThickness && matchesColStock && matchesColAvgCost;
+    });
+
+    const totalItems = items.length;
+    const lowStockCount = items.filter(item => {
+        const stock = Number(item.stock) || 0;
+        const minStock = Number(item.minStock) || 10;
+        return stock < minStock;
+    }).length;
+
+    const hasActiveFilters = search !== '' ||
+        categoryFilter !== 'all' ||
+        filters.category !== 'all' ||
+        filters.name !== '' ||
+        filters.make !== '' ||
+        filters.type !== '' ||
+        filters.dimensions !== '' ||
+        filters.thickness !== '' ||
+        filters.stock !== '' ||
+        filters.avgCost !== '';
+
+    const filteredLowStockCount = filteredItems.filter(item => {
+        const stock = Number(item.stock) || 0;
+        const minStock = Number(item.minStock) || 10;
+        return stock < minStock;
+    }).length;
+
+    const [currentPage, setCurrentPage] = useState(1);
+    const pageSize = 50;
+
+    // Reset current page when filters change
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [search, categoryFilter, filters]);
+
+    const totalFiltered = filteredItems.length;
+    const totalPages = Math.ceil(totalFiltered / pageSize);
+    const paginatedItems = filteredItems.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
     return (
         <div className="container">
@@ -106,7 +215,75 @@ export default function InventoryPage() {
                 </div>
             </div>
 
+            {/* Stats Cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+                <div className="card" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', borderLeft: '4px solid var(--color-primary)' }}>
+                    <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', fontWeight: 500 }}>Total Items</span>
+                    <span style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--color-text)' }}>
+                        {hasActiveFilters ? `${filteredItems.length} / ${totalItems}` : totalItems}
+                        {hasActiveFilters && (
+                            <span style={{ fontSize: '0.8rem', fontWeight: 'normal', color: 'var(--color-text-muted)', marginLeft: '0.5rem' }}>
+                                filtered
+                            </span>
+                        )}
+                    </span>
+                </div>
+                <div className="card" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', borderLeft: '4px solid #ef4444' }}>
+                    <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', fontWeight: 500 }}>Low Stock Alert</span>
+                    <span style={{ fontSize: '2rem', fontWeight: 'bold', color: '#ef4444' }}>
+                        {hasActiveFilters ? `${filteredLowStockCount} / ${lowStockCount}` : `${lowStockCount} Items`}
+                        {hasActiveFilters && (
+                            <span style={{ fontSize: '0.8rem', fontWeight: 'normal', color: 'var(--color-text-muted)', marginLeft: '0.5rem' }}>
+                                filtered
+                            </span>
+                        )}
+                    </span>
+                </div>
+                <div className="card" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', borderLeft: '4px solid #f59e0b' }}>
+                    <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', fontWeight: 500 }}>Maximum Selling Items</span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginTop: '0.25rem' }}>
+                        {topSellingItems.length > 0 ? (
+                            topSellingItems.map((item, idx) => (
+                                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--color-text)' }}>
+                                    <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '200px' }} title={item.name}>
+                                        {idx + 1}. {item.name}
+                                    </span>
+                                    <strong style={{ marginLeft: '0.5rem' }}>{item.quantity} sold</strong>
+                                </div>
+                            ))
+                        ) : (
+                            <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>No sales recorded yet</span>
+                        )}
+                    </div>
+                </div>
+            </div>
+
             <div className="card">
+                {/* Category Filtering Tabs */}
+                <div style={{ display: 'flex', gap: '0.5rem', padding: '1rem 1.5rem 0 1.5rem', borderBottom: '1px solid var(--color-border)' }}>
+                    <button 
+                        className={`btn ${categoryFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+                        style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem' }}
+                        onClick={() => setCategoryFilter('all')}
+                    >
+                        All Items
+                    </button>
+                    <button 
+                        className={`btn ${categoryFilter === 'glass' ? 'btn-primary' : 'btn-secondary'}`}
+                        style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem' }}
+                        onClick={() => setCategoryFilter('glass')}
+                    >
+                        Glass
+                    </button>
+                    <button 
+                        className={`btn ${categoryFilter === 'hardware' ? 'btn-primary' : 'btn-secondary'}`}
+                        style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem' }}
+                        onClick={() => setCategoryFilter('hardware')}
+                    >
+                        Hardware
+                    </button>
+                </div>
+
                 <div className={styles.toolbar}>
                     <div className={styles.searchWrapper}>
                         <Search size={18} className={styles.searchIcon} />
@@ -124,9 +301,11 @@ export default function InventoryPage() {
                 {loading ? (
                     <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>Loading inventory...</div>
                 ) : (
+                    <div className="table-responsive">
                     <table className="table">
                         <thead>
                             <tr>
+                                <th>Category</th>
                                 <th>Item Name</th>
                                 <th>Make</th>
                                 <th>Type</th>
@@ -136,10 +315,124 @@ export default function InventoryPage() {
                                 <th>Avg Cost</th>
                                 <th>Actions</th>
                             </tr>
+                            <tr style={{ background: '#f8fafc' }}>
+                                <th style={{ padding: '0.5rem 0.75rem' }}>
+                                    <select
+                                        className="input"
+                                        style={{ padding: '0.25rem', fontSize: '0.8rem', height: 'auto', width: '100%', minWidth: '80px' }}
+                                        value={filters.category}
+                                        onChange={(e) => setFilters({ ...filters, category: e.target.value })}
+                                    >
+                                        <option value="all">All</option>
+                                        <option value="glass">Glass</option>
+                                        <option value="hardware">Hardware</option>
+                                    </select>
+                                </th>
+                                <th style={{ padding: '0.5rem 0.75rem' }}>
+                                    <input
+                                        type="text"
+                                        placeholder="Filter Name..."
+                                        className="input"
+                                        style={{ padding: '0.25rem', fontSize: '0.8rem', height: 'auto', width: '100%', minWidth: '100px' }}
+                                        value={filters.name}
+                                        onChange={(e) => setFilters({ ...filters, name: e.target.value })}
+                                    />
+                                </th>
+                                <th style={{ padding: '0.5rem 0.75rem' }}>
+                                    <input
+                                        type="text"
+                                        placeholder="Filter Make..."
+                                        className="input"
+                                        style={{ padding: '0.25rem', fontSize: '0.8rem', height: 'auto', width: '100%', minWidth: '80px' }}
+                                        value={filters.make}
+                                        onChange={(e) => setFilters({ ...filters, make: e.target.value })}
+                                    />
+                                </th>
+                                <th style={{ padding: '0.5rem 0.75rem' }}>
+                                    <input
+                                        type="text"
+                                        placeholder="Filter Type..."
+                                        className="input"
+                                        style={{ padding: '0.25rem', fontSize: '0.8rem', height: 'auto', width: '100%', minWidth: '80px' }}
+                                        value={filters.type}
+                                        onChange={(e) => setFilters({ ...filters, type: e.target.value })}
+                                    />
+                                </th>
+                                <th style={{ padding: '0.5rem 0.75rem' }}>
+                                    <input
+                                        type="text"
+                                        placeholder="Filter Size..."
+                                        className="input"
+                                        style={{ padding: '0.25rem', fontSize: '0.8rem', height: 'auto', width: '100%', minWidth: '80px' }}
+                                        value={filters.dimensions}
+                                        onChange={(e) => setFilters({ ...filters, dimensions: e.target.value })}
+                                    />
+                                </th>
+                                <th style={{ padding: '0.5rem 0.75rem' }}>
+                                    <input
+                                        type="text"
+                                        placeholder="Filter Thickness..."
+                                        className="input"
+                                        style={{ padding: '0.25rem', fontSize: '0.8rem', height: 'auto', width: '100%', minWidth: '70px' }}
+                                        value={filters.thickness}
+                                        onChange={(e) => setFilters({ ...filters, thickness: e.target.value })}
+                                    />
+                                </th>
+                                <th style={{ padding: '0.5rem 0.75rem' }}>
+                                    <input
+                                        type="text"
+                                        placeholder="Filter Stock..."
+                                        className="input"
+                                        style={{ padding: '0.25rem', fontSize: '0.8rem', height: 'auto', width: '100%', minWidth: '70px' }}
+                                        value={filters.stock}
+                                        onChange={(e) => setFilters({ ...filters, stock: e.target.value })}
+                                    />
+                                </th>
+                                <th style={{ padding: '0.5rem 0.75rem' }}>
+                                    <input
+                                        type="text"
+                                        placeholder="Filter Cost..."
+                                        className="input"
+                                        style={{ padding: '0.25rem', fontSize: '0.8rem', height: 'auto', width: '100%', minWidth: '70px' }}
+                                        value={filters.avgCost}
+                                        onChange={(e) => setFilters({ ...filters, avgCost: e.target.value })}
+                                    />
+                                </th>
+                                <th style={{ padding: '0.5rem 0.75rem' }}>
+                                    <button
+                                        className="btn btn-secondary"
+                                        style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', width: '100%', height: 'auto' }}
+                                        onClick={() => setFilters({
+                                            category: 'all',
+                                            name: '',
+                                            make: '',
+                                            type: '',
+                                            dimensions: '',
+                                            thickness: '',
+                                            stock: '',
+                                            avgCost: ''
+                                        })}
+                                    >
+                                        Clear
+                                    </button>
+                                </th>
+                            </tr>
                         </thead>
                         <tbody>
-                            {filteredItems.map((item) => (
+                            {paginatedItems.map((item) => (
                                 <tr key={item.id}>
+                                    <td>
+                                        <span style={{
+                                            padding: '0.25rem 0.5rem',
+                                            borderRadius: '999px',
+                                            background: item.category === 'hardware' ? '#e0e7ff' : '#ecfdf5',
+                                            color: item.category === 'hardware' ? '#4338ca' : '#047857',
+                                            fontSize: '0.75rem',
+                                            fontWeight: 600
+                                        }}>
+                                            {item.category === 'hardware' ? 'Hardware' : 'Glass'}
+                                        </span>
+                                    </td>
                                     <td style={{ fontWeight: 500 }}>{item.name}</td>
                                     <td>{item.make || '-'}</td>
                                     <td>{item.type}</td>
@@ -149,36 +442,16 @@ export default function InventoryPage() {
                                                 {item.model || '-'}
                                             </span>
                                         ) : (
-                                            `${item.width}" x ${item.height}"`
+                                            (item.width && item.height) ? `${formatInchesToFraction(item.width)}" x ${formatInchesToFraction(item.height)}"` : 'Custom / Variable'
                                         )}
                                     </td>
                                     <td>
-                                        {item.category === 'hardware' ? '-' : `${item.thickness}mm`}
+                                        {item.category === 'hardware' ? '-' : `${item.thickness || 0}mm`}
                                     </td>
                                     <td>
-                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                            <span style={{
-                                                padding: '0.25rem 0.5rem',
-                                                borderRadius: '999px',
-                                                background: item.stock < (item.minStock || 10) ? '#fee2e2' : '#dcfce7',
-                                                color: item.stock < (item.minStock || 10) ? '#ef4444' : '#166534',
-                                                fontSize: '0.75rem',
-                                                fontWeight: 600,
-                                                width: 'fit-content'
-                                            }}>
-                                                {item.stock} {item.unit === 'sqft' ? 'Sheets' : item.unit}
-                                            </span>
-                                            <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
-                                                A: {item.warehouseStock?.['Warehouse A'] || 0} | B: {item.warehouseStock?.['Warehouse B'] || 0}
-                                            </span>
-                                            {item.category !== 'hardware' && (
-                                                <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
-                                                    {((item.width! * item.height! / 144) * item.stock).toFixed(2)} sq.ft
-                                                </span>
-                                            )}
-                                        </div>
+                                        {renderStockDetails(item)}
                                     </td>
-                                    <td>₹{item.purchaseRate || 0}</td>
+                                    <td>{formatIndianCurrency(item.purchaseRate || 0)}</td>
                                     <td>
                                         <div style={{ display: 'flex', gap: '0.5rem' }}>
                                             <button
@@ -221,13 +494,43 @@ export default function InventoryPage() {
                             ))}
                             {filteredItems.length === 0 && (
                                 <tr>
-                                    <td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: 'var(--color-text-muted)' }}>
+                                    <td colSpan={9} style={{ textAlign: 'center', padding: '2rem', color: 'var(--color-text-muted)' }}>
                                         No items found.
                                     </td>
                                 </tr>
                             )}
                         </tbody>
                     </table>
+                    </div>
+                )}
+                {/* Pagination Controls */}
+                {!loading && totalPages > 1 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', borderTop: '1px solid var(--color-border)', background: '#f8fafc' }}>
+                        <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
+                            Showing {((currentPage - 1) * pageSize) + 1} to {Math.min(currentPage * pageSize, totalFiltered)} of {totalFiltered} entries
+                        </span>
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                            <button
+                                className="btn btn-secondary"
+                                style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem' }}
+                                disabled={currentPage === 1}
+                                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                            >
+                                Previous
+                            </button>
+                            <span style={{ display: 'flex', alignItems: 'center', padding: '0 0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>
+                                Page {currentPage} of {totalPages}
+                            </span>
+                            <button
+                                className="btn btn-secondary"
+                                style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem' }}
+                                disabled={currentPage === totalPages}
+                                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                            >
+                                Next
+                            </button>
+                        </div>
+                    </div>
                 )}
             </div>
 
@@ -259,6 +562,143 @@ export default function InventoryPage() {
                 onClose={() => setIsHistoryModalOpen(false)}
                 item={selectedItemForHistory}
             />
+        </div>
+    );
+}
+
+function renderStockDetails(item: GlassItem) {
+    if (item.category === 'hardware') {
+        const stock = item.stock || 0;
+        const wA = item.warehouseStock?.['Warehouse A'] || 0;
+        const wB = item.warehouseStock?.['Warehouse B'] || 0;
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <span style={{
+                    padding: '0.25rem 0.5rem',
+                    borderRadius: '999px',
+                    background: stock < (item.minStock || 10) ? '#fee2e2' : '#dcfce7',
+                    color: stock < (item.minStock || 10) ? '#ef4444' : '#166534',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    width: 'fit-content'
+                }}>
+                    {stock} Nos
+                </span>
+                <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
+                    Warehouse A: {wA} Nos | Warehouse B: {wB} Nos
+                </span>
+            </div>
+        );
+    }
+
+    const width = Number(item.width) || 0;
+    const height = Number(item.height) || 0;
+    const stock = Number(item.stock) || 0;
+    const unit = item.unit || 'sqft';
+    const wA = Number(item.warehouseStock?.['Warehouse A']) || 0;
+    const wB = Number(item.warehouseStock?.['Warehouse B']) || 0;
+
+    const sheetAreaSqft = (width * height) / 144;
+
+    // Convert total stock
+    let totalSqft = 0;
+    let totalSheets = 0;
+
+    if (unit === 'sheets') {
+        totalSheets = stock;
+        totalSqft = sheetAreaSqft > 0 ? stock * sheetAreaSqft : 0;
+    } else if (unit === 'sqft') {
+        totalSqft = stock;
+        totalSheets = sheetAreaSqft > 0 ? stock / sheetAreaSqft : 0;
+    } else {
+        totalSheets = stock;
+        totalSqft = sheetAreaSqft > 0 ? stock * sheetAreaSqft : 0;
+    }
+
+    // Convert Warehouse A
+    let wASqft = 0;
+    let wASheets = 0;
+    if (unit === 'sheets') {
+        wASheets = wA;
+        wASqft = sheetAreaSqft > 0 ? wA * sheetAreaSqft : 0;
+    } else {
+        wASqft = wA;
+        wASheets = sheetAreaSqft > 0 ? wA / sheetAreaSqft : 0;
+    }
+
+    // Convert Warehouse B
+    let wBSqft = 0;
+    let wBSheets = 0;
+    if (unit === 'sheets') {
+        wBSheets = wB;
+        wBSqft = sheetAreaSqft > 0 ? wB * sheetAreaSqft : 0;
+    } else {
+        wBSqft = wB;
+        wBSheets = sheetAreaSqft > 0 ? wB / sheetAreaSqft : 0;
+    }
+
+    const sqm = totalSqft * 0.092903;
+    const sqmm = totalSqft * 92903.04;
+
+    const isLow = stock < (item.minStock || 10);
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', lineHeight: 1.3 }}>
+            {/* Primary Stock (Entered Unit) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{
+                    padding: '0.25rem 0.5rem',
+                    borderRadius: '999px',
+                    background: isLow ? '#fee2e2' : '#dcfce7',
+                    color: isLow ? '#ef4444' : '#166534',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    width: 'fit-content'
+                }}>
+                    {stock} {unit === 'sqft' ? 'Sq. Ft' : 'Sheets'}
+                </span>
+            </div>
+
+            {/* Warehouse Breakdown */}
+            <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
+                Warehouse A: {wA} {unit === 'sqft' ? 'Sq. Ft' : 'Sheets'} ({wASheets.toFixed(2)} sheets / {wASqft.toFixed(2)} sqft)
+            </span>
+            <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
+                Warehouse B: {wB} {unit === 'sqft' ? 'Sq. Ft' : 'Sheets'} ({wBSheets.toFixed(2)} sheets / {wBSqft.toFixed(2)} sqft)
+            </span>
+
+            {/* Glass Units Conversions */}
+            {width > 0 && height > 0 ? (
+                <div style={{ 
+                    marginTop: '2px', 
+                    padding: '4px 6px', 
+                    background: '#f8fafc', 
+                    borderRadius: '6px', 
+                    border: '1px solid #e2e8f0',
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: '4px',
+                    fontSize: '0.72rem',
+                    width: 'fit-content'
+                }}>
+                    <div style={{ color: '#475569' }}>
+                        📄 <strong>Sheets:</strong> {totalSheets.toFixed(2)}
+                    </div>
+                    <div style={{ color: '#475569' }}>
+                        📐 <strong>Sq. Ft:</strong> {totalSqft.toFixed(2)}
+                    </div>
+                    <div style={{ color: '#475569' }}>
+                        🌍 <strong>Sq. M:</strong> {sqm.toFixed(4)}
+                    </div>
+                    <div style={{ color: '#475569' }}>
+                        📏 <strong>Sq. MM:</strong> {sqmm.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    </div>
+                </div>
+            ) : (
+                <div style={{ fontSize: '0.7rem', color: '#64748b', fontStyle: 'italic' }}>
+                    * Conversions unavailable for Custom/Variable sizes
+                </div>
+            )}
         </div>
     );
 }
