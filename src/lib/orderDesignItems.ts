@@ -40,9 +40,15 @@ type HardwareRowInput = {
 };
 
 const getPieceInclusiveTotal = (piece: DesignPiece, pricingConfig: PricingConfig): number => {
+    const area = Number(piece.netArea ?? piece.area ?? 0) || 0;
+    const thickness = Number(piece.thickness) || 6;
+    const thicknessRate = pricingConfig.thicknessPricing?.find(item => Number(item.thickness) === thickness)?.ratePerSqft
+        ?? pricingConfig.baseRatePerSqft
+        ?? 0;
+    const glassAmount = area * (Number(thicknessRate) || 0);
     const holeAmount = (Number(piece.holes) || 0) * (pricingConfig.holeCharge || 0);
     const cutAmount = (Number(piece.cuts) || 0) * (pricingConfig.cutCharge || 0);
-    return roundCurrency(holeAmount + cutAmount);
+    return roundCurrency(glassAmount + holeAmount + cutAmount);
 };
 
 const getBillingQuantity = (item: InvoiceItem): number => calculateLineMeasurement({

@@ -4,6 +4,7 @@ import { designsDb, db } from '@/lib/storage';
 import { generateEstimatePDFBuffer } from '@/lib/pdfGenerator';
 import { generateEstimateEmailHTML } from '@/lib/emailTemplates';
 import { requireAuthenticatedRequest } from '@/lib/serverAuth';
+import { calculateCost } from '@/lib/designCalculations';
 
 export async function POST(request: NextRequest) {
     const authError = await requireAuthenticatedRequest(request);
@@ -47,18 +48,17 @@ export async function POST(request: NextRequest) {
             const designItems = design.drawingData?.items || [];
             const costBreakdown = designItems.map((item: any) => {
                 const netAreaVal = item.netArea || item.area || 0;
-                const holeAmount = (item.holes || 0) * (fullPricingConfig?.holeCharge || 0);
-                const cutAmount = (item.cuts || 0) * (fullPricingConfig?.cutCharge || 0);
-                const itemTotal = holeAmount + cutAmount;
+                const itemCost = calculateCost(netAreaVal, item.holes || 0, item.cuts || 0, 'simple', item.thickness || 6, fullPricingConfig, false);
     
                 const subItems: Array<{ name: string; amount: number }> = [];
-                if (holeAmount > 0) subItems.push({ name: `${item.holes} Holes (@ ₹${fullPricingConfig?.holeCharge}/ea)`, amount: holeAmount });
-                if (cutAmount > 0) subItems.push({ name: `${item.cuts} Cuts (@ ₹${fullPricingConfig?.cutCharge}/ea)`, amount: cutAmount });
+                if (itemCost.baseAmount > 0) subItems.push({ name: `${netAreaVal.toFixed(2)} sq ft Glass (@ ₹${itemCost.thicknessRate}/sq ft)`, amount: itemCost.baseAmount });
+                if (itemCost.holeCharges > 0) subItems.push({ name: `${item.holes} Holes (@ ₹${fullPricingConfig?.holeCharge}/ea)`, amount: itemCost.holeCharges });
+                if (itemCost.cutCharges > 0) subItems.push({ name: `${item.cuts} Cuts (@ ₹${fullPricingConfig?.cutCharge}/ea)`, amount: itemCost.cutCharges });
     
                 return {
                     name: `${item.name} (${item.type}) - ${item.thickness}mm` + (item.quantity && item.quantity > 1 ? ` (${item.quantity} pcs)` : ''),
-                    details: `${netAreaVal.toFixed(2)} sq ft; design processing charges only`,
-                    amount: itemTotal,
+                    details: `${netAreaVal.toFixed(2)} sq ft @ ${item.thickness || 6}mm`,
+                    amount: itemCost.total,
                     subItems
                 };
             });

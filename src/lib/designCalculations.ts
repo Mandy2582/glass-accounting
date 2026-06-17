@@ -1,4 +1,5 @@
 // Utility functions for glass design calculations
+import { roundCurrency } from '@/lib/utils';
 
 export interface Point {
     x: number;
@@ -87,9 +88,21 @@ export function calculateComplexity(
     }
 }
 
+const getThicknessRate = (
+    thickness: number,
+    pricingConfig: {
+        baseRatePerSqft: number;
+        thicknessPricing?: Array<{ thickness: number; ratePerSqft: number }>;
+    }
+): number => {
+    const match = pricingConfig.thicknessPricing?.find(item => Number(item.thickness) === Number(thickness));
+    return Number(match?.ratePerSqft ?? pricingConfig.baseRatePerSqft ?? 0) || 0;
+};
+
 /**
- * Calculate design service charges. Glass area/base cost, complexity multiplier,
- * edge finishing, and minimum charge are intentionally not applied here.
+ * Calculate design glass and processing charges. Glass area is charged from
+ * thickness-wise rates; complexity multiplier, edge finishing, and minimum
+ * charge are intentionally not applied.
  */
 export function calculateCost(
     netArea: number,
@@ -118,8 +131,8 @@ export function calculateCost(
     complexityCharge: number;
     total: number;
 } {
-    const thicknessRate = 0;
-    const baseAmount = 0;
+    const thicknessRate = getThicknessRate(thickness, pricingConfig);
+    const baseAmount = roundCurrency(netArea * thicknessRate);
     const holeCharges = holeCount * pricingConfig.holeCharge;
     const cutCharges = cutCount * pricingConfig.cutCharge;
 

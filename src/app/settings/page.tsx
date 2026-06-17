@@ -29,6 +29,7 @@ export default function SettingsPage() {
 
     useEffect(() => {
         loadPricing();
+        loadThicknessPricing();
         loadBusinessConfig();
     }, []);
 
@@ -127,7 +128,7 @@ export default function SettingsPage() {
     };
 
     const handleAddThickness = () => {
-        setThicknessPricing([...thicknessPricing, { thickness: 6, ratePerSqft: 150 }]);
+        setThicknessPricing([...thicknessPricing, { thickness: 6, ratePerSqft: 0 }]);
     };
 
     const handleRemoveThickness = (index: number) => {
@@ -575,6 +576,73 @@ export default function SettingsPage() {
                         <p>Loading pricing configuration...</p>
                     ) : (
                         <>
+                            {/* Thickness-Based Glass Rates */}
+                            <div style={{ marginBottom: '2rem' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
+                                    <div>
+                                        <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.25rem' }}>Thickness-Wise Glass Rates</h3>
+                                        <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', margin: 0 }}>
+                                            Used for custom design glass cost as: area × rate for selected thickness.
+                                        </p>
+                                    </div>
+                                    <button type="button" className="btn" onClick={handleAddThickness}>
+                                        Add Thickness
+                                    </button>
+                                </div>
+
+                                <div style={{ display: 'grid', gap: '0.75rem' }}>
+                                    {thicknessPricing.map((item, index) => (
+                                        <div
+                                            key={`${item.thickness}-${index}`}
+                                            style={{
+                                                display: 'grid',
+                                                gridTemplateColumns: 'minmax(140px, 1fr) minmax(180px, 1fr) auto',
+                                                gap: '0.75rem',
+                                                alignItems: 'end'
+                                            }}
+                                        >
+                                            <div>
+                                                <label className="form-label">Thickness (mm)</label>
+                                                <input
+                                                    type="number"
+                                                    className="form-input"
+                                                    value={item.thickness}
+                                                    onChange={(e) => handleThicknessChange(index, 'thickness', parseFloat(e.target.value) || 0)}
+                                                    min="0"
+                                                    step="0.5"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="form-label">Rate (₹ per sq ft)</label>
+                                                <input
+                                                    type="number"
+                                                    className="form-input money-input"
+                                                    value={item.ratePerSqft}
+                                                    onChange={(e) => handleThicknessChange(index, 'ratePerSqft', parseFloat(e.target.value) || 0)}
+                                                    min="0"
+                                                    step="0.01"
+                                                />
+                                            </div>
+                                            <button type="button" className="btn btn-secondary" onClick={() => handleRemoveThickness(index)}>
+                                                Remove
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1rem' }}>
+                                    <button
+                                        className="btn btn-primary"
+                                        onClick={handleSaveThicknessPricing}
+                                        disabled={savingThickness}
+                                        style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                                    >
+                                        <Save size={18} />
+                                        {savingThickness ? 'Saving...' : 'Save Thickness Rates'}
+                                    </button>
+                                </div>
+                            </div>
+
                             {/* Additional Charges */}
                             <div style={{ marginBottom: '2rem' }}>
                                 <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>Design Processing Charges</h3>

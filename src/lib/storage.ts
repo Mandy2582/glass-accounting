@@ -1680,7 +1680,21 @@ export const db = {
                 ];
             }
 
-            return (data || []).map(item => ({
+            if (!data || data.length === 0) {
+                return [
+                    { thickness: 3.5, ratePerSqft: 100 },
+                    { thickness: 4, ratePerSqft: 110 },
+                    { thickness: 5, ratePerSqft: 120 },
+                    { thickness: 6, ratePerSqft: 130 },
+                    { thickness: 8, ratePerSqft: 150 },
+                    { thickness: 10, ratePerSqft: 180 },
+                    { thickness: 12, ratePerSqft: 210 },
+                    { thickness: 15, ratePerSqft: 250 },
+                    { thickness: 19, ratePerSqft: 300 }
+                ];
+            }
+
+            return data.map(item => ({
                 thickness: Number(item.thickness),
                 ratePerSqft: roundCurrency(item.rate_per_sqft)
             }));

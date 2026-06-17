@@ -8,6 +8,7 @@ import { Order, Party, InvoiceItem, OrderDelivery, BankAccount, CustomDesign } f
 import Link from 'next/link';
 import { formatInchesToFraction, roundCurrency } from '@/lib/utils';
 import { getAuthHeaders } from '@/lib/auth';
+import { calculateCost } from '@/lib/designCalculations';
 
 const isCustomDesignOrderItem = (item: InvoiceItem): boolean => {
     return item.sourceType === 'design' || !!item.designId || !!item.designPieceId;
@@ -410,18 +411,17 @@ export default function OrderDetailPage() {
                 };
             }) : designItems.map((item: any) => {
                 const netAreaVal = item.netArea || item.area || 0;
-                const holeAmount = (item.holes || 0) * (pricingConfig?.holeCharge || 0);
-                const cutAmount = (item.cuts || 0) * (pricingConfig?.cutCharge || 0);
-                const itemTotal = holeAmount + cutAmount;
+                const itemCost = calculateCost(netAreaVal, item.holes || 0, item.cuts || 0, 'simple', item.thickness || 6, pricingConfig, false);
                 
                 const subItems = [];
-                if (holeAmount > 0) subItems.push({ name: `${item.holes} Holes (@ ₹${pricingConfig?.holeCharge}/ea)`, amount: holeAmount });
-                if (cutAmount > 0) subItems.push({ name: `${item.cuts} Cuts (@ ₹${pricingConfig?.cutCharge}/ea)`, amount: cutAmount });
+                if (itemCost.baseAmount > 0) subItems.push({ name: `${netAreaVal.toFixed(2)} sq ft Glass (@ ₹${itemCost.thicknessRate}/sq ft)`, amount: itemCost.baseAmount });
+                if (itemCost.holeCharges > 0) subItems.push({ name: `${item.holes} Holes (@ ₹${pricingConfig?.holeCharge}/ea)`, amount: itemCost.holeCharges });
+                if (itemCost.cutCharges > 0) subItems.push({ name: `${item.cuts} Cuts (@ ₹${pricingConfig?.cutCharge}/ea)`, amount: itemCost.cutCharges });
                 
                 return {
                     name: `${item.name} (${item.type}) - ${item.thickness}mm` + (item.quantity && item.quantity > 1 ? ` (${item.quantity} pcs)` : ''),
-                    details: `${netAreaVal.toFixed(2)} sq ft; design processing charges only`,
-                    amount: itemTotal,
+                    details: `${netAreaVal.toFixed(2)} sq ft @ ${item.thickness || 6}mm`,
+                    amount: itemCost.total,
                     subItems
                 };
             });

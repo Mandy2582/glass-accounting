@@ -7,7 +7,7 @@ import { ArrowLeft, Save, Download, Trash2, Mail, MessageCircle } from 'lucide-r
 import dynamic from 'next/dynamic';
 const GlassDesigner = dynamic(() => import('@/components/GlassDesigner'), { ssr: false });
 import SendEstimateModal from '@/components/SendEstimateModal';
-import { calculateComplexity, calculateDesignEstimate } from '@/lib/designCalculations';
+import { calculateComplexity, calculateDesignEstimate, calculateCost } from '@/lib/designCalculations';
 import { designsDb, db } from '@/lib/storage';
 import { CustomDesign, DesignData, Party, PricingConfig } from '@/types';
 import { generateEstimatePDF } from '@/lib/pdfGenerator';
@@ -151,18 +151,17 @@ export default function NestedDesignDetailPage() {
         }
 
         const pdfCostBreakdown = items.map(item => {
-             const holeAmount = (item.holes || 0) * (pricingConfig?.holeCharge || 0);
-             const cutAmount = (item.cuts || 0) * (pricingConfig?.cutCharge || 0);
-             const itemTotal = holeAmount + cutAmount;
+             const itemCost = calculateCost(item.netArea || item.area || 0, item.holes || 0, item.cuts || 0, 'simple', item.thickness || 6, pricingConfig!, false);
              
              const subItems = [];
-             if (holeAmount > 0) subItems.push({ name: `${item.holes} Holes (@ ₹${pricingConfig?.holeCharge}/ea)`, amount: holeAmount });
-             if (cutAmount > 0) subItems.push({ name: `${item.cuts} Cuts (@ ₹${pricingConfig?.cutCharge}/ea)`, amount: cutAmount });
+             if (itemCost.baseAmount > 0) subItems.push({ name: `${(item.netArea || item.area || 0).toFixed(2)} sq ft Glass (@ ₹${itemCost.thicknessRate}/sq ft)`, amount: itemCost.baseAmount });
+             if (itemCost.holeCharges > 0) subItems.push({ name: `${item.holes} Holes (@ ₹${pricingConfig?.holeCharge}/ea)`, amount: itemCost.holeCharges });
+             if (itemCost.cutCharges > 0) subItems.push({ name: `${item.cuts} Cuts (@ ₹${pricingConfig?.cutCharge}/ea)`, amount: itemCost.cutCharges });
              
              return {
                  name: `${item.name} (${item.type}) - ${item.thickness}mm` + (item.quantity && item.quantity > 1 ? ` (${item.quantity} pcs)` : ''),
-                 details: `${item.netArea.toFixed(2)} sq ft; design processing charges only`,
-                 amount: itemTotal,
+                 details: `${(item.netArea || item.area || 0).toFixed(2)} sq ft @ ${item.thickness || 6}mm`,
+                 amount: itemCost.total,
                  subItems
              };
          });
@@ -291,18 +290,17 @@ export default function NestedDesignDetailPage() {
         }
 
         const pdfCostBreakdown = items.map(item => {
-            const holeAmount = (item.holes || 0) * (pricingConfig?.holeCharge || 0);
-            const cutAmount = (item.cuts || 0) * (pricingConfig?.cutCharge || 0);
-            const itemTotal = holeAmount + cutAmount;
+            const itemCost = calculateCost(item.netArea || item.area || 0, item.holes || 0, item.cuts || 0, 'simple', item.thickness || 6, pricingConfig!, false);
             
             const subItems = [];
-            if (holeAmount > 0) subItems.push({ name: `${item.holes} Holes (@ ₹${pricingConfig?.holeCharge}/ea)`, amount: holeAmount });
-            if (cutAmount > 0) subItems.push({ name: `${item.cuts} Cuts (@ ₹${pricingConfig?.cutCharge}/ea)`, amount: cutAmount });
+            if (itemCost.baseAmount > 0) subItems.push({ name: `${(item.netArea || item.area || 0).toFixed(2)} sq ft Glass (@ ₹${itemCost.thicknessRate}/sq ft)`, amount: itemCost.baseAmount });
+            if (itemCost.holeCharges > 0) subItems.push({ name: `${item.holes} Holes (@ ₹${pricingConfig?.holeCharge}/ea)`, amount: itemCost.holeCharges });
+            if (itemCost.cutCharges > 0) subItems.push({ name: `${item.cuts} Cuts (@ ₹${pricingConfig?.cutCharge}/ea)`, amount: itemCost.cutCharges });
             
             return {
                 name: `${item.name} (${item.type}) - ${item.thickness}mm` + (item.quantity && item.quantity > 1 ? ` (${item.quantity} pcs)` : ''),
-                details: `${item.netArea.toFixed(2)} sq ft; design processing charges only`,
-                amount: itemTotal,
+                details: `${(item.netArea || item.area || 0).toFixed(2)} sq ft @ ${item.thickness || 6}mm`,
+                amount: itemCost.total,
                 subItems
             };
         });
@@ -459,9 +457,7 @@ export default function NestedDesignDetailPage() {
                     <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: '1rem' }}>
                         <div style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '1rem' }}>Piece-wise Breakdown:</div>
                         {items.map((item, index) => {
-                            const holeAmount = (item.holes || 0) * (pricingConfig.holeCharge || 0);
-                            const cutAmount = (item.cuts || 0) * (pricingConfig.cutCharge || 0);
-                            const itemTotal = holeAmount + cutAmount;
+                            const itemCost = calculateCost(item.netArea || item.area || 0, item.holes || 0, item.cuts || 0, 'simple', item.thickness || 6, pricingConfig!, false);
 
                             return (
                                 <div
@@ -478,10 +474,10 @@ export default function NestedDesignDetailPage() {
                                         <div style={{ fontWeight: 600 }}>
                                             {item.name} {item.quantity && item.quantity > 1 ? `(${item.quantity} pcs)` : ''}
                                         </div>
-                                        <div style={{ fontWeight: 700, color: '#10b981' }}>₹{itemTotal.toFixed(2)}</div>
+                                        <div style={{ fontWeight: 700, color: '#10b981' }}>₹{itemCost.total.toFixed(2)}</div>
                                     </div>
                                     <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                                        <div>{item.netArea.toFixed(2)} sqft @ {item.thickness}mm</div>
+                                        <div>{(item.netArea || item.area || 0).toFixed(2)} sqft @ {item.thickness}mm × ₹{itemCost.thicknessRate}/sq ft</div>
                                         {(item.holes || 0) > 0 && <div>Holes: {item.holes} × ₹{pricingConfig.holeCharge || 0}</div>}
                                         {(item.cuts || 0) > 0 && <div>Cuts: {item.cuts} × ₹{pricingConfig.cutCharge || 0}</div>}
                                     </div>
@@ -563,18 +559,17 @@ export default function NestedDesignDetailPage() {
                                 }
 
                                 const pdfCostBreakdown = items.map(item => {
-                                     const holeAmount = (item.holes || 0) * (pricingConfig?.holeCharge || 0);
-                                     const cutAmount = (item.cuts || 0) * (pricingConfig?.cutCharge || 0);
-                                     const itemTotal = holeAmount + cutAmount;
+                                     const itemCost = calculateCost(item.netArea || item.area || 0, item.holes || 0, item.cuts || 0, 'simple', item.thickness || 6, pricingConfig!, false);
                                      
                                      const subItems = [];
-                                     if (holeAmount > 0) subItems.push({ name: `${item.holes} Holes (@ ₹${pricingConfig?.holeCharge}/ea)`, amount: holeAmount });
-                                     if (cutAmount > 0) subItems.push({ name: `${item.cuts} Cuts (@ ₹${pricingConfig?.cutCharge}/ea)`, amount: cutAmount });
+                                     if (itemCost.baseAmount > 0) subItems.push({ name: `${(item.netArea || item.area || 0).toFixed(2)} sq ft Glass (@ ₹${itemCost.thicknessRate}/sq ft)`, amount: itemCost.baseAmount });
+                                     if (itemCost.holeCharges > 0) subItems.push({ name: `${item.holes} Holes (@ ₹${pricingConfig?.holeCharge}/ea)`, amount: itemCost.holeCharges });
+                                     if (itemCost.cutCharges > 0) subItems.push({ name: `${item.cuts} Cuts (@ ₹${pricingConfig?.cutCharge}/ea)`, amount: itemCost.cutCharges });
                                      
                                      return {
                                          name: `${item.name} (${item.type}) - ${item.thickness}mm` + (item.quantity && item.quantity > 1 ? ` (${item.quantity} pcs)` : ''),
-                                         details: `${item.netArea.toFixed(2)} sq ft; design processing charges only`,
-                                         amount: itemTotal,
+                                         details: `${(item.netArea || item.area || 0).toFixed(2)} sq ft @ ${item.thickness || 6}mm`,
+                                         amount: itemCost.total,
                                          subItems
                                      };
                                  });
