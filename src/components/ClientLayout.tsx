@@ -17,6 +17,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     const pathname = usePathname();
     const router = useRouter();
     const isLoginPage = pathname === '/login';
+    const isPublicPage = pathname === '/' || isLoginPage || pathname === '/track' || pathname === '/measure' || pathname === '/estimate' || pathname === '/guide' || pathname === '/shop' || pathname.startsWith('/shop/');
 
     // Start with the sidebar collapsed so modules have full viewport width initially
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
@@ -24,7 +25,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     const [role, setRole] = useState<AppRole>('normal');
 
     useEffect(() => {
-        if (isLoginPage) {
+        if (isPublicPage) {
             return;
         }
 
@@ -58,13 +59,13 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             isMounted = false;
             subscription.unsubscribe();
         };
-    }, [isLoginPage, router]);
+    }, [isPublicPage, router]);
 
     const toggleSidebar = () => {
         setIsSidebarCollapsed(!isSidebarCollapsed);
     };
 
-    if (isLoginPage) {
+    if (isPublicPage) {
         return <>{children}</>;
     }
 

@@ -312,6 +312,7 @@ export default function InventoryPage() {
                                 <th>Dimensions / Model</th>
                                 <th>Thickness</th>
                                 <th>Stock</th>
+                                <th>Shop</th>
                                 <th>Avg Cost</th>
                                 <th>Actions</th>
                             </tr>
@@ -388,6 +389,9 @@ export default function InventoryPage() {
                                         onChange={(e) => setFilters({ ...filters, stock: e.target.value })}
                                     />
                                 </th>
+                                <th style={{ padding: '0.5rem 0.75rem', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                                    Online
+                                </th>
                                 <th style={{ padding: '0.5rem 0.75rem' }}>
                                     <input
                                         type="text"
@@ -450,6 +454,24 @@ export default function InventoryPage() {
                                     </td>
                                     <td>
                                         {renderStockDetails(item)}
+                                    </td>
+                                    <td>
+                                        <div style={{ display: 'grid', gap: '0.25rem' }}>
+                                            <span style={{
+                                                width: 'fit-content',
+                                                padding: '0.2rem 0.45rem',
+                                                borderRadius: '999px',
+                                                background: item.showOnline ? '#dcfce7' : '#fee2e2',
+                                                color: item.showOnline ? '#047857' : '#b91c1c',
+                                                fontSize: '0.7rem',
+                                                fontWeight: 700
+                                            }}>
+                                                {item.showOnline ? 'Online' : 'Hidden'}
+                                            </span>
+                                            <span style={{ fontSize: '0.72rem', color: item.imageUrl ? '#047857' : 'var(--color-text-muted)' }}>
+                                                {item.imageUrl ? 'Image added' : 'No image'}
+                                            </span>
+                                        </div>
                                     </td>
                                     <td>{formatIndianCurrency(item.purchaseRate || 0)}</td>
                                     <td>

@@ -1,0 +1,451 @@
+.page {
+    min-height: 100vh;
+    color: #0f172a;
+    background:
+        radial-gradient(circle at 12% 10%, rgba(56, 189, 248, 0.34), transparent 29rem),
+        radial-gradient(circle at 84% 14%, rgba(45, 212, 191, 0.24), transparent 26rem),
+        linear-gradient(135deg, #f8fbff 0%, #eef9ff 44%, #f7f9ff 100%);
+}
+
+.header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.9rem clamp(1rem, 4vw, 4rem);
+    border-bottom: 1px solid rgba(148, 163, 184, 0.24);
+    background: rgba(255, 255, 255, 0.74);
+    backdrop-filter: blur(24px) saturate(160%);
+}
+
+.brand,
+.nav a,
+.backLink {
+    color: inherit;
+    text-decoration: none;
+}
+
+.brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.85rem;
+    font-weight: 850;
+    letter-spacing: -0.03em;
+}
+
+.brandMark {
+    display: grid;
+    width: 44px;
+    height: 44px;
+    place-items: center;
+    border-radius: 16px;
+    background: linear-gradient(145deg, #0f172a, #075985 54%, #0ea5e9);
+    color: #fff;
+    box-shadow: 0 18px 35px -24px rgba(2, 132, 199, 0.9);
+}
+
+.nav {
+    display: flex;
+    align-items: center;
+    gap: clamp(0.85rem, 2vw, 1.45rem);
+    font-weight: 750;
+}
+
+.nav a {
+    color: rgba(15, 23, 42, 0.68);
+}
+
+.nav a:hover,
+.backLink {
+    color: #0369a1;
+}
+
+.hero {
+    padding: clamp(2rem, 6vw, 5.5rem) clamp(1rem, 5vw, 5rem) 1rem;
+}
+
+.copy {
+    max-width: 940px;
+}
+
+.backLink,
+.badges span,
+.actions a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.backLink {
+    margin-bottom: 1.35rem;
+    font-weight: 850;
+}
+
+.eyebrow {
+    margin: 0 0 0.45rem;
+    color: #0284c7;
+    font-size: 0.78rem;
+    font-weight: 900;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+}
+
+.copy h1 {
+    max-width: 900px;
+    margin: 0;
+    font-size: clamp(2.5rem, 7vw, 5.7rem);
+    line-height: 0.94;
+    letter-spacing: -0.075em;
+}
+
+.copy p:not(.eyebrow) {
+    max-width: 700px;
+    margin: 1.25rem 0 0;
+    color: rgba(15, 23, 42, 0.68);
+    font-size: clamp(1rem, 1.7vw, 1.18rem);
+    line-height: 1.7;
+}
+
+.badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+}
+
+.badges span {
+    border: 1px solid rgba(14, 165, 233, 0.18);
+    border-radius: 999px;
+    padding: 0.65rem 0.85rem;
+    background: rgba(255, 255, 255, 0.7);
+    color: rgba(15, 23, 42, 0.76);
+    font-weight: 800;
+}
+
+.workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 0.95fr) minmax(360px, 0.55fr);
+    gap: 1.25rem;
+    align-items: start;
+    padding: 0 clamp(1rem, 5vw, 5rem) clamp(2rem, 6vw, 5rem);
+}
+
+.formCard,
+.estimateCard,
+.quoteCard {
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 32px;
+    background: rgba(255, 255, 255, 0.78);
+    box-shadow: 0 30px 90px -60px rgba(15, 23, 42, 0.44);
+    backdrop-filter: blur(22px);
+}
+
+.formCard {
+    padding: clamp(1.1rem, 3vw, 1.65rem);
+}
+
+.quoteSection {
+    padding: 0 clamp(1rem, 5vw, 5rem) clamp(2rem, 6vw, 5rem);
+}
+
+.quoteCard {
+    max-width: 1120px;
+    padding: clamp(1.1rem, 3vw, 1.65rem);
+}
+
+.formHeader {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.1rem;
+}
+
+.formHeader svg,
+.estimateCard svg {
+    color: #0284c7;
+}
+
+.formHeader h2 {
+    margin: 0;
+    font-size: clamp(1.6rem, 3vw, 2.4rem);
+    letter-spacing: -0.04em;
+}
+
+.grid,
+.quoteGrid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.95rem;
+}
+
+.grid label,
+.quoteGrid label {
+    display: grid;
+    gap: 0.45rem;
+    color: rgba(15, 23, 42, 0.66);
+    font-size: 0.78rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.quoteGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.full {
+    grid-column: 1 / -1;
+}
+
+.savedProfile {
+    grid-column: 1 / -1;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    border: 1px solid rgba(14, 165, 233, 0.18);
+    border-radius: 18px;
+    background: rgba(240, 249, 255, 0.74);
+    color: #0369a1;
+    padding: 0.8rem 0.95rem;
+    font-size: 0.92rem;
+    font-weight: 850;
+    letter-spacing: normal;
+    text-transform: none;
+}
+
+.savedProfile svg {
+    flex: 0 0 auto;
+}
+
+.grid input,
+.grid select,
+.quoteGrid input,
+.quoteGrid textarea {
+    width: 100%;
+    border: 1px solid rgba(148, 163, 184, 0.26);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.9);
+    color: #0f172a;
+    font: inherit;
+    font-size: 1rem;
+    font-weight: 750;
+    letter-spacing: normal;
+    outline: 0;
+    padding: 0.9rem 1rem;
+    text-transform: none;
+    transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.quoteGrid textarea {
+    resize: vertical;
+}
+
+.grid input:focus,
+.grid select:focus,
+.quoteGrid input:focus,
+.quoteGrid textarea:focus {
+    border-color: rgba(14, 165, 233, 0.55);
+    box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.12);
+}
+
+.note,
+.error {
+    margin: 1rem 0 0;
+    border-radius: 16px;
+    padding: 0.85rem 0.95rem;
+    line-height: 1.55;
+}
+
+.note {
+    background: rgba(240, 249, 255, 0.78);
+    color: rgba(15, 23, 42, 0.62);
+    font-weight: 750;
+}
+
+.error,
+.success {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    border: 1px solid rgba(248, 113, 113, 0.28);
+    background: rgba(254, 242, 242, 0.78);
+    color: #b91c1c;
+    font-weight: 800;
+}
+
+.success {
+    border-color: rgba(34, 197, 94, 0.24);
+    background: rgba(240, 253, 244, 0.82);
+    color: #15803d;
+}
+
+.primaryButton {
+    width: 100%;
+    min-height: 56px;
+    margin-top: 1rem;
+    border: 0;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #0f172a, #0ea5e9, #2dd4bf);
+    color: #fff;
+    font-size: 1rem;
+    font-weight: 900;
+    cursor: pointer;
+    box-shadow: 0 20px 42px -24px rgba(2, 132, 199, 0.95);
+}
+
+.primaryButton:disabled {
+    cursor: not-allowed;
+    opacity: 0.62;
+}
+
+.estimateCard {
+    position: sticky;
+    top: 92px;
+    padding: clamp(1.1rem, 3vw, 1.65rem);
+}
+
+.total {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    margin: 0.85rem 0 1rem;
+    border-radius: 28px;
+    padding: 1.15rem;
+    background: linear-gradient(135deg, #075985, #0ea5e9, #2dd4bf);
+    color: #fff;
+    box-shadow: 0 24px 48px -30px rgba(2, 132, 199, 0.95);
+}
+
+.total svg {
+    color: #fff;
+}
+
+.total span {
+    font-size: clamp(1.8rem, 4vw, 3rem);
+    font-weight: 950;
+    letter-spacing: -0.06em;
+}
+
+.metricGrid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.metricGrid div {
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 22px;
+    padding: 0.85rem;
+    background: rgba(248, 250, 252, 0.76);
+}
+
+.metricGrid span,
+.breakdown span {
+    display: block;
+    color: rgba(15, 23, 42, 0.54);
+    font-size: 0.75rem;
+    font-weight: 850;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.metricGrid strong,
+.breakdown strong {
+    display: block;
+    margin-top: 0.3rem;
+    color: #0f172a;
+    font-size: 1rem;
+}
+
+.breakdown {
+    display: grid;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+.breakdown p {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin: 0;
+    border-top: 1px solid rgba(148, 163, 184, 0.16);
+    padding-top: 0.65rem;
+}
+
+.grandLine strong {
+    color: #0369a1;
+    font-size: 1.2rem;
+}
+
+.actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.actions a {
+    justify-content: center;
+    min-height: 48px;
+    border-radius: 16px;
+    background: rgba(14, 165, 233, 0.1);
+    color: #0369a1;
+    font-weight: 900;
+    text-decoration: none;
+}
+
+.actions a:first-child,
+.whatsappAction {
+    background: linear-gradient(135deg, #0f172a, #0ea5e9, #2dd4bf);
+    color: #fff;
+}
+
+.emptyState {
+    display: grid;
+    place-items: center;
+    min-height: 220px;
+    color: rgba(15, 23, 42, 0.58);
+    text-align: center;
+    font-weight: 800;
+}
+
+@media (max-width: 960px) {
+    .workspace {
+        grid-template-columns: 1fr;
+    }
+
+    .estimateCard {
+        position: static;
+    }
+}
+
+@media (max-width: 720px) {
+    .header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .nav {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .copy h1 {
+        font-size: 2.75rem;
+    }
+
+    .grid,
+    .quoteGrid {
+        grid-template-columns: 1fr;
+    }
+
+    .actions,
+    .metricGrid {
+        grid-template-columns: 1fr;
+    }
+}

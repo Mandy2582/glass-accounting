@@ -39,6 +39,39 @@ const isOrderFullyDelivered = (order: Order, type: 'supplier' | 'customer'): boo
     });
 };
 
+type CustomerAttachment = {
+    name: string;
+    size: number;
+    type: string;
+    dataUrl: string;
+};
+
+const getCustomerAttachments = (notes?: string): CustomerAttachment[] => {
+    const match = notes?.match(/\[CUSTOMER_ATTACHMENTS:(.*?)\]/);
+    if (!match?.[1]) return [];
+
+    try {
+        const parsed = JSON.parse(match[1]);
+        if (!Array.isArray(parsed)) return [];
+        return parsed
+            .filter(file => (
+                typeof file?.name === 'string' &&
+                typeof file?.dataUrl === 'string' &&
+                file.dataUrl.startsWith('data:image/')
+            ))
+            .slice(0, 3);
+    } catch {
+        return [];
+    }
+};
+
+const getLatestPaymentConfirmation = (notes?: string) => {
+    if (!notes) return '';
+    const lines = notes.split('\n').filter(line => line.includes('[Payment confirmation'));
+    const latest = lines[lines.length - 1] || '';
+    return latest.replace(/^\[Payment confirmation[^\]]*\]\s*/, '').trim();
+};
+
 export default function OrderDetailPage() {
     const params = useParams();
     const router = useRouter();
@@ -981,6 +1014,8 @@ export default function OrderDetailPage() {
     const totalSqft = order.items.reduce((sum, item) => sum + item.sqft, 0);
     const balanceDue = Number((order.total - (order.paidAmount || 0)).toFixed(2));
     const poRequired = order.notes?.includes('[PO_REQUIRED:true]') ?? false;
+    const customerAttachments = getCustomerAttachments(order.notes);
+    const paymentConfirmationText = getLatestPaymentConfirmation(order.notes);
 
     return (
         <div className="container">
@@ -1029,6 +1064,38 @@ export default function OrderDetailPage() {
 
             {/* Processing Wizard */}
             {renderProcessingWizard()}
+
+            {paymentConfirmationText && balanceDue > 0 && (
+                <div
+                    className="card"
+                    style={{
+                        marginBottom: '1.5rem',
+                        border: '1px solid rgba(20, 184, 166, 0.28)',
+                        background: 'linear-gradient(135deg, rgba(240,253,250,0.9), rgba(240,249,255,0.9))'
+                    }}
+                >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <div>
+                            <div style={{ color: '#0f766e', fontSize: '0.78rem', fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                                Customer payment reference submitted
+                            </div>
+                            <div style={{ marginTop: '0.35rem', color: '#0f172a', fontWeight: 700 }}>
+                                {paymentConfirmationText}
+                            </div>
+                            <div style={{ marginTop: '0.25rem', color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>
+                                Verify the bank/UPI receipt before recording payment in accounts.
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => setShowPaymentModal(true)}
+                            className="btn"
+                            style={{ background: '#0f766e', color: 'white', border: 'none', cursor: 'pointer' }}
+                        >
+                            Verify & Record Receipt
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Action Buttons */}
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
@@ -1215,6 +1282,50 @@ export default function OrderDetailPage() {
                 </div>
             </div>
 
+            {customerAttachments.length > 0 && (
+                <div className="card" style={{ marginBottom: '1.5rem' }}>
+                    <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--color-border)' }}>
+                        <h2 style={{ fontSize: '1.1rem', fontWeight: 600 }}>Customer Photos & Sketches</h2>
+                        <p style={{ marginTop: '0.25rem', color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
+                            Uploaded with the online site measurement request.
+                        </p>
+                    </div>
+                    <div style={{ padding: '1.5rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
+                        {customerAttachments.map((attachment, index) => (
+                            <a
+                                href={attachment.dataUrl}
+                                key={`${attachment.name}-${index}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{
+                                    display: 'block',
+                                    border: '1px solid var(--color-border)',
+                                    borderRadius: '14px',
+                                    overflow: 'hidden',
+                                    background: 'var(--color-background-soft)',
+                                    color: 'inherit',
+                                    textDecoration: 'none'
+                                }}
+                            >
+                                <img
+                                    src={attachment.dataUrl}
+                                    alt={attachment.name}
+                                    style={{ width: '100%', height: '180px', objectFit: 'cover', display: 'block' }}
+                                />
+                                <div style={{ padding: '0.85rem' }}>
+                                    <div style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {attachment.name}
+                                    </div>
+                                    <div style={{ color: 'var(--color-text-muted)', fontSize: '0.8rem', marginTop: '0.2rem' }}>
+                                        {Math.round((attachment.size || 0) / 1024)} KB • Click to open
+                                    </div>
+                                </div>
+                            </a>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             {/* Items */}
             <div className="card" style={{ marginBottom: '1.5rem' }}>
                 <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--color-border)' }}>
@@ -1310,6 +1421,7 @@ export default function OrderDetailPage() {
                 <PaymentModal
                     order={order}
                     bankAccounts={bankAccounts}
+                    suggestedNotes={paymentConfirmationText ? `Customer payment reference: ${paymentConfirmationText}` : ''}
                     onClose={() => setShowPaymentModal(false)}
                     onSubmit={handleRecordPayment}
                 />
@@ -1445,11 +1557,13 @@ function DeliveryModal({
 function PaymentModal({
     order,
     bankAccounts,
+    suggestedNotes,
     onClose,
     onSubmit
 }: {
     order: Order;
     bankAccounts: BankAccount[];
+    suggestedNotes?: string;
     onClose: () => void;
     onSubmit: (data: { amount: number, mode: 'cash' | 'bank', bankAccountId?: string, date: string, notes?: string }) => void;
 }) {
@@ -1457,7 +1571,7 @@ function PaymentModal({
     const [mode, setMode] = useState<'cash' | 'bank'>('cash');
     const [bankAccountId, setBankAccountId] = useState('');
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-    const [notes, setNotes] = useState('');
+    const [notes, setNotes] = useState(suggestedNotes || '');
 
     const handleSubmit = () => {
         if (mode === 'bank' && !bankAccountId) {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Download, Database, AlertCircle, DollarSign, Save, FileText, Building2, CreditCard } from 'lucide-react';
+import { Download, Database, AlertCircle, DollarSign, Save, FileText, Building2, CreditCard, Tags } from 'lucide-react';
 import { db } from '@/lib/storage';
 import { PricingConfig, BusinessConfig, GSTType } from '@/types';
 import MigrationTool from '@/components/MigrationTool';
@@ -21,6 +21,8 @@ export default function SettingsPage() {
     const [savingPricing, setSavingPricing] = useState(false);
     const [thicknessPricing, setThicknessPricing] = useState<Array<{ thickness: number; ratePerSqft: number }>>([]);
     const [savingThickness, setSavingThickness] = useState(false);
+    const [shopProductGroups, setShopProductGroups] = useState<{ glass: string[]; hardware: string[] }>(db.settings.getProductGroups());
+    const [savingProductGroups, setSavingProductGroups] = useState(false);
 
     // Business Config State
     const [businessConfig, setBusinessConfig] = useState<BusinessConfig>(db.businessConfig.getDefaults());
@@ -30,6 +32,7 @@ export default function SettingsPage() {
     useEffect(() => {
         loadPricing();
         loadThicknessPricing();
+        loadShopProductGroups();
         loadBusinessConfig();
     }, []);
 
@@ -84,6 +87,49 @@ export default function SettingsPage() {
             setThicknessPricing(thicknessPricingData);
         } catch (error) {
             console.error('Error loading thickness pricing:', error);
+        }
+    };
+
+    const loadShopProductGroups = async () => {
+        try {
+            const groups = await db.settings.getShopProductGroups();
+            setShopProductGroups(groups);
+        } catch (error) {
+            console.error('Error loading product groups:', error);
+        }
+    };
+
+    const handleProductGroupChange = (category: 'glass' | 'hardware', index: number, value: string) => {
+        const updated = { ...shopProductGroups, [category]: [...shopProductGroups[category]] };
+        updated[category][index] = value;
+        setShopProductGroups(updated);
+    };
+
+    const handleAddProductGroup = (category: 'glass' | 'hardware') => {
+        setShopProductGroups({
+            ...shopProductGroups,
+            [category]: [...shopProductGroups[category], category === 'glass' ? 'New Glass Group' : 'New Hardware Group']
+        });
+    };
+
+    const handleRemoveProductGroup = (category: 'glass' | 'hardware', index: number) => {
+        setShopProductGroups({
+            ...shopProductGroups,
+            [category]: shopProductGroups[category].filter((_, i) => i !== index)
+        });
+    };
+
+    const handleSaveProductGroups = async () => {
+        setSavingProductGroups(true);
+        try {
+            await db.settings.updateShopProductGroups(shopProductGroups);
+            setMessage({ type: 'success', text: 'Online product groups saved successfully!' });
+            setTimeout(() => setMessage(null), 3000);
+        } catch (error) {
+            console.error('Error saving product groups:', error);
+            setMessage({ type: 'error', text: 'Failed to save online product groups' });
+        } finally {
+            setSavingProductGroups(false);
         }
     };
 
@@ -329,7 +375,7 @@ export default function SettingsPage() {
 
                             {/* Bank Details */}
                             <div style={{ marginBottom: '2rem' }}>
-                                <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem', color: 'var(--color-primary)' }}>🏦 Bank Details (shown on invoices)</h3>
+                                <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem', color: 'var(--color-primary)' }}>🏦 Bank & Payment Details</h3>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1rem' }}>
                                     <div>
                                         <label style={{ display: 'block', marginBottom: '0.375rem', fontWeight: 500, fontSize: '0.875rem' }}>Bank Name</label>
@@ -371,6 +417,30 @@ export default function SettingsPage() {
                                             onChange={(e) => setBusinessConfig({ ...businessConfig, bankBranch: e.target.value })}
                                             placeholder="Main Branch, Ludhiana"
                                         />
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', marginBottom: '0.375rem', fontWeight: 500, fontSize: '0.875rem' }}>UPI ID</label>
+                                        <input
+                                            type="text"
+                                            className="input"
+                                            value={businessConfig.upiId || ''}
+                                            onChange={(e) => setBusinessConfig({ ...businessConfig, upiId: e.target.value.trim() })}
+                                            placeholder="arjunglasshouse@upi"
+                                        />
+                                    </div>
+                                    <div style={{ gridColumn: '1 / -1' }}>
+                                        <label style={{ display: 'block', marginBottom: '0.375rem', fontWeight: 500, fontSize: '0.875rem' }}>Customer Payment Instructions</label>
+                                        <textarea
+                                            className="input"
+                                            value={businessConfig.paymentInstructions || ''}
+                                            onChange={(e) => setBusinessConfig({ ...businessConfig, paymentInstructions: e.target.value })}
+                                            placeholder="Payment is verified by staff after receipt. Please mention the order number while paying."
+                                            rows={3}
+                                            style={{ minHeight: '86px', resize: 'vertical' }}
+                                        />
+                                        <small style={{ display: 'block', marginTop: '0.375rem', color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>
+                                            Shown on online checkout and saved inside online order notes.
+                                        </small>
                                     </div>
                                 </div>
                             </div>
@@ -431,6 +501,83 @@ export default function SettingsPage() {
                                             <option value={4}>April (Indian FY)</option>
                                         </select>
                                     </div>
+                                </div>
+                            </div>
+
+                            {/* Checkout Charges */}
+                            <div style={{ marginBottom: '2rem' }}>
+                                <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem', color: 'var(--color-primary)' }}>Checkout Charges</h3>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+                                    <div>
+                                        <label style={{ display: 'block', marginBottom: '0.375rem', fontWeight: 500, fontSize: '0.875rem' }}>Installation charge per sq.ft</label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="0.01"
+                                            className="input"
+                                            value={businessConfig.installationChargePerSqft ?? 0}
+                                            onChange={(e) => setBusinessConfig({ ...businessConfig, installationChargePerSqft: Number(e.target.value) || 0 })}
+                                            placeholder="0.00"
+                                        />
+                                    </div>
+                                </div>
+                                <div style={{ display: 'grid', gap: '0.75rem' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center' }}>
+                                        <div>
+                                            <strong>Transportation by delivery place</strong>
+                                            <p style={{ color: 'var(--color-text-muted)', fontSize: '0.8rem', margin: '0.2rem 0 0' }}>These rates are used automatically on the customer checkout page.</p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            className="btn"
+                                            onClick={() => setBusinessConfig({
+                                                ...businessConfig,
+                                                deliveryChargeRules: [
+                                                    ...(businessConfig.deliveryChargeRules || []),
+                                                    { id: Date.now().toString(), place: '', charge: 0 }
+                                                ]
+                                            })}
+                                        >
+                                            Add Place
+                                        </button>
+                                    </div>
+                                    {(businessConfig.deliveryChargeRules || []).map((rule, index) => (
+                                        <div key={rule.id || index} style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) minmax(140px, 180px) auto', gap: '0.75rem', alignItems: 'center' }}>
+                                            <input
+                                                type="text"
+                                                className="input"
+                                                value={rule.place}
+                                                onChange={(e) => setBusinessConfig({
+                                                    ...businessConfig,
+                                                    deliveryChargeRules: (businessConfig.deliveryChargeRules || []).map((item, itemIndex) => itemIndex === index ? { ...item, place: e.target.value } : item)
+                                                })}
+                                                placeholder="Delivery place"
+                                            />
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="0.01"
+                                                className="input"
+                                                value={rule.charge}
+                                                onChange={(e) => setBusinessConfig({
+                                                    ...businessConfig,
+                                                    deliveryChargeRules: (businessConfig.deliveryChargeRules || []).map((item, itemIndex) => itemIndex === index ? { ...item, charge: Number(e.target.value) || 0 } : item)
+                                                })}
+                                                placeholder="Charge"
+                                            />
+                                            <button
+                                                type="button"
+                                                className="btn"
+                                                onClick={() => setBusinessConfig({
+                                                    ...businessConfig,
+                                                    deliveryChargeRules: (businessConfig.deliveryChargeRules || []).filter((_, itemIndex) => itemIndex !== index)
+                                                })}
+                                                style={{ background: '#fee2e2', color: '#991b1b' }}
+                                            >
+                                                Remove
+                                            </button>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
 
@@ -559,6 +706,55 @@ export default function SettingsPage() {
                                 </ul>
                             </div>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Online Product Groups */}
+            <div className="card" style={{ marginBottom: '1.5rem' }}>
+                <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--color-border)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <Tags size={24} />
+                        <div>
+                            <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Online Product Groups</h2>
+                            <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>These presets appear in inventory item type dropdowns and control shop grouping.</p>
+                        </div>
+                    </div>
+                </div>
+                <div style={{ padding: '1.5rem' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem' }}>
+                        {(['glass', 'hardware'] as const).map(category => (
+                            <div key={category}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                                    <h3 style={{ fontSize: '1rem', fontWeight: 700, textTransform: 'capitalize' }}>{category} Groups</h3>
+                                    <button type="button" className="btn btn-secondary" onClick={() => handleAddProductGroup(category)}>
+                                        Add
+                                    </button>
+                                </div>
+                                <div style={{ display: 'grid', gap: '0.65rem' }}>
+                                    {shopProductGroups[category].map((group, index) => (
+                                        <div key={`${category}-${index}`} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '0.5rem' }}>
+                                            <input
+                                                className="input"
+                                                value={group}
+                                                onChange={(e) => handleProductGroupChange(category, index, e.target.value)}
+                                                placeholder={category === 'glass' ? 'e.g. Reflective' : 'e.g. Handles'}
+                                            />
+                                            <button type="button" className="btn" style={{ background: '#fee2e2', color: '#dc2626', border: 'none' }} onClick={() => handleRemoveProductGroup(category, index)}>
+                                                Remove
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1rem' }}>
+                        <button type="button" className="btn btn-secondary" onClick={loadShopProductGroups} disabled={savingProductGroups}>Reset</button>
+                        <button type="button" className="btn btn-primary" onClick={handleSaveProductGroups} disabled={savingProductGroups} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <Save size={18} />
+                            {savingProductGroups ? 'Saving...' : 'Save Product Groups'}
+                        </button>
                     </div>
                 </div>
             </div>

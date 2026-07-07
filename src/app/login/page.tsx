@@ -17,10 +17,20 @@ export default function LoginPage() {
         setLoading(true);
         setError(null);
         
-        const { error: loginError } = await supabase.auth.signInWithPassword({
-            email,
-            password,
-        });
+        let loginError: Error | null = null;
+
+        try {
+            const result = await supabase.auth.signInWithPassword({
+                email,
+                password,
+            });
+            loginError = result.error;
+        } catch (err) {
+            console.error('Login request failed:', err);
+            loginError = new Error(
+                'Cannot connect to the authentication server. Please check the Supabase project URL / internet connection and try again.'
+            );
+        }
 
         if (loginError) {
             setError(loginError.message);
@@ -28,7 +38,7 @@ export default function LoginPage() {
             return;
         }
 
-        router.replace('/');
+        router.replace('/dashboard');
         router.refresh();
     };
 

@@ -24,6 +24,9 @@ export interface GlassItem {
     name: string;
     category?: 'glass' | 'hardware';
     type: string; // e.g., Toughened, Mirror, Lacquered
+    productGroup?: string; // Customer-facing product grouping
+    showOnline?: boolean; // Show this inventory item in online shop
+    imageUrl?: string; // Customer-facing product image URL or data URL
     make?: string; // Brand for hardware
     model?: string; // Model for hardware
     thickness?: number; // in mm (Optional for hardware)
@@ -31,6 +34,9 @@ export interface GlassItem {
     height?: number; // in inches (Optional for hardware)
     unit: Unit;
     stock: number; // Total stock
+    physicalStock?: number; // Actual inventory before customer cart/order reservations
+    reservedStock?: number; // Quantity reserved by pending online orders
+    availableStock?: number; // Stock available for new online orders
     warehouseStock?: { [key: string]: number }; // Breakdown by warehouse
     minStock?: number; // Minimum stock level for alerts
     rate: number; // Base rate per unit (Selling Price)
@@ -349,11 +355,15 @@ export interface BusinessConfig {
     bankAccountNumber?: string;
     bankIfsc?: string;
     bankBranch?: string;
+    upiId?: string;
+    paymentInstructions?: string;
     defaultGstRate: number; // e.g., 18
     defaultGstType: GSTType;
     invoicePrefix: string; // e.g., 'AGH'
     financialYearStart: number; // month (1-12), typically 4 (April) in India
     logo?: string; // base64 or URL
+    deliveryChargeRules?: DeliveryChargeRule[];
+    installationChargePerSqft?: number;
     
     // Tally Integration Settings
     tallyServerIp?: string;
@@ -365,6 +375,12 @@ export interface BusinessConfig {
     tallySyncLogs?: string[];
     employeeConfigs?: Record<string, EmployeeConfig>;
     customAccounts?: LedgerAccount[];
+}
+
+export interface DeliveryChargeRule {
+    id: string;
+    place: string;
+    charge: number;
 }
 
 export interface AppNotification {

@@ -25,14 +25,22 @@ export async function evaluateNotifications(): Promise<AppNotification[]> {
             if (order.status !== 'completed' && order.status !== 'cancelled') {
                 const orderDate = new Date(order.date);
                 const daysPending = (now.getTime() - orderDate.getTime()) / oneDayMs;
+                const orderNotes = order.notes || '';
+                const isOnlineOrder = orderNotes.includes('Online shop order') || orderNotes.includes('Source: Online shop');
+                const isOnlineRequest = orderNotes.includes('Online bulk/project quote request')
+                    || orderNotes.includes('Online custom glass quote request')
+                    || orderNotes.includes('Online product enquiry')
+                    || orderNotes.includes('Online estimate request')
+                    || orderNotes.includes('Online instant estimate quote request')
+                    || orderNotes.includes('Online site measurement request');
 
                 // Any order that is not completed or cancelled is pending
                 if (daysPending >= 0) {
                     const roundedDays = Math.round(daysPending);
                     notifications.push({
                         id: `pending-order-${order.id}`,
-                        title: 'Pending Order Active',
-                        message: `Order #${order.number} for ${order.partyName} is active in stage '${order.status}'${roundedDays > 0 ? ` for ${roundedDays} days` : ''}.`,
+                        title: isOnlineOrder ? 'Online Customer Order' : isOnlineRequest ? 'Online Customer Request' : 'Pending Order Active',
+                        message: `${isOnlineOrder ? 'New online order' : isOnlineRequest ? 'New online request' : 'Order'} #${order.number} for ${order.partyName} is active in stage '${order.status}'${roundedDays > 0 ? ` for ${roundedDays} days` : ''}.`,
                         type: 'pending_order',
                         severity: daysPending > 10 ? 'error' : 'warning',
                         timestamp: order.date,
@@ -40,6 +48,33 @@ export async function evaluateNotifications(): Promise<AppNotification[]> {
                         link: `/orders/${order.id}`
                     });
                 }
+            }
+
+            if ((order.notes || '').includes('Customer support request') || (order.notes || '').includes('Cancellation request')) {
+                const isCancelRequest = (order.notes || '').includes('Cancellation request');
+                notifications.push({
+                    id: `customer-request-${order.id}-${isCancelRequest ? 'cancel' : 'support'}`,
+                    title: isCancelRequest ? 'Customer Requested Cancellation' : 'Customer Requested Support',
+                    message: `${order.partyName} sent a ${isCancelRequest ? 'cancellation' : 'support'} request for order #${order.number}. Review order notes.`,
+                    type: 'pending_order',
+                    severity: 'warning',
+                    timestamp: order.date,
+                    read: false,
+                    link: `/orders/${order.id}`
+                });
+            }
+
+            if ((order.notes || '').includes('[Payment confirmation')) {
+                notifications.push({
+                    id: `payment-confirmation-${order.id}`,
+                    title: 'Customer Submitted Payment Reference',
+                    message: `${order.partyName} submitted a payment reference for order #${order.number}. Verify receipt before marking paid.`,
+                    type: 'pending_order',
+                    severity: 'warning',
+                    timestamp: now.toISOString(),
+                    read: false,
+                    link: `/orders/${order.id}`
+                });
             }
         });
 

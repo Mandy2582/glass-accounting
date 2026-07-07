@@ -96,7 +96,15 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
         // Check every 60 seconds
         const interval = setInterval(refreshNotifications, 60000);
-        return () => clearInterval(interval);
+        const refreshFromEvent = () => {
+            void refreshNotifications();
+        };
+        window.addEventListener('agh_notifications_refresh', refreshFromEvent);
+
+        return () => {
+            clearInterval(interval);
+            window.removeEventListener('agh_notifications_refresh', refreshFromEvent);
+        };
     }, [refreshNotifications]);
 
     const markAsRead = (id: string) => {

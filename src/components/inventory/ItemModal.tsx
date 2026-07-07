@@ -6,6 +6,7 @@ import Modal from '@/components/Modal';
 import FractionInput from '@/components/FractionInput';
 import NumericInput from '@/components/NumericInput';
 import { convertRateForItemUnit, getUnitOptionsForItem, UNIT_OPTIONS_BY_GROUP } from '@/lib/units';
+import { db } from '@/lib/storage';
 
 interface ItemModalProps {
     isOpen: boolean;
@@ -20,6 +21,9 @@ export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialDa
         name: '',
         category: 'glass',
         type: 'Toughened',
+        productGroup: 'Toughened',
+        showOnline: true,
+        imageUrl: '',
         make: '',
         model: '',
         thickness: 0,
@@ -35,6 +39,17 @@ export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialDa
         conversionFactor: 0
     };
     const [formData, setFormData] = useState<Partial<GlassItem>>(defaultItemData);
+    const [productGroups, setProductGroups] = useState<{ glass: string[]; hardware: string[] }>({
+        glass: db.settings.getProductGroups().glass,
+        hardware: db.settings.getProductGroups().hardware
+    });
+
+    // Update form data when initialData changes (for Edit mode)
+    useEffect(() => {
+        db.settings.getShopProductGroups()
+            .then(setProductGroups)
+            .catch(error => console.error('Failed to load product groups:', error));
+    }, [isOpen]);
 
     // Update form data when initialData changes (for Edit mode)
     useEffect(() => {
@@ -42,6 +57,7 @@ export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialDa
             setFormData({
                 ...defaultItemData,
                 ...initialData,
+                productGroup: initialData.productGroup || initialData.type,
                 rateUnit: initialData.rateUnit || initialData.unit || (initialData.category === 'hardware' ? 'nos' : 'sqft'),
                 purchaseRateUnit: initialData.purchaseRateUnit || initialData.rateUnit || initialData.unit || (initialData.category === 'hardware' ? 'nos' : 'sqft'),
             });
@@ -88,6 +104,24 @@ export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialDa
     };
 
     const rateUnitGroups = getUnitOptionsForItem({ category: formData.category, type: formData.type, unit: formData.unit });
+    const currentProductGroups = formData.category === 'hardware' ? productGroups.hardware : productGroups.glass;
+
+    const handleImageUpload = (files: FileList | null) => {
+        const file = files?.[0];
+        if (!file) return;
+        if (!file.type.startsWith('image/')) {
+            alert('Please select an image file.');
+            return;
+        }
+        if (file.size > 900 * 1024) {
+            alert('Please select an image up to 900 KB.');
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = () => setFormData(prev => ({ ...prev, imageUrl: String(reader.result || '') }));
+        reader.readAsDataURL(file);
+    };
 
     return (
         <Modal
@@ -108,7 +142,7 @@ export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialDa
                                 name="category"
                                 value="glass"
                                 checked={formData.category !== 'hardware'}
-                                onChange={() => setFormData({ ...formData, category: 'glass', unit: 'sheets', rateUnit: 'sqft', purchaseRateUnit: 'sqft' })}
+                                onChange={() => setFormData({ ...formData, category: 'glass', type: productGroups.glass[0] || 'Toughened', productGroup: productGroups.glass[0] || 'Toughened', unit: 'sheets', rateUnit: 'sqft', purchaseRateUnit: 'sqft' })}
                             />
                             Glass
                         </label>
@@ -118,7 +152,7 @@ export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialDa
                                 name="category"
                                 value="hardware"
                                 checked={formData.category === 'hardware'}
-                                onChange={() => setFormData({ ...formData, category: 'hardware', unit: 'nos', rateUnit: 'nos', purchaseRateUnit: 'nos', width: 0, height: 0, thickness: 0 })}
+                                onChange={() => setFormData({ ...formData, category: 'hardware', type: productGroups.hardware[0] || 'Handles', productGroup: productGroups.hardware[0] || 'Handles', unit: 'nos', rateUnit: 'nos', purchaseRateUnit: 'nos', width: 0, height: 0, thickness: 0 })}
                             />
                             Hardware
                         </label>
@@ -138,27 +172,16 @@ export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialDa
 
                 <div className="form-grid form-grid-2">
                     <div>
-                        <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Type</label>
-                        {formData.category === 'hardware' ? (
-                            <input
-                                className="input"
-                                value={formData.type}
-                                onChange={e => setFormData({ ...formData, type: e.target.value })}
-                                placeholder="e.g. Handle, Hinge, Lock"
-                            />
-                        ) : (
-                            <select
-                                className="input"
-                                value={formData.type}
-                                onChange={e => setFormData({ ...formData, type: e.target.value })}
-                            >
-                                <option value="Toughened">Toughened</option>
-                                <option value="Mirror">Mirror</option>
-                                <option value="Lacquered">Lacquered</option>
-                                <option value="Clear">Clear Float</option>
-                                <option value="Tinted">Tinted</option>
-                            </select>
-                        )}
+                        <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Product Type / Group</label>
+                        <select
+                            className="input"
+                            value={formData.productGroup || formData.type || ''}
+                            onChange={e => setFormData({ ...formData, productGroup: e.target.value, type: e.target.value })}
+                        >
+                            {currentProductGroups.map(group => (
+                                <option key={group} value={group}>{group}</option>
+                            ))}
+                        </select>
                     </div>
                     <div>
                         <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Make (Brand)</label>
@@ -179,6 +202,48 @@ export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialDa
                             onChange={e => setFormData({ ...formData, hsnCode: e.target.value })}
                             placeholder="e.g. 7007"
                         />
+                    </div>
+                </div>
+
+                <div style={{ border: '1px solid var(--color-border)', borderRadius: '12px', padding: '1rem', background: 'var(--color-bg)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center', marginBottom: '1rem' }}>
+                        <div>
+                            <div style={{ fontWeight: 700 }}>Online Product Settings</div>
+                            <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>Controls how this inventory item appears on the customer product page.</div>
+                        </div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 700 }}>
+                            <input
+                                type="checkbox"
+                                checked={Boolean(formData.showOnline)}
+                                onChange={e => setFormData({ ...formData, showOnline: e.target.checked })}
+                            />
+                            Show online
+                        </label>
+                    </div>
+                    <div className="form-grid form-grid-2">
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Product Image URL</label>
+                            <input
+                                className="input"
+                                value={formData.imageUrl || ''}
+                                onChange={e => setFormData({ ...formData, imageUrl: e.target.value })}
+                                placeholder="/shop-products/photos/clear-glass-panels.png"
+                            />
+                            <label className="btn" style={{ marginTop: '0.5rem', display: 'inline-flex', cursor: 'pointer', background: 'white', border: '1px solid var(--color-border)' }}>
+                                Upload Image
+                                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => handleImageUpload(e.target.files)} />
+                            </label>
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Preview</label>
+                            <div style={{ height: 120, border: '1px dashed var(--color-border)', borderRadius: '12px', display: 'grid', placeItems: 'center', overflow: 'hidden', background: 'white' }}>
+                                {formData.imageUrl ? (
+                                    <img src={formData.imageUrl} alt="Product preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                ) : (
+                                    <span style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>No image selected</span>
+                                )}
+                            </div>
+                        </div>
                     </div>
                 </div>
 

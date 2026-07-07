@@ -4,36 +4,68 @@ import { useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 
 const TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const LAST_ACTIVITY_KEY = 'agh_last_activity_at';
 
 export default function AutoLogout() {
     const timerRef = useRef<NodeJS.Timeout | null>(null);
 
     useEffect(() => {
-        const resetTimer = () => {
-            if (timerRef.current) clearTimeout(timerRef.current);
-            timerRef.current = setTimeout(async () => {
-                await supabase.auth.signOut();
-                window.location.href = '/login';
-            }, TIMEOUT_MS);
+        let isLoggingOut = false;
+
+        const logout = async () => {
+            if (isLoggingOut) return;
+            isLoggingOut = true;
+            sessionStorage.removeItem(LAST_ACTIVITY_KEY);
+            await supabase.auth.signOut();
+            window.location.replace('/login');
         };
 
-        // Events to track
+        const scheduleLogout = (delay = TIMEOUT_MS) => {
+            if (timerRef.current) clearTimeout(timerRef.current);
+            timerRef.current = setTimeout(logout, Math.max(0, delay));
+        };
+
+        const recordActivity = () => {
+            sessionStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
+            scheduleLogout();
+        };
+
+        const validateActivity = () => {
+            const lastActivity = Number(sessionStorage.getItem(LAST_ACTIVITY_KEY));
+            if (lastActivity && Date.now() - lastActivity >= TIMEOUT_MS) {
+                void logout();
+                return;
+            }
+
+            const remaining = lastActivity
+                ? TIMEOUT_MS - (Date.now() - lastActivity)
+                : TIMEOUT_MS;
+            scheduleLogout(remaining);
+        };
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                validateActivity();
+            }
+        };
+
         const events = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart'];
 
-        // Add listeners
         events.forEach(event => {
-            document.addEventListener(event, resetTimer);
+            document.addEventListener(event, recordActivity);
         });
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        window.addEventListener('focus', validateActivity);
 
-        // Initial start
-        resetTimer();
+        validateActivity();
 
-        // Cleanup
         return () => {
             if (timerRef.current) clearTimeout(timerRef.current);
             events.forEach(event => {
-                document.removeEventListener(event, resetTimer);
+                document.removeEventListener(event, recordActivity);
             });
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('focus', validateActivity);
         };
     }, []);
 

@@ -53,6 +53,32 @@ export default function OrdersPage() {
         return status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
     };
 
+    const getOrderNoteValue = (order: Order | null | undefined, label: string) => {
+        if (!order?.notes) return '';
+        const line = order.notes.split('\n').find(entry => entry.toLowerCase().startsWith(`${label.toLowerCase()}:`));
+        return line ? line.slice(line.indexOf(':') + 1).trim() : '';
+    };
+
+    const getOrderSource = (order: Order | null | undefined) => {
+        const source = getOrderNoteValue(order, 'Source');
+        if (source) return source;
+        return order?.notes?.toLowerCase().includes('online') ? 'Online' : 'Staff';
+    };
+
+    const hasPaymentConfirmation = (order: Order | null | undefined) => {
+        return !!order?.notes?.includes('[Payment confirmation');
+    };
+
+    const getPaymentSummary = (order: Order | null | undefined) => {
+        if (!order) return '-';
+        const mode = getOrderNoteValue(order, 'Payment mode') || 'Not selected';
+        const status = (order.paymentStatus || 'unpaid').replace(/_/g, ' ');
+        const paid = Number(order.paidAmount || 0);
+        const balance = Math.max(0, Number(order.total || 0) - paid);
+        const customerSubmittedReference = hasPaymentConfirmation(order);
+        return `${mode} • ${status}${customerSubmittedReference ? ' • confirmation submitted' : ''}${balance > 0 ? ` • ₹${balance.toLocaleString('en-IN')}` : ''}`;
+    };
+
     const getStatusProgress = (status: string) => {
         const progress: Record<string, number> = {
             pending: 1,
@@ -107,7 +133,9 @@ export default function OrdersPage() {
 
         // Apply filters & search
         return list.filter(item => {
-            const matchesStatus = filterStatus === 'all' || item.status === filterStatus;
+            const orderForSignals = item.saleOrder || item.purchaseOrder;
+            const matchesStatus = filterStatus === 'all'
+                || (filterStatus === 'payment_confirmation' ? hasPaymentConfirmation(orderForSignals) : item.status === filterStatus);
             const matchesSearch = search === '' || 
                 (item.generalNumber || '').toLowerCase().includes(search.toLowerCase()) || 
                 (item.soNumber || '').toLowerCase().includes(search.toLowerCase()) || 
@@ -175,6 +203,7 @@ export default function OrdersPage() {
                     style={{ width: 'auto' }}
                 >
                     <option value="all">All Statuses</option>
+                    <option value="payment_confirmation">Payment Confirmations</option>
                     <option value="pending">Pending</option>
                     <option value="supplier_ordered">Supplier Ordered</option>
                     <option value="supplier_delivered">Supplier Delivered</option>
@@ -196,10 +225,12 @@ export default function OrdersPage() {
                                 <th>General Order #</th>
                                 <th>SO #</th>
                                 <th>PO #</th>
+                                <th>Source</th>
                                 <th>Customer</th>
                                 <th>Supplier</th>
                                 <th>Date</th>
                                 <th>Total</th>
+                                <th>Payment</th>
                                 <th>Status</th>
                                 <th>Actions</th>
                             </tr>
@@ -210,10 +241,25 @@ export default function OrdersPage() {
                                     <td style={{ fontWeight: 700 }}>{item.generalNumber}</td>
                                     <td style={{ fontWeight: 600, color: 'var(--color-primary)' }}>{item.soNumber || '-'}</td>
                                     <td style={{ fontWeight: 600, color: '#e0465e' }}>{item.poNumber || '-'}</td>
+                                    <td>
+                                        <span style={{
+                                            padding: '0.25rem 0.5rem',
+                                            borderRadius: '999px',
+                                            fontSize: '0.72rem',
+                                            fontWeight: 700,
+                                            background: getOrderSource(item.saleOrder || item.purchaseOrder).toLowerCase().includes('online') ? 'rgba(14, 165, 233, 0.14)' : 'rgba(148, 163, 184, 0.14)',
+                                            color: getOrderSource(item.saleOrder || item.purchaseOrder).toLowerCase().includes('online') ? '#0284c7' : 'var(--color-text-muted)'
+                                        }}>
+                                            {getOrderSource(item.saleOrder || item.purchaseOrder)}
+                                        </span>
+                                    </td>
                                     <td>{item.customerName || '-'}</td>
                                     <td>{item.supplierName || '-'}</td>
                                     <td>{new Date(item.date).toLocaleDateString()}</td>
                                     <td style={{ fontWeight: 600 }}>{item.total ? `₹${item.total.toLocaleString()}` : '-'}</td>
+                                    <td style={{ maxWidth: 240, color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>
+                                        {getPaymentSummary(item.saleOrder || item.purchaseOrder)}
+                                    </td>
                                     <td>
                                         {item.status ? (
                                             <span style={{
@@ -237,7 +283,7 @@ export default function OrdersPage() {
                             ))}
                             {generalOrdersList.length === 0 && (
                                 <tr>
-                                    <td colSpan={9} style={{ textAlign: 'center', padding: '3rem', color: 'var(--color-text-muted)' }}>
+                                    <td colSpan={11} style={{ textAlign: 'center', padding: '3rem', color: 'var(--color-text-muted)' }}>
                                         No orders found
                                     </td>
                                 </tr>

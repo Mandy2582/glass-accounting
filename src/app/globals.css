@@ -108,6 +108,145 @@ a {
   text-decoration: none;
 }
 
+.customerHeader {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: grid;
+  grid-template-columns: minmax(220px, 260px) minmax(420px, 1fr) minmax(220px, 360px);
+  gap: 0.75rem;
+  align-items: center;
+  min-height: 64px;
+  padding: 0.7rem clamp(0.9rem, 3vw, 2rem);
+  background: #131921;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: white;
+  box-shadow: 0 16px 36px -28px rgba(0, 0, 0, 0.75);
+}
+
+.customerBrand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  color: white;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  white-space: nowrap;
+}
+
+.customerBrandMark {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 10px;
+  background: linear-gradient(145deg, #22d3ee, #0ea5e9 54%, #0284c7);
+  color: white;
+  box-shadow: 0 18px 35px -24px rgba(2, 132, 199, 0.9);
+}
+
+.customerNav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.customerNav::-webkit-scrollbar {
+  display: none;
+}
+
+.customerNav a {
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.9rem;
+  font-weight: 850;
+  padding: 0.52rem 0.78rem;
+  white-space: nowrap;
+}
+
+.customerNav a:hover,
+.customerNav .customerNavActive {
+  background: rgba(255, 255, 255, 0.12);
+  color: white;
+}
+
+.customerHeaderActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  min-width: 220px;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  scrollbar-width: none;
+}
+
+.customerHeaderActions::-webkit-scrollbar {
+  display: none;
+}
+
+.customerHeaderActions:empty::before {
+  content: '';
+  display: block;
+  width: 1px;
+  height: 38px;
+}
+
+.customerBtn,
+.customerBtnPrimary {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.42rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  flex: 0 0 auto;
+  font-weight: 900;
+  min-width: 86px;
+  padding: 0.5rem 0.82rem;
+  white-space: nowrap;
+}
+
+.customerBtn {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.customerBtn:hover {
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.customerBtnPrimary {
+  background: #febd69;
+  color: #111827;
+}
+
+@media (max-width: 1180px) {
+  .customerHeader {
+    grid-template-columns: 1fr;
+    align-items: start;
+    min-height: 0;
+  }
+
+  .customerNav {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .customerHeaderActions {
+    justify-content: flex-start;
+    min-width: 0;
+    width: 100%;
+  }
+}
+
 /* Utility Classes */
 .container {
   max-width: 1600px;
@@ -119,9 +258,10 @@ a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.7rem 1.18rem;
-  border-radius: var(--radius-md);
-  font-weight: 600;
+  min-height: 42px;
+  padding: 0.68rem 1rem;
+  border-radius: 999px;
+  font-weight: 900;
   cursor: pointer;
   transition: transform 0.25s var(--ease-out), box-shadow 0.25s var(--ease-out), border-color 0.25s ease, background 0.25s ease;
   border: 1px solid transparent;
@@ -130,15 +270,16 @@ a {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, var(--color-primary-deep), var(--color-primary) 52%, var(--color-accent));
-  color: white;
-  box-shadow: 0 16px 32px -22px rgba(2, 132, 199, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  background: #ffd814;
+  border-color: #facc15;
+  color: #111827;
+  box-shadow: none;
 }
 
 .btn-primary:hover {
-  background: linear-gradient(135deg, #0369a1, var(--color-primary), #2dd4bf);
+  background: #f7ca00;
   transform: translateY(-2px);
-  box-shadow: 0 24px 40px -26px rgba(2, 132, 199, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.32);
+  box-shadow: 0 14px 24px -22px rgba(15, 23, 42, 0.75);
 }
 
 .btn-primary:active {
@@ -146,15 +287,15 @@ a {
 }
 
 .btn-secondary {
-  background: rgba(255, 255, 255, 0.58);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-main);
-  box-shadow: var(--shadow-sm);
+  background: white;
+  border: 1px solid rgba(148, 163, 184, 0.34);
+  color: #111827;
+  box-shadow: none;
 }
 
 .btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.88);
-  border-color: var(--color-border-hover);
+  background: #f8fafc;
+  border-color: rgba(15, 23, 42, 0.24);
   transform: translateY(-1px);
 }
 

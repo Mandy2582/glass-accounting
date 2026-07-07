@@ -299,6 +299,19 @@ export const db = {
             }
             return allData.map(mapItemFromDB);
         },
+        getShopProducts: async (limit = 240): Promise<GlassItem[]> => {
+            const { data, error } = await supabase
+                .from('items')
+                .select('*')
+                .eq('show_online', true)
+                .gt('rate', 0)
+                .order('category', { ascending: true })
+                .order('name', { ascending: true })
+                .limit(limit);
+
+            handleSupabaseError(error);
+            return (data || []).map(mapItemFromDB);
+        },
         add: async (item: GlassItem): Promise<void> => {
             const dbItem = mapItemToDB(item);
             const { error } = await supabase.from('items').insert(dbItem);
@@ -1654,6 +1667,57 @@ export const db = {
             }
         },
 
+        getProductGroups(): { glass: string[]; hardware: string[] } {
+            return {
+                glass: ['Clear Float', 'Toughened', 'Tinted', 'Reflective', 'Fluted', 'Mirrors'],
+                hardware: ['Handles', 'Locks', 'Hinges', 'Patch Fittings', 'Floor Springs', 'Shower Hardware', 'Sliding Systems', 'Brackets & Clamps']
+            };
+        },
+
+        async getShopProductGroups(): Promise<{ glass: string[]; hardware: string[] }> {
+            const defaults = db.settings.getProductGroups();
+            const { data, error } = await supabase
+                .from('settings')
+                .select('pricing_config')
+                .eq('id', 'default')
+                .single();
+
+            if (error || !data?.pricing_config?.shopProductGroups) {
+                return defaults;
+            }
+
+            return {
+                glass: Array.isArray(data.pricing_config.shopProductGroups.glass) ? data.pricing_config.shopProductGroups.glass : defaults.glass,
+                hardware: Array.isArray(data.pricing_config.shopProductGroups.hardware) ? data.pricing_config.shopProductGroups.hardware : defaults.hardware
+            };
+        },
+
+        async updateShopProductGroups(groups: { glass: string[]; hardware: string[] }): Promise<void> {
+            const { data: existing } = await supabase
+                .from('settings')
+                .select('pricing_config')
+                .eq('id', 'default')
+                .single();
+
+            const pricingConfig = {
+                ...(existing?.pricing_config || {}),
+                shopProductGroups: {
+                    glass: groups.glass.map(group => group.trim()).filter(Boolean),
+                    hardware: groups.hardware.map(group => group.trim()).filter(Boolean)
+                }
+            };
+
+            const { error } = await supabase
+                .from('settings')
+                .upsert({
+                    id: 'default',
+                    pricing_config: pricingConfig,
+                    updated_at: new Date().toISOString()
+                });
+
+            handleSupabaseError(error);
+        },
+
         /**
          * Get thickness-based pricing rates
          * @returns Array of thickness pricing configurations
@@ -1760,10 +1824,18 @@ export const db = {
                 bankAccountNumber: '',
                 bankIfsc: '',
                 bankBranch: '',
+                upiId: '',
+                paymentInstructions: 'Payment is verified by staff after receipt. Please mention the order number while paying.',
                 defaultGstRate: 18,
                 defaultGstType: 'intra_state',
                 invoicePrefix: 'AGH',
                 financialYearStart: 4, // April
+                deliveryChargeRules: [
+                    { id: 'local', place: 'Local delivery', charge: 0 },
+                    { id: 'city', place: 'Within city', charge: 500 },
+                    { id: 'nearby', place: 'Nearby area', charge: 1000 }
+                ],
+                installationChargePerSqft: 0,
                 tallyServerIp: '192.168.1.100',
                 tallyServerPort: '9000',
                 tallyCompanyName: 'Arjun Glass House',
@@ -1911,6 +1983,9 @@ function mapItemFromDB(dbItem: any): GlassItem {
         name: dbItem.name,
         category: dbItem.category,
         type: dbItem.type,
+        productGroup: dbItem.product_group,
+        showOnline: dbItem.show_online ?? false,
+        imageUrl: dbItem.image_url,
         make: dbItem.make,
         model: dbItem.model,
         thickness: dbItem.thickness,
@@ -1937,6 +2012,9 @@ function mapItemToDB(item: GlassItem): any {
         name: item.name,
         category: item.category,
         type: item.type,
+        product_group: item.productGroup || null,
+        show_online: item.showOnline || false,
+        image_url: item.imageUrl || null,
         make: item.make,
         model: item.model,
         thickness: item.thickness,

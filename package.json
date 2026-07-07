@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "video:sora": "node scripts/generate_sora_video.mjs",
     "lint": "eslint"
   },
   "dependencies": {
