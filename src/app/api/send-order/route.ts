@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import nodemailer from 'nodemailer';
 import { requireAuthenticatedRequest } from '@/lib/serverAuth';
+import { createMailTransport, getMailCredentials, getFromAddress } from '@/lib/mailer';
 
 export async function POST(request: NextRequest) {
     const authError = await requireAuthenticatedRequest(request);
@@ -17,21 +17,17 @@ export async function POST(request: NextRequest) {
         }
 
         // Validate SMTP Credentials exist
-        const user = process.env.GMAIL_USER;
-        const pass = process.env.GMAIL_APP_PASSWORD;
+        const { user, pass } = getMailCredentials();
 
         if (!user || !pass) {
             return NextResponse.json(
-                { error: 'SMTP credentials are not configured in environment variables. Please set GMAIL_USER and GMAIL_APP_PASSWORD.' },
+                { error: 'SMTP credentials are not configured. Set EMAIL_HOST/EMAIL_USER/EMAIL_PASSWORD (or GMAIL_USER/GMAIL_APP_PASSWORD) in environment variables.' },
                 { status: 501 }
             );
         }
 
         // Create transporter
-        const transporter = nodemailer.createTransport({
-            service: 'gmail',
-            auth: { user, pass }
-        });
+        const transporter = createMailTransport();
 
         // Convert base64 PDF data URL into a buffer for Nodemailer
         // Format: data:application/pdf;base64,JVBERi0xLjMK...
@@ -43,7 +39,7 @@ export async function POST(request: NextRequest) {
 
         // Send email
         const info = await transporter.sendMail({
-            from: `"${process.env.COMPANY_NAME || 'Arjun Glass House'}" <${user}>`,
+            from: getFromAddress(),
             to,
             subject,
             text: body,

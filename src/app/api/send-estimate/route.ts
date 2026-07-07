@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import nodemailer from 'nodemailer';
 import { designsDb, db } from '@/lib/storage';
 import { generateEstimatePDFBuffer } from '@/lib/pdfGenerator';
 import { generateEstimateEmailHTML } from '@/lib/emailTemplates';
 import { requireAuthenticatedRequest } from '@/lib/serverAuth';
 import { calculateCost } from '@/lib/designCalculations';
+import { createMailTransport, getFromAddress } from '@/lib/mailer';
 
 export async function POST(request: NextRequest) {
     const authError = await requireAuthenticatedRequest(request);
@@ -88,17 +88,11 @@ export async function POST(request: NextRequest) {
         );
 
         // Create transporter
-        const transporter = nodemailer.createTransport({
-            service: 'gmail',
-            auth: {
-                user: process.env.GMAIL_USER,
-                pass: process.env.GMAIL_APP_PASSWORD
-            }
-        });
+        const transporter = createMailTransport();
 
         // Send email
         const info = await transporter.sendMail({
-            from: `"${process.env.COMPANY_NAME || 'Arjun Glass House'}" <${process.env.GMAIL_USER}>`,
+            from: getFromAddress(),
             to: recipientEmail,
             subject: `Glass Estimate - ${design.name}`,
             html: emailHTML,
