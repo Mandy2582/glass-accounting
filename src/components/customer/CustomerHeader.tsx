@@ -70,7 +70,7 @@ export default function CustomerHeader({ actions }: CustomerHeaderProps) {
     ) : (
         <Link className="customerBtn" href="/shop/products?account=login">
             <LogIn size={17} />
-            Customer Login
+            Login
         </Link>
     );
 

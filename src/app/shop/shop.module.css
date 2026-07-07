@@ -1246,7 +1246,7 @@
     gap: 0.35rem;
     padding: 0.25rem;
     border-radius: 10px;
-    background: #f1f5f9;
+    background: #f3ece1;
 }
 
 .segmentTab {
@@ -1325,9 +1325,9 @@
     gap: 0.85rem;
     align-items: center;
     border: 1px solid rgba(176, 158, 138, 0.22);
-    border-radius: 12px;
+    border-radius: 10px;
     background: white;
-    padding: 0.8rem 0.95rem;
+    padding: 1rem;
 }
 
 .resultsBar span,
@@ -1514,7 +1514,7 @@
 .subtypePill {
     width: fit-content;
     border-radius: 999px;
-    background: #f1f5f9;
+    background: #f3ece1;
     color: var(--color-text-muted);
     font-size: 0.78rem;
     font-weight: 850;

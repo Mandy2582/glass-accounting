@@ -2455,9 +2455,6 @@ export default function ShopPage() {
                 <div>
                     <div className={styles.heroEyebrow}>Glass and hardware catalogue</div>
                     <h1>Choose products faster.</h1>
-                    <p>
-                        Search, filter by glass or hardware, add custom sizes, and place an order with live checkout totals.
-                    </p>
                     <div className={styles.heroActions}>
                         <button className="btn btn-primary" type="button" onClick={() => setCustomQuoteOpen(true)}>
                             Custom Glass Quote
@@ -2647,13 +2644,13 @@ export default function ShopPage() {
                             {loading ? 'Loading...' : 'Retry Products'}
                         </button>
                     </div>
-                    <div className={styles.activeFilterRow} aria-label="Active filters">
-                        {activeFilterLabels.length === 0 ? (
-                            <span>Use filters to narrow glass, mirror and hardware products.</span>
-                        ) : activeFilterLabels.map(label => (
-                            <span key={label}>{label}</span>
-                        ))}
-                    </div>
+                    {activeFilterLabels.length > 0 && (
+                        <div className={styles.activeFilterRow} aria-label="Active filters">
+                            {activeFilterLabels.map(label => (
+                                <span key={label}>{label}</span>
+                            ))}
+                        </div>
+                    )}
                     <div className={styles.productsGrid}>
                         {!loading && filteredItems.length === 0 && (
                             <div className={styles.catalogueEmpty}>
