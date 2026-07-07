@@ -2,7 +2,7 @@
     position: relative;
     min-height: 100vh;
     overflow-x: hidden;
-    background: #e7edf3;
+    background: #f3ece1;
     color: var(--color-text-main);
 }
 
@@ -19,7 +19,7 @@
     justify-content: space-between;
     gap: 1rem;
     padding: 0.7rem clamp(0.9rem, 3vw, 2rem);
-    background: #131921;
+    background: #211712;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     color: white;
     box-shadow: 0 16px 36px -28px rgba(0, 0, 0, 0.75);
@@ -66,9 +66,9 @@
     height: 44px;
     place-items: center;
     border-radius: 10px;
-    background: linear-gradient(145deg, #22d3ee, #0ea5e9 54%, #0284c7);
+    background: linear-gradient(145deg, #f2c14e, #c9852e 54%, #8a5320);
     color: white;
-    box-shadow: 0 18px 35px -24px rgba(2, 132, 199, 0.9);
+    box-shadow: 0 18px 35px -24px rgba(154, 98, 26, 0.9);
 }
 
 .brandMark::after {
@@ -122,10 +122,10 @@
     margin: 0 clamp(0.9rem, 3vw, 2rem);
     padding: clamp(1.2rem, 3vw, 2.6rem);
     background:
-        linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(226, 232, 240, 0.86)),
+        linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(255, 241, 224, 0.86)),
         radial-gradient(circle at 82% 18%, rgba(251, 191, 36, 0.22), transparent 20rem);
     border-radius: 0 0 22px 22px;
-    box-shadow: 0 26px 60px -48px rgba(15, 23, 42, 0.7);
+    box-shadow: 0 26px 60px -48px rgba(28, 20, 14, 0.7);
 }
 
 .homeHero {
@@ -137,7 +137,7 @@
     margin: 0 clamp(0.9rem, 3vw, 2rem);
     padding: clamp(2rem, 5vw, 4.8rem) clamp(1.2rem, 4vw, 3rem);
     background:
-        linear-gradient(120deg, rgba(255, 255, 255, 0.92), rgba(219, 234, 254, 0.78)),
+        linear-gradient(120deg, rgba(255, 255, 255, 0.92), rgba(255, 237, 213, 0.78)),
         radial-gradient(circle at 82% 20%, rgba(251, 191, 36, 0.25), transparent 20rem);
     border-radius: 0 0 26px 26px;
 }
@@ -206,12 +206,12 @@
     min-height: clamp(420px, 42vw, 590px);
     place-items: center;
     overflow: hidden;
-    border: 1px solid rgba(148, 163, 184, 0.18);
+    border: 1px solid rgba(176, 158, 138, 0.18);
     border-radius: clamp(34px, 5vw, 58px);
     background:
-        radial-gradient(circle at 50% 32%, rgba(255, 255, 255, 0.98), rgba(186, 230, 253, 0.34) 42%, transparent 60%),
-        linear-gradient(145deg, rgba(248, 250, 252, 0.88), rgba(226, 232, 240, 0.62));
-    box-shadow: 0 40px 120px -70px rgba(15, 23, 42, 0.55);
+        radial-gradient(circle at 50% 32%, rgba(255, 255, 255, 0.98), rgba(255, 231, 199, 0.34) 42%, transparent 60%),
+        linear-gradient(145deg, rgba(250, 247, 242, 0.88), rgba(255, 241, 224, 0.62));
+    box-shadow: 0 40px 120px -70px rgba(28, 20, 14, 0.55);
     isolation: isolate;
 }
 
@@ -219,7 +219,7 @@
     position: absolute;
     inset: 11% 16%;
     border-radius: 48px;
-    background: linear-gradient(135deg, rgba(255,255,255,0.82), rgba(224, 242, 254, 0.28));
+    background: linear-gradient(135deg, rgba(255,255,255,0.82), rgba(250, 235, 215, 0.28));
     box-shadow: inset 0 0 70px rgba(255,255,255,0.88);
     content: "";
     transform: perspective(900px) rotateY(-13deg) rotateX(5deg);
@@ -232,12 +232,12 @@
     width: min(72%, 380px);
     aspect-ratio: 0.86;
     place-items: center;
-    border: 1px solid rgba(14, 165, 233, 0.22);
+    border: 1px solid rgba(201, 133, 46, 0.22);
     border-radius: 44px;
-    background: linear-gradient(145deg, rgba(255,255,255,0.58), rgba(186, 230, 253, 0.2));
+    background: linear-gradient(145deg, rgba(255,255,255,0.58), rgba(255, 231, 199, 0.2));
     box-shadow:
         inset 0 0 60px rgba(255,255,255,0.96),
-        0 34px 90px -54px rgba(14, 165, 233, 0.78);
+        0 34px 90px -54px rgba(201, 133, 46, 0.78);
     transform: perspective(1000px) rotateY(-10deg) rotateX(4deg);
 }
 
@@ -246,7 +246,7 @@
     height: 100%;
     border-radius: 40px;
     object-fit: cover;
-    filter: saturate(1.08) contrast(1.02) drop-shadow(0 30px 32px rgba(14, 165, 233, 0.18));
+    filter: saturate(1.08) contrast(1.02) drop-shadow(0 30px 32px rgba(201, 133, 46, 0.18));
     animation: floatPane 7s ease-in-out infinite;
 }
 
@@ -254,7 +254,7 @@
 .signatureSpec {
     position: absolute;
     z-index: 2;
-    border: 1px solid rgba(148, 163, 184, 0.2);
+    border: 1px solid rgba(176, 158, 138, 0.2);
     background: rgba(255,255,255,0.78);
     backdrop-filter: blur(18px);
     box-shadow: var(--shadow-md);
@@ -312,16 +312,16 @@
 }
 
 .experienceStrip div {
-    border: 1px solid rgba(148, 163, 184, 0.16);
+    border: 1px solid rgba(176, 158, 138, 0.16);
     border-radius: 24px;
     background: rgba(255, 255, 255, 0.66);
-    box-shadow: 0 22px 60px -48px rgba(15, 23, 42, 0.35);
+    box-shadow: 0 22px 60px -48px rgba(28, 20, 14, 0.35);
     padding: 1rem;
 }
 
 .experienceStrip strong {
     display: block;
-    background: linear-gradient(135deg, #0ea5e9, #8b5cf6, #ec4899);
+    background: linear-gradient(135deg, #c9852e, #d97a4a, #c1543f);
     background-clip: text;
     color: transparent;
     font-size: 1.4rem;
@@ -347,11 +347,11 @@
     display: grid;
     min-height: clamp(520px, 48vw, 680px);
     overflow: hidden;
-    border: 1px solid rgba(148, 163, 184, 0.16);
+    border: 1px solid rgba(176, 158, 138, 0.16);
     border-radius: clamp(34px, 5vw, 56px);
     color: var(--color-text-main);
     text-decoration: none;
-    box-shadow: 0 48px 110px -76px rgba(15, 23, 42, 0.7);
+    box-shadow: 0 48px 110px -76px rgba(28, 20, 14, 0.7);
     isolation: isolate;
 }
 
@@ -367,8 +367,8 @@
 .storyPanelSky::before {
     background-image:
         radial-gradient(circle at 28% 20%, rgba(255,255,255,0.95), transparent 14rem),
-        radial-gradient(circle at 86% 24%, rgba(56, 189, 248, 0.3), transparent 16rem),
-        linear-gradient(135deg, #f8fbff, #dff4ff 42%, #f5e8ff);
+        radial-gradient(circle at 86% 24%, rgba(230, 170, 90, 0.3), transparent 16rem),
+        linear-gradient(135deg, #fdf8f0, #ffe9d6 42%, #fdf0ec);
 }
 
 .storyPanelDark {
@@ -377,9 +377,9 @@
 
 .storyPanelDark::before {
     background-image:
-        radial-gradient(circle at 70% 20%, rgba(34, 211, 238, 0.24), transparent 16rem),
-        radial-gradient(circle at 22% 82%, rgba(168, 85, 247, 0.22), transparent 17rem),
-        linear-gradient(135deg, #020617, #111827 48%, #172554);
+        radial-gradient(circle at 70% 20%, rgba(242, 193, 78, 0.24), transparent 16rem),
+        radial-gradient(circle at 22% 82%, rgba(196, 120, 90, 0.24), transparent 17rem),
+        linear-gradient(135deg, #140d09, #211712 48%, #2b1710);
 }
 
 .storyCopy {
@@ -389,7 +389,7 @@
 }
 
 .storyCopy > span {
-    color: rgba(14, 116, 144, 0.72);
+    color: rgba(154, 98, 26, 0.78);
     font-size: 0.78rem;
     font-weight: 950;
     letter-spacing: 0.14em;
@@ -397,7 +397,7 @@
 }
 
 .storyPanelDark .storyCopy > span {
-    color: rgba(186, 230, 253, 0.75);
+    color: rgba(255, 231, 199, 0.75);
 }
 
 .storyCopy h2 {
@@ -410,13 +410,13 @@
 .storyCopy h2 strong {
     display: block;
     width: fit-content;
-    background: linear-gradient(110deg, #0ea5e9, #8b5cf6, #ec4899, #f59e0b);
+    background: linear-gradient(110deg, #c9852e, #d97a4a, #c1543f, #f59e0b);
     background-clip: text;
     color: transparent;
 }
 
 .storyPanelDark .storyCopy h2 strong {
-    background-image: linear-gradient(110deg, #67e8f9, #c4b5fd, #f0abfc, #fde68a);
+    background-image: linear-gradient(110deg, #f2c14e, #e6a15c, #d97a4a, #fde68a);
 }
 
 .storyCopy p {
@@ -428,7 +428,7 @@
 }
 
 .storyPanelDark .storyCopy p {
-    color: rgba(226, 232, 240, 0.74);
+    color: rgba(255, 241, 224, 0.74);
 }
 
 .storyVisual {
@@ -442,7 +442,7 @@
     height: auto;
     border-radius: 28px;
     object-fit: cover;
-    filter: saturate(1.1) contrast(1.03) drop-shadow(0 38px 34px rgba(14, 165, 233, 0.2));
+    filter: saturate(1.1) contrast(1.03) drop-shadow(0 38px 34px rgba(201, 133, 46, 0.2));
     animation: productDrift 8s ease-in-out infinite;
 }
 
@@ -482,7 +482,7 @@
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.7);
     backdrop-filter: blur(12px);
-    color: rgba(15, 23, 42, 0.74);
+    color: rgba(28, 20, 14, 0.74);
     font-size: 0.82rem;
     font-weight: 900;
     padding: 0.42rem 0.68rem;
@@ -506,11 +506,11 @@
 .homeHeroPanel {
     display: grid;
     gap: 0.8rem;
-    border: 1px solid rgba(148, 163, 184, 0.24);
+    border: 1px solid rgba(176, 158, 138, 0.24);
     border-radius: 34px;
     background:
-        linear-gradient(135deg, rgba(255, 255, 255, 0.86), rgba(224, 242, 254, 0.54)),
-        radial-gradient(circle at 80% 10%, rgba(20, 184, 166, 0.18), transparent 13rem);
+        linear-gradient(135deg, rgba(255, 255, 255, 0.86), rgba(250, 235, 215, 0.54)),
+        radial-gradient(circle at 80% 10%, rgba(179, 84, 42, 0.18), transparent 13rem);
     box-shadow: var(--shadow-lg);
     padding: clamp(1.25rem, 3vw, 2rem);
 }
@@ -537,7 +537,7 @@
 }
 
 .homeHeroPanel span {
-    border: 1px solid rgba(14, 165, 233, 0.22);
+    border: 1px solid rgba(201, 133, 46, 0.22);
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.76);
     color: var(--color-primary-deep);
@@ -558,10 +558,10 @@
     grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 0.85rem;
     align-items: center;
-    border: 1px solid rgba(148, 163, 184, 0.18);
+    border: 1px solid rgba(176, 158, 138, 0.18);
     border-radius: 28px;
     background: rgba(255, 255, 255, 0.76);
-    box-shadow: 0 24px 65px -48px rgba(15, 23, 42, 0.36);
+    box-shadow: 0 24px 65px -48px rgba(28, 20, 14, 0.36);
     color: var(--color-text-main);
     padding: 1rem;
     text-decoration: none;
@@ -571,7 +571,7 @@
 .projectTile:hover,
 .categoryTile:hover {
     transform: translateY(-5px);
-    box-shadow: 0 34px 90px -58px rgba(15, 23, 42, 0.48);
+    box-shadow: 0 34px 90px -58px rgba(28, 20, 14, 0.48);
 }
 
 .projectTile > svg {
@@ -634,10 +634,10 @@
     display: grid;
     gap: 0.85rem;
     overflow: hidden;
-    border: 1px solid rgba(148, 163, 184, 0.18);
+    border: 1px solid rgba(176, 158, 138, 0.18);
     border-radius: 34px;
     background: rgba(255, 255, 255, 0.76);
-    box-shadow: 0 24px 80px -58px rgba(15, 23, 42, 0.42);
+    box-shadow: 0 24px 80px -58px rgba(28, 20, 14, 0.42);
     color: var(--color-text-main);
     padding: 1.05rem;
     text-decoration: none;
@@ -650,7 +650,7 @@
     width: 12rem;
     height: 12rem;
     border-radius: 999px;
-    background: rgba(14, 165, 233, 0.08);
+    background: rgba(201, 133, 46, 0.08);
     content: "";
 }
 
@@ -661,8 +661,8 @@
     overflow: hidden;
     border-radius: 28px;
     background:
-        linear-gradient(135deg, rgba(224, 242, 254, 0.9), rgba(240, 253, 250, 0.82)),
-        repeating-linear-gradient(0deg, rgba(14, 165, 233, 0.07), rgba(14, 165, 233, 0.07) 1px, transparent 1px, transparent 14px);
+        linear-gradient(135deg, rgba(250, 235, 215, 0.9), rgba(253, 246, 237, 0.82)),
+        repeating-linear-gradient(0deg, rgba(201, 133, 46, 0.07), rgba(201, 133, 46, 0.07) 1px, transparent 1px, transparent 14px);
 }
 
 .categoryImageBox img {
@@ -681,7 +681,7 @@
     display: inline-flex;
     width: fit-content;
     border-radius: 999px;
-    background: rgba(14, 165, 233, 0.1);
+    background: rgba(201, 133, 46, 0.1);
     color: var(--color-primary-deep);
     font-size: 0.74rem;
     font-weight: 950;
@@ -719,15 +719,15 @@
     overflow: hidden;
     border-radius: clamp(34px, 5vw, 56px);
     background:
-        radial-gradient(circle at 78% 24%, rgba(56, 189, 248, 0.24), transparent 20rem),
-        linear-gradient(135deg, #020617, #0f172a 54%, #0b3b52);
+        radial-gradient(circle at 78% 24%, rgba(230, 170, 90, 0.24), transparent 20rem),
+        linear-gradient(135deg, #100a06, #211712 54%, #2b1710);
     color: white;
-    box-shadow: 0 46px 110px -70px rgba(2, 6, 23, 0.88);
+    box-shadow: 0 46px 110px -70px rgba(20, 12, 6, 0.75);
     padding: clamp(1.5rem, 4vw, 3.5rem);
 }
 
 .premiumFeature span {
-    color: rgba(186, 230, 253, 0.78);
+    color: rgba(255, 231, 199, 0.78);
     font-size: 0.78rem;
     font-weight: 950;
     letter-spacing: 0.14em;
@@ -745,7 +745,7 @@
 .premiumFeature p {
     max-width: 620px;
     margin-top: 1rem;
-    color: rgba(226, 232, 240, 0.76);
+    color: rgba(255, 241, 224, 0.76);
     font-size: clamp(1rem, 1.4vw, 1.2rem);
     line-height: 1.65;
 }
@@ -771,7 +771,7 @@
     position: absolute;
     border-radius: 28px;
     object-fit: cover;
-    filter: saturate(1.08) contrast(1.02) drop-shadow(0 34px 34px rgba(56, 189, 248, 0.2));
+    filter: saturate(1.08) contrast(1.02) drop-shadow(0 34px 34px rgba(230, 170, 90, 0.2));
 }
 
 .premiumFeatureVisual img:first-child {
@@ -794,13 +794,13 @@
     justify-content: space-between;
     gap: 1rem;
     margin: 0 clamp(1rem, 4vw, 4rem) 4rem;
-    border: 1px solid rgba(14, 165, 233, 0.24);
+    border: 1px solid rgba(201, 133, 46, 0.24);
     border-radius: 34px;
     background:
-        linear-gradient(135deg, rgba(255,255,255,0.86), rgba(224, 242, 254, 0.72));
+        linear-gradient(135deg, rgba(255,255,255,0.86), rgba(250, 235, 215, 0.72));
     color: var(--color-text-main);
-    border-color: rgba(148, 163, 184, 0.2);
-    box-shadow: 0 34px 90px -64px rgba(15, 23, 42, 0.52);
+    border-color: rgba(176, 158, 138, 0.2);
+    box-shadow: 0 34px 90px -64px rgba(28, 20, 14, 0.52);
     padding: clamp(1.2rem, 3vw, 2rem);
 }
 
@@ -818,7 +818,7 @@
 }
 
 .measureCta .finderButton {
-    background: #0f172a;
+    background: #211712;
     color: white;
 }
 
@@ -831,11 +831,11 @@
     position: relative;
     min-height: 300px;
     overflow: hidden;
-    border: 1px solid rgba(148, 163, 184, 0.26);
+    border: 1px solid rgba(176, 158, 138, 0.26);
     border-radius: 34px;
     background:
         linear-gradient(135deg, rgba(255,255,255,0.88), rgba(255,255,255,0.42)),
-        radial-gradient(circle at 35% 20%, rgba(14, 165, 233, 0.28), transparent 18rem);
+        radial-gradient(circle at 35% 20%, rgba(201, 133, 46, 0.28), transparent 18rem);
     box-shadow: var(--shadow-lg);
 }
 
@@ -850,7 +850,7 @@
     inset: 2rem auto auto 2rem;
     width: 92px;
     height: 92px;
-    background: rgba(20, 184, 166, 0.18);
+    background: rgba(179, 84, 42, 0.18);
     filter: blur(4px);
 }
 
@@ -859,17 +859,17 @@
     top: 2rem;
     width: 12px;
     height: 160px;
-    background: linear-gradient(to bottom, rgba(14, 165, 233, 0.62), rgba(20, 184, 166, 0.18));
+    background: linear-gradient(to bottom, rgba(201, 133, 46, 0.62), rgba(179, 84, 42, 0.18));
     transform: rotate(28deg);
 }
 
 .glassPreview {
     position: absolute;
     inset: 15% 12% 12% 22%;
-    border: 3px solid rgba(14, 165, 233, 0.75);
+    border: 3px solid rgba(201, 133, 46, 0.75);
     border-radius: 24px;
-    background: linear-gradient(135deg, rgba(186, 230, 253, 0.62), rgba(255, 255, 255, 0.18));
-    box-shadow: inset 0 0 42px rgba(255,255,255,0.9), 0 34px 75px -46px rgba(14, 165, 233, 0.95);
+    background: linear-gradient(135deg, rgba(255, 231, 199, 0.62), rgba(255, 255, 255, 0.18));
+    box-shadow: inset 0 0 42px rgba(255,255,255,0.9), 0 34px 75px -46px rgba(201, 133, 46, 0.95);
     transform: perspective(900px) rotateY(-10deg) rotateX(5deg);
 }
 
@@ -880,7 +880,7 @@
     padding: 0.85rem 1rem;
     border-radius: 18px;
     background: rgba(255,255,255,0.82);
-    border: 1px solid rgba(148, 163, 184, 0.26);
+    border: 1px solid rgba(176, 158, 138, 0.26);
     box-shadow: var(--shadow-md);
     font-weight: 800;
 }
@@ -888,7 +888,7 @@
 .heroStatCard,
 .heroSpecCard {
     position: absolute;
-    border: 1px solid rgba(148, 163, 184, 0.22);
+    border: 1px solid rgba(176, 158, 138, 0.22);
     border-radius: 22px;
     background: rgba(255,255,255,0.82);
     box-shadow: var(--shadow-md);
@@ -934,10 +934,10 @@
     justify-content: space-between;
     gap: 1rem;
     margin: 0 clamp(1rem, 4vw, 4rem) 1.25rem;
-    border: 1px solid rgba(14, 165, 233, 0.24);
+    border: 1px solid rgba(201, 133, 46, 0.24);
     border-radius: 28px;
     background:
-        linear-gradient(135deg, rgba(7, 89, 133, 0.9), rgba(14, 165, 233, 0.82), rgba(20, 184, 166, 0.82)),
+        linear-gradient(135deg, rgba(90, 56, 24, 0.9), rgba(201, 133, 46, 0.82), rgba(179, 84, 42, 0.82)),
         radial-gradient(circle at 88% 18%, rgba(255, 255, 255, 0.26), transparent 12rem);
     color: white;
     box-shadow: var(--shadow-lg);
@@ -987,7 +987,7 @@
 
 .showcaseBlock {
     min-width: 0;
-    border: 1px solid rgba(148, 163, 184, 0.24);
+    border: 1px solid rgba(176, 158, 138, 0.24);
     border-radius: 28px;
     background: rgba(255, 255, 255, 0.68);
     box-shadow: var(--shadow-sm);
@@ -1039,9 +1039,9 @@
     grid-template-columns: 82px minmax(0, 1fr);
     gap: 0.75rem;
     align-items: center;
-    border: 1px solid rgba(148, 163, 184, 0.2);
+    border: 1px solid rgba(176, 158, 138, 0.2);
     border-radius: 22px;
-    background: rgba(248, 250, 252, 0.82);
+    background: rgba(250, 247, 242, 0.82);
     padding: 0.7rem;
 }
 
@@ -1053,8 +1053,8 @@
     border: 0;
     border-radius: 18px;
     background:
-        linear-gradient(135deg, rgba(224, 242, 254, 0.9), rgba(240, 253, 250, 0.82)),
-        repeating-linear-gradient(0deg, rgba(14, 165, 233, 0.07), rgba(14, 165, 233, 0.07) 1px, transparent 1px, transparent 12px);
+        linear-gradient(135deg, rgba(250, 235, 215, 0.9), rgba(253, 246, 237, 0.82)),
+        repeating-linear-gradient(0deg, rgba(201, 133, 46, 0.07), rgba(201, 133, 46, 0.07) 1px, transparent 1px, transparent 12px);
     cursor: pointer;
 }
 
@@ -1096,7 +1096,7 @@
     min-height: 38px;
     border: 0;
     border-radius: 14px;
-    background: linear-gradient(135deg, #075985, #0ea5e9, #14b8a6);
+    background: linear-gradient(135deg, #7a4a1e, #c9852e, #b3542a);
     color: white;
     cursor: pointer;
     font-weight: 900;
@@ -1109,7 +1109,7 @@
     align-items: center;
     margin: 1rem clamp(1rem, 4vw, 4rem) 1.25rem;
     padding: 0.9rem;
-    border: 1px solid rgba(148, 163, 184, 0.24);
+    border: 1px solid rgba(176, 158, 138, 0.24);
     border-radius: 24px;
     background: rgba(255, 255, 255, 0.72);
     backdrop-filter: blur(18px);
@@ -1131,10 +1131,10 @@
     gap: 0.85rem;
     max-height: calc(100vh - 96px);
     overflow: auto;
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    border: 1px solid rgba(176, 158, 138, 0.28);
     border-radius: 10px;
     background: white;
-    box-shadow: 0 18px 48px -42px rgba(15, 23, 42, 0.58);
+    box-shadow: 0 18px 48px -42px rgba(28, 20, 14, 0.58);
     padding: 1rem;
 }
 
@@ -1143,7 +1143,7 @@
     gap: 0.1rem;
     min-width: 0;
     padding-bottom: 0.75rem;
-    border-bottom: 1px solid rgba(148, 163, 184, 0.24);
+    border-bottom: 1px solid rgba(176, 158, 138, 0.24);
 }
 
 .toolbarLabel span {
@@ -1172,14 +1172,14 @@
     position: relative;
     min-height: 104px;
     overflow: hidden;
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    border: 1px solid rgba(176, 158, 138, 0.28);
     border-radius: 10px;
     background: white;
     color: var(--color-text-main);
     cursor: pointer;
     padding: 1rem;
     text-align: left;
-    box-shadow: 0 14px 35px -32px rgba(15, 23, 42, 0.5);
+    box-shadow: 0 14px 35px -32px rgba(28, 20, 14, 0.5);
     transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
 }
 
@@ -1189,7 +1189,7 @@
     width: 7rem;
     height: 7rem;
     border-radius: 999px;
-    background: rgba(14, 165, 233, 0.1);
+    background: rgba(201, 133, 46, 0.1);
     content: "";
 }
 
@@ -1227,7 +1227,7 @@
 }
 
 .collectionCardActive {
-    border-color: rgba(14, 165, 233, 0.5);
+    border-color: rgba(201, 133, 46, 0.5);
     box-shadow: var(--shadow-glow);
 }
 
@@ -1260,7 +1260,7 @@
 }
 
 .segmentTabActive {
-    background: #232f3e;
+    background: #2b1f16;
     color: white;
     box-shadow: none;
 }
@@ -1271,7 +1271,7 @@
 .checkoutTextarea {
     width: 100%;
     min-height: 46px;
-    border: 1px solid rgba(148, 163, 184, 0.32);
+    border: 1px solid rgba(176, 158, 138, 0.32);
     border-radius: 8px;
     background: white;
     padding: 0.8rem 1rem;
@@ -1297,10 +1297,10 @@
 
 .clearFiltersButton {
     min-height: 40px;
-    border: 1px solid rgba(148, 163, 184, 0.32);
+    border: 1px solid rgba(176, 158, 138, 0.32);
     border-radius: 8px;
     background: white;
-    color: #075985;
+    color: #7a4a1e;
     cursor: pointer;
     font-weight: 900;
 }
@@ -1324,7 +1324,7 @@
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 0.85rem;
     align-items: center;
-    border: 1px solid rgba(148, 163, 184, 0.22);
+    border: 1px solid rgba(176, 158, 138, 0.22);
     border-radius: 12px;
     background: white;
     padding: 0.8rem 0.95rem;
@@ -1347,10 +1347,10 @@
 
 .resultsBar button {
     min-height: 38px;
-    border: 1px solid rgba(148, 163, 184, 0.32);
+    border: 1px solid rgba(176, 158, 138, 0.32);
     border-radius: 999px;
-    background: #f8fafc;
-    color: #075985;
+    background: #faf7f2;
+    color: #7a4a1e;
     cursor: pointer;
     font-weight: 900;
     padding: 0 0.85rem;
@@ -1364,10 +1364,10 @@
 }
 
 .activeFilterRow span {
-    border: 1px solid rgba(14, 165, 233, 0.16);
+    border: 1px solid rgba(201, 133, 46, 0.16);
     border-radius: 999px;
-    background: rgba(224, 242, 254, 0.58);
-    color: #075985;
+    background: rgba(250, 235, 215, 0.58);
+    color: #7a4a1e;
     padding: 0.38rem 0.62rem;
 }
 
@@ -1388,7 +1388,7 @@
     gap: 0.65rem;
     border: 1px solid transparent;
     border-radius: 8px;
-    background: #f8fafc;
+    background: #faf7f2;
     color: var(--color-text-main);
     cursor: pointer;
     font-weight: 900;
@@ -1416,10 +1416,10 @@
     min-height: 328px;
     flex-direction: column;
     overflow: hidden;
-    border: 1px solid rgba(148, 163, 184, 0.24);
+    border: 1px solid rgba(176, 158, 138, 0.24);
     border-radius: 10px;
     background: white;
-    box-shadow: 0 12px 28px -28px rgba(15, 23, 42, 0.58);
+    box-shadow: 0 12px 28px -28px rgba(28, 20, 14, 0.58);
     backdrop-filter: none;
     transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
 }
@@ -1430,7 +1430,7 @@
     min-height: 146px;
     overflow: hidden;
     place-items: center;
-    background: #f8fafc;
+    background: #faf7f2;
 }
 
 .productVisualGlow {
@@ -1477,8 +1477,8 @@
 }
 
 .stocksuccess {
-    background: rgba(20, 184, 166, 0.12);
-    color: #0f766e;
+    background: rgba(107, 142, 74, 0.14);
+    color: #4d5f2e;
 }
 
 .stockwarning {
@@ -1502,8 +1502,8 @@
 
 .pill {
     border-radius: 999px;
-    background: #e0f2fe;
-    color: #075985;
+    background: #f5e6d0;
+    color: #7a4a1e;
     padding: 0.35rem 0.65rem;
     font-size: 0.74rem;
     font-weight: 900;
@@ -1536,7 +1536,7 @@
 .productSpecs span {
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.74);
-    border: 1px solid rgba(148, 163, 184, 0.22);
+    border: 1px solid rgba(176, 158, 138, 0.22);
     color: var(--color-text-muted);
     font-size: 0.75rem;
     font-weight: 800;
@@ -1570,7 +1570,7 @@
 .quickBuyRow input {
     width: 100%;
     min-height: 38px;
-    border: 1px solid rgba(148, 163, 184, 0.36);
+    border: 1px solid rgba(176, 158, 138, 0.36);
     border-radius: 8px;
     background: white;
     color: #111827;
@@ -1583,9 +1583,9 @@
     min-height: 38px;
     display: inline-flex;
     align-items: center;
-    border: 1px solid rgba(148, 163, 184, 0.24);
+    border: 1px solid rgba(176, 158, 138, 0.24);
     border-radius: 8px;
-    background: #f8fafc;
+    background: #faf7f2;
     color: #475569;
     font-size: 0.8rem;
     font-weight: 850;
@@ -1610,7 +1610,7 @@
     width: 42px;
     height: 42px;
     place-items: center;
-    border: 1px solid rgba(148, 163, 184, 0.26);
+    border: 1px solid rgba(176, 158, 138, 0.26);
     border-radius: 15px;
     background: rgba(255, 255, 255, 0.82);
     color: var(--color-primary-deep);
@@ -1618,9 +1618,9 @@
 }
 
 .iconActionActive {
-    border-color: rgba(14, 165, 233, 0.45);
-    background: rgba(224, 242, 254, 0.92);
-    color: #0369a1;
+    border-color: rgba(201, 133, 46, 0.45);
+    background: rgba(250, 235, 215, 0.92);
+    color: #8a5320;
 }
 
 .price {
@@ -1650,7 +1650,7 @@
 
 .detailButton {
     background: white;
-    border: 1px solid rgba(148, 163, 184, 0.34);
+    border: 1px solid rgba(176, 158, 138, 0.34);
     color: #111827;
 }
 
@@ -1666,20 +1666,20 @@
     display: flex;
     width: min(460px, 100vw);
     flex-direction: column;
-    background: rgba(248, 250, 252, 0.96);
-    border-left: 1px solid rgba(148, 163, 184, 0.32);
-    box-shadow: -30px 0 80px -50px rgba(15, 23, 42, 0.65);
+    background: rgba(250, 247, 242, 0.96);
+    border-left: 1px solid rgba(176, 158, 138, 0.32);
+    box-shadow: -30px 0 80px -50px rgba(28, 20, 14, 0.65);
     backdrop-filter: blur(18px);
 }
 
 .cartHeader,
 .cartFooter {
     padding: 1rem;
-    border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+    border-bottom: 1px solid rgba(176, 158, 138, 0.2);
 }
 
 .cartFooter {
-    border-top: 1px solid rgba(148, 163, 184, 0.2);
+    border-top: 1px solid rgba(176, 158, 138, 0.2);
     border-bottom: 0;
 }
 
@@ -1703,7 +1703,7 @@
     width: 40px;
     height: 40px;
     place-items: center;
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    border: 1px solid rgba(176, 158, 138, 0.28);
     border-radius: 14px;
     background: white;
     cursor: pointer;
@@ -1720,7 +1720,7 @@
     grid-template-columns: 1fr auto;
     gap: 0.75rem;
     padding: 0.9rem 0;
-    border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+    border-bottom: 1px solid rgba(176, 158, 138, 0.18);
 }
 
 .qtyRow {
@@ -1733,7 +1733,7 @@
 .qtyRow input {
     width: 86px;
     min-height: 38px;
-    border: 1px solid rgba(148, 163, 184, 0.32);
+    border: 1px solid rgba(176, 158, 138, 0.32);
     border-radius: 12px;
     padding: 0.45rem 0.65rem;
 }
@@ -1753,10 +1753,10 @@
 .cartStockOk {
     width: fit-content;
     margin: 0.45rem 0 0;
-    border: 1px solid rgba(34, 197, 94, 0.22);
+    border: 1px solid rgba(107, 142, 74, 0.28);
     border-radius: 999px;
-    background: #f0fdf4;
-    color: #15803d;
+    background: #f2f6ec;
+    color: #4d5f2e;
     font-size: 0.76rem;
     font-weight: 900;
     padding: 0.28rem 0.55rem;
@@ -1773,9 +1773,9 @@
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
-    border: 1px solid rgba(14, 165, 233, 0.22);
+    border: 1px solid rgba(201, 133, 46, 0.22);
     border-radius: 16px;
-    background: linear-gradient(135deg, rgba(224, 242, 254, 0.68), rgba(240, 253, 250, 0.72));
+    background: linear-gradient(135deg, rgba(250, 235, 215, 0.68), rgba(253, 246, 237, 0.72));
     padding: 0.75rem 0.85rem;
 }
 
@@ -1823,7 +1823,7 @@
     min-height: 54px;
     place-items: center;
     gap: 0.25rem;
-    border: 1px solid rgba(148, 163, 184, 0.22);
+    border: 1px solid rgba(176, 158, 138, 0.22);
     border-radius: 12px;
     background: white;
     color: var(--color-text-muted);
@@ -1835,7 +1835,7 @@
     width: 18px;
     height: 18px;
     place-items: center;
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    border: 1px solid rgba(176, 158, 138, 0.28);
     border-radius: 999px;
     color: white;
     font-size: 0.72rem;
@@ -1850,14 +1850,14 @@
 }
 
 .checkoutStepDone {
-    border-color: rgba(20, 184, 166, 0.28) !important;
-    background: #f0fdfa !important;
-    color: #0f766e !important;
+    border-color: rgba(107, 142, 74, 0.3) !important;
+    background: #f2f6ec !important;
+    color: #4d5f2e !important;
 }
 
 .checkoutStepDone span {
-    border-color: #14b8a6;
-    background: #14b8a6;
+    border-color: #6b8e4a;
+    background: #6b8e4a;
 }
 
 .checkoutHint {
@@ -1884,7 +1884,7 @@
 .extraChargeSection {
     display: grid;
     gap: 0.7rem;
-    border: 1px solid rgba(148, 163, 184, 0.24);
+    border: 1px solid rgba(176, 158, 138, 0.24);
     border-radius: 18px;
     background: rgba(255, 255, 255, 0.84);
     padding: 0.9rem;
@@ -1930,7 +1930,7 @@
     display: grid;
     gap: 0.22rem;
     width: 100%;
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    border: 1px solid rgba(176, 158, 138, 0.28);
     border-radius: 14px;
     background: white;
     color: #111827;
@@ -1962,10 +1962,10 @@
 .paymentSection {
     display: grid;
     gap: 0.75rem;
-    border: 1px solid rgba(14, 165, 233, 0.22);
+    border: 1px solid rgba(201, 133, 46, 0.22);
     border-radius: 18px;
     background:
-        linear-gradient(135deg, rgba(240, 249, 255, 0.9), rgba(240, 253, 250, 0.82));
+        linear-gradient(135deg, rgba(253, 248, 240, 0.9), rgba(253, 246, 237, 0.82));
     padding: 0.9rem;
 }
 
@@ -1994,8 +1994,8 @@
 
 .paymentHeader em {
     border-radius: 999px;
-    background: rgba(20, 184, 166, 0.12);
-    color: #0f766e;
+    background: rgba(107, 142, 74, 0.14);
+    color: #4d5f2e;
     font-size: 0.72rem;
     font-style: normal;
     font-weight: 900;
@@ -2014,7 +2014,7 @@
     display: grid;
     gap: 0.2rem;
     min-height: 76px;
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    border: 1px solid rgba(176, 158, 138, 0.28);
     border-radius: 16px;
     background: rgba(255, 255, 255, 0.82);
     color: #111827;
@@ -2025,8 +2025,8 @@
 }
 
 .paymentMethodCard:hover {
-    border-color: rgba(14, 165, 233, 0.42);
-    box-shadow: 0 14px 28px -24px rgba(2, 132, 199, 0.75);
+    border-color: rgba(201, 133, 46, 0.42);
+    box-shadow: 0 14px 28px -24px rgba(154, 98, 26, 0.75);
     transform: translateY(-1px);
 }
 
@@ -2042,9 +2042,9 @@
 }
 
 .paymentMethodActive {
-    border-color: rgba(14, 165, 233, 0.7);
+    border-color: rgba(201, 133, 46, 0.7);
     background: white;
-    box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.12), 0 16px 34px -28px rgba(2, 132, 199, 0.95);
+    box-shadow: 0 0 0 3px rgba(201, 133, 46, 0.12), 0 16px 34px -28px rgba(154, 98, 26, 0.95);
 }
 
 .paymentMethodActive span {
@@ -2063,7 +2063,7 @@
 
 .paymentPolicy select {
     width: 100%;
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    border: 1px solid rgba(176, 158, 138, 0.28);
     border-radius: 14px;
     background: white;
     color: #111827;
@@ -2078,8 +2078,8 @@
 .paymentNote {
     margin: 0;
     border-radius: 14px;
-    background: rgba(15, 23, 42, 0.05);
-    color: rgba(15, 23, 42, 0.68);
+    background: rgba(28, 20, 14, 0.05);
+    color: rgba(28, 20, 14, 0.68);
     font-size: 0.82rem;
     font-weight: 750;
     line-height: 1.45;
@@ -2089,12 +2089,12 @@
 .paymentInstructionCard {
     display: grid;
     gap: 0.7rem;
-    border: 1px solid rgba(56, 189, 248, 0.28);
+    border: 1px solid rgba(230, 170, 90, 0.28);
     border-radius: 18px;
     background:
-        linear-gradient(135deg, rgba(239, 246, 255, 0.92), rgba(240, 253, 250, 0.9)),
+        linear-gradient(135deg, rgba(253, 249, 243, 0.92), rgba(253, 246, 237, 0.9)),
         white;
-    box-shadow: 0 14px 30px rgba(14, 165, 233, 0.1);
+    box-shadow: 0 14px 30px rgba(201, 133, 46, 0.1);
     color: #0f172a;
     padding: 0.85rem;
 }
@@ -2102,14 +2102,14 @@
 .paymentInstructionCard p,
 .paymentInstructionCard small {
     margin: 0;
-    color: rgba(15, 23, 42, 0.7);
+    color: rgba(28, 20, 14, 0.7);
     font-size: 0.84rem;
     font-weight: 750;
     line-height: 1.45;
 }
 
 .paymentInstructionCard small {
-    color: rgba(15, 23, 42, 0.58);
+    color: rgba(28, 20, 14, 0.58);
 }
 
 .paymentInstructionHeader {
@@ -2121,7 +2121,7 @@
 
 .paymentInstructionHeader span {
     display: block;
-    color: rgba(15, 23, 42, 0.56);
+    color: rgba(28, 20, 14, 0.56);
     font-size: 0.72rem;
     font-weight: 950;
     letter-spacing: 0.08em;
@@ -2137,10 +2137,10 @@
 
 .paymentInstructionHeader button,
 .paymentInstructionGrid a {
-    border: 1px solid rgba(14, 165, 233, 0.28);
+    border: 1px solid rgba(201, 133, 46, 0.28);
     border-radius: 999px;
     background: white;
-    color: #0369a1;
+    color: #8a5320;
     cursor: pointer;
     font-size: 0.78rem;
     font-weight: 950;
@@ -2165,7 +2165,7 @@
 }
 
 .paymentInstructionGrid span {
-    color: rgba(15, 23, 42, 0.58);
+    color: rgba(28, 20, 14, 0.58);
     font-size: 0.74rem;
     font-weight: 950;
     text-transform: uppercase;
@@ -2197,9 +2197,9 @@
     display: grid;
     gap: 0.65rem;
     margin-top: 1rem;
-    border: 1px solid rgba(56, 189, 248, 0.28);
+    border: 1px solid rgba(230, 170, 90, 0.28);
     border-radius: 18px;
-    background: rgba(240, 249, 255, 0.92);
+    background: rgba(253, 248, 240, 0.92);
     padding: 0.9rem;
 }
 
@@ -2209,7 +2209,7 @@
 
 .orderPlacedPayment p {
     margin: 0;
-    color: rgba(15, 23, 42, 0.68);
+    color: rgba(28, 20, 14, 0.68);
     font-size: 0.9rem;
     font-weight: 750;
     line-height: 1.45;
@@ -2275,9 +2275,9 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 0.55rem 1rem;
-    border: 1px solid rgba(14, 165, 233, 0.24);
+    border: 1px solid rgba(201, 133, 46, 0.24);
     border-radius: 18px;
-    background: rgba(224, 242, 254, 0.62);
+    background: rgba(250, 235, 215, 0.62);
     padding: 0.9rem;
 }
 
@@ -2293,9 +2293,9 @@
 }
 
 .loginPrompt {
-    border: 1px dashed rgba(14, 165, 233, 0.45);
+    border: 1px dashed rgba(201, 133, 46, 0.45);
     border-radius: 16px;
-    background: rgba(224, 242, 254, 0.68);
+    background: rgba(250, 235, 215, 0.68);
     color: var(--color-primary-deep);
     cursor: pointer;
     font-weight: 850;
@@ -2333,7 +2333,7 @@
     justify-items: center;
     gap: 0.8rem;
     padding: 4rem 1rem;
-    border: 1px dashed rgba(14, 165, 233, 0.34);
+    border: 1px dashed rgba(201, 133, 46, 0.34);
     border-radius: 28px;
     background: rgba(255, 255, 255, 0.62);
     color: var(--color-text-muted);
@@ -2352,7 +2352,7 @@
 }
 
 .shelfBlock {
-    border: 1px solid rgba(148, 163, 184, 0.24);
+    border: 1px solid rgba(176, 158, 138, 0.24);
     border-radius: 28px;
     background: rgba(255, 255, 255, 0.7);
     padding: 1rem;
@@ -2388,9 +2388,9 @@
     grid-template-columns: auto minmax(0, 1fr);
     gap: 0.65rem;
     align-items: center;
-    border: 1px solid rgba(148, 163, 184, 0.2);
+    border: 1px solid rgba(176, 158, 138, 0.2);
     border-radius: 18px;
-    background: rgba(248, 250, 252, 0.78);
+    background: rgba(250, 247, 242, 0.78);
     cursor: pointer;
     padding: 0.65rem;
     text-align: left;
@@ -2423,8 +2423,8 @@
     margin-top: 0.75rem;
     border-radius: 16px;
     padding: 0.75rem 0.9rem;
-    background: rgba(20, 184, 166, 0.12);
-    color: #0f766e;
+    background: rgba(107, 142, 74, 0.14);
+    color: #4d5f2e;
     font-weight: 750;
 }
 
@@ -2435,15 +2435,15 @@
     gap: 1rem;
     max-width: 720px;
     margin-top: 1rem;
-    border: 1px solid rgba(20, 184, 166, 0.28);
+    border: 1px solid rgba(107, 142, 74, 0.3);
     border-radius: 24px;
-    background: rgba(240, 253, 250, 0.8);
+    background: rgba(242, 246, 236, 0.85);
     padding: 1rem;
     box-shadow: var(--shadow-sm);
 }
 
 .orderSuccessCard span {
-    color: #0f766e;
+    color: #4d5f2e;
     font-size: 0.78rem;
     font-weight: 950;
     letter-spacing: 0.08em;
@@ -2494,13 +2494,13 @@
     display: grid;
     place-items: center;
     padding: 1rem;
-    background: rgba(15, 23, 42, 0.45);
+    background: rgba(28, 20, 14, 0.45);
     backdrop-filter: blur(10px);
 }
 
 .authCard {
     width: min(460px, 100%);
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    border: 1px solid rgba(176, 158, 138, 0.28);
     border-radius: 28px;
     background: rgba(255, 255, 255, 0.94);
     padding: 1.25rem;
@@ -2511,7 +2511,7 @@
     width: min(820px, 100%);
     max-height: min(820px, 92vh);
     overflow: auto;
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    border: 1px solid rgba(176, 158, 138, 0.28);
     border-radius: 24px;
     background: white;
     padding: 1.25rem;
@@ -2528,9 +2528,9 @@
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0.65rem;
-    border: 1px solid rgba(14, 165, 233, 0.2);
+    border: 1px solid rgba(201, 133, 46, 0.2);
     border-radius: 18px;
-    background: linear-gradient(135deg, rgba(224, 242, 254, 0.7), rgba(240, 253, 250, 0.72));
+    background: linear-gradient(135deg, rgba(250, 235, 215, 0.7), rgba(253, 246, 237, 0.72));
     padding: 0.75rem;
 }
 
@@ -2553,7 +2553,7 @@
 .customQuotePreview strong {
     display: block;
     margin-top: 0.25rem;
-    color: #075985;
+    color: #7a4a1e;
     font-size: 0.92rem;
     line-height: 1.3;
 }
@@ -2561,10 +2561,10 @@
 .quoteUploadBox {
     display: grid;
     gap: 0.25rem;
-    border: 1px dashed rgba(14, 165, 233, 0.42);
+    border: 1px dashed rgba(201, 133, 46, 0.42);
     border-radius: 16px;
-    background: #f0f9ff;
-    color: #075985;
+    background: #fdf6ee;
+    color: #7a4a1e;
     cursor: pointer;
     font-weight: 900;
     padding: 1rem;
@@ -2590,9 +2590,9 @@
 .quoteAttachmentCard {
     display: grid;
     gap: 0.45rem;
-    border: 1px solid rgba(148, 163, 184, 0.24);
+    border: 1px solid rgba(176, 158, 138, 0.24);
     border-radius: 14px;
-    background: #f8fafc;
+    background: #faf7f2;
     padding: 0.6rem;
 }
 
@@ -2626,7 +2626,7 @@
     width: min(620px, 100%);
     max-height: min(760px, 92vh);
     overflow: auto;
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    border: 1px solid rgba(176, 158, 138, 0.28);
     border-radius: 22px;
     background: white;
     padding: 1.25rem;
@@ -2635,7 +2635,7 @@
 
 .orderPlacedCard {
     width: min(520px, 100%);
-    border: 1px solid rgba(34, 197, 94, 0.28);
+    border: 1px solid rgba(107, 142, 74, 0.32);
     border-radius: 22px;
     background: white;
     padding: 1.35rem;
@@ -2650,8 +2650,8 @@
     margin: 0 auto 0.75rem;
     place-items: center;
     border-radius: 999px;
-    background: #dcfce7;
-    color: #16a34a;
+    background: #eaf1de;
+    color: #5b7a3a;
 }
 
 .orderPlacedCard h2 {
@@ -2668,9 +2668,9 @@
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 0.55rem 1rem;
     margin-top: 1rem;
-    border: 1px solid rgba(148, 163, 184, 0.22);
+    border: 1px solid rgba(176, 158, 138, 0.22);
     border-radius: 16px;
-    background: #f8fafc;
+    background: #faf7f2;
     padding: 0.9rem;
     text-align: left;
 }
@@ -2701,7 +2701,7 @@
     margin-top: 1rem;
     border-radius: 16px;
     background:
-        linear-gradient(135deg, #232f3e, #131921),
+        linear-gradient(135deg, #2b1f16, #211712),
         radial-gradient(circle at 90% 12%, rgba(254, 189, 105, 0.34), transparent 14rem);
     color: white;
     padding: 1rem;
@@ -2739,9 +2739,9 @@
 
 .accountStats div,
 .savedDetails {
-    border: 1px solid rgba(148, 163, 184, 0.24);
+    border: 1px solid rgba(176, 158, 138, 0.24);
     border-radius: 14px;
-    background: #f8fafc;
+    background: #faf7f2;
     padding: 0.85rem;
 }
 
@@ -2795,7 +2795,7 @@
 
 .finderCard {
     width: min(720px, 100%);
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    border: 1px solid rgba(176, 158, 138, 0.28);
     border-radius: 30px;
     background: rgba(255, 255, 255, 0.95);
     padding: 1.25rem;
@@ -2826,9 +2826,9 @@
     display: grid;
     gap: 0.5rem;
     margin: 1rem 0;
-    border: 1px solid rgba(14, 165, 233, 0.24);
+    border: 1px solid rgba(201, 133, 46, 0.24);
     border-radius: 22px;
-    background: linear-gradient(135deg, rgba(224, 242, 254, 0.78), rgba(240, 253, 250, 0.8));
+    background: linear-gradient(135deg, rgba(250, 235, 215, 0.78), rgba(253, 246, 237, 0.8));
     padding: 1rem;
 }
 
@@ -2858,7 +2858,7 @@
 .finderResult strong {
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.8);
-    border: 1px solid rgba(148, 163, 184, 0.22);
+    border: 1px solid rgba(176, 158, 138, 0.22);
     color: var(--color-primary-deep);
     font-size: 0.78rem;
     padding: 0.32rem 0.58rem;
@@ -2868,7 +2868,7 @@
     width: min(760px, 100%);
     max-height: min(760px, 92vh);
     overflow: auto;
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    border: 1px solid rgba(176, 158, 138, 0.28);
     border-radius: 30px;
     background: rgba(255, 255, 255, 0.95);
     padding: 1.25rem;
@@ -2879,7 +2879,7 @@
     width: min(920px, 100%);
     max-height: min(760px, 92vh);
     overflow: auto;
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    border: 1px solid rgba(176, 158, 138, 0.28);
     border-radius: 30px;
     background: rgba(255, 255, 255, 0.95);
     padding: 1.25rem;
@@ -2890,7 +2890,7 @@
     width: min(1080px, 100%);
     max-height: min(760px, 92vh);
     overflow: auto;
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    border: 1px solid rgba(176, 158, 138, 0.28);
     border-radius: 30px;
     background: rgba(255, 255, 255, 0.95);
     padding: 1.25rem;
@@ -2908,9 +2908,9 @@
     display: flex;
     flex-direction: column;
     gap: 0.65rem;
-    border: 1px solid rgba(148, 163, 184, 0.22);
+    border: 1px solid rgba(176, 158, 138, 0.22);
     border-radius: 24px;
-    background: rgba(248, 250, 252, 0.84);
+    background: rgba(250, 247, 242, 0.84);
     padding: 1rem;
 }
 
@@ -2930,7 +2930,7 @@
 }
 
 .compareColumn span {
-    border-top: 1px solid rgba(148, 163, 184, 0.18);
+    border-top: 1px solid rgba(176, 158, 138, 0.18);
     color: var(--color-text-muted);
     font-size: 0.86rem;
     padding-top: 0.45rem;
@@ -2969,8 +2969,8 @@
     place-items: center;
     border-radius: 26px;
     background:
-        linear-gradient(135deg, rgba(224, 242, 254, 0.92), rgba(240, 253, 250, 0.82)),
-        repeating-linear-gradient(0deg, rgba(14, 165, 233, 0.08), rgba(14, 165, 233, 0.08) 1px, transparent 1px, transparent 16px);
+        linear-gradient(135deg, rgba(250, 235, 215, 0.92), rgba(253, 246, 237, 0.82)),
+        repeating-linear-gradient(0deg, rgba(201, 133, 46, 0.08), rgba(201, 133, 46, 0.08) 1px, transparent 1px, transparent 16px);
 }
 
 .productDetailVisual img {
@@ -2978,7 +2978,7 @@
     height: 340px;
     border-radius: 24px;
     object-fit: cover;
-    filter: saturate(1.08) contrast(1.02) drop-shadow(0 26px 30px rgba(14, 165, 233, 0.18));
+    filter: saturate(1.08) contrast(1.02) drop-shadow(0 26px 30px rgba(201, 133, 46, 0.18));
 }
 
 .quickViewBadges {
@@ -2994,7 +2994,7 @@
 .quickViewBadges span {
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.88);
-    border: 1px solid rgba(148, 163, 184, 0.26);
+    border: 1px solid rgba(176, 158, 138, 0.26);
     color: #111827;
     font-size: 0.78rem;
     font-weight: 900;
@@ -3078,8 +3078,8 @@
     gap: 0.5rem 1rem;
     padding: 1rem;
     border-radius: 20px;
-    background: rgba(248, 250, 252, 0.86);
-    border: 1px solid rgba(148, 163, 184, 0.22);
+    background: rgba(250, 247, 242, 0.86);
+    border: 1px solid rgba(176, 158, 138, 0.22);
 }
 
 .specGrid span,
@@ -3099,9 +3099,9 @@
     display: grid;
     gap: 0.85rem;
     padding: 0.9rem;
-    border: 1px solid rgba(148, 163, 184, 0.22);
+    border: 1px solid rgba(176, 158, 138, 0.22);
     border-radius: 18px;
-    background: rgba(248, 250, 252, 0.82);
+    background: rgba(250, 247, 242, 0.82);
 }
 
 .orderSummaryRow {
@@ -3123,7 +3123,7 @@
 .orderLineList {
     display: grid;
     gap: 0.45rem;
-    border-top: 1px solid rgba(148, 163, 184, 0.18);
+    border-top: 1px solid rgba(176, 158, 138, 0.18);
     padding-top: 0.75rem;
 }
 
@@ -3149,9 +3149,9 @@
 
 .reorderButton {
     min-height: 42px;
-    border: 1px solid rgba(14, 165, 233, 0.28);
+    border: 1px solid rgba(201, 133, 46, 0.28);
     border-radius: 14px;
-    background: rgba(224, 242, 254, 0.76);
+    background: rgba(250, 235, 215, 0.76);
     color: var(--color-primary-deep);
     cursor: pointer;
     font-weight: 900;

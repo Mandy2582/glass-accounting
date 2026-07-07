@@ -118,10 +118,10 @@ a {
   align-items: center;
   min-height: 64px;
   padding: 0.7rem clamp(0.9rem, 3vw, 2rem);
-  background: #131921;
+  background: #211712;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   color: white;
-  box-shadow: 0 16px 36px -28px rgba(0, 0, 0, 0.75);
+  box-shadow: 0 16px 36px -28px rgba(20, 12, 6, 0.75);
 }
 
 .customerBrand {
@@ -141,9 +141,9 @@ a {
   height: 42px;
   place-items: center;
   border-radius: 10px;
-  background: linear-gradient(145deg, #22d3ee, #0ea5e9 54%, #0284c7);
+  background: linear-gradient(145deg, #f2c14e, #c9852e 54%, #8a5320);
   color: white;
-  box-shadow: 0 18px 35px -24px rgba(2, 132, 199, 0.9);
+  box-shadow: 0 18px 35px -24px rgba(154, 98, 26, 0.9);
 }
 
 .customerNav {
@@ -167,12 +167,13 @@ a {
   font-weight: 850;
   padding: 0.52rem 0.78rem;
   white-space: nowrap;
+  transition: background 0.2s var(--ease-out), color 0.2s var(--ease-out);
 }
 
 .customerNav a:hover,
 .customerNav .customerNavActive {
-  background: rgba(255, 255, 255, 0.12);
-  color: white;
+  background: rgba(242, 193, 78, 0.18);
+  color: #f2c14e;
 }
 
 .customerHeaderActions {
@@ -212,6 +213,7 @@ a {
   min-width: 86px;
   padding: 0.5rem 0.82rem;
   white-space: nowrap;
+  transition: transform 0.2s var(--ease-out), border-color 0.2s ease, background 0.2s ease;
 }
 
 .customerBtn {
@@ -221,11 +223,17 @@ a {
 
 .customerBtn:hover {
   border-color: rgba(255, 255, 255, 0.5);
+  transform: translateY(-1px);
 }
 
 .customerBtnPrimary {
-  background: #febd69;
-  color: #111827;
+  background: linear-gradient(135deg, #f2c14e, #d4922f);
+  color: #211712;
+}
+
+.customerBtnPrimary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 26px -18px rgba(154, 98, 26, 0.85);
 }
 
 @media (max-width: 1180px) {
@@ -245,6 +253,39 @@ a {
     min-width: 0;
     width: 100%;
   }
+}
+
+/* Customer-facing (shop/estimate/measure/track/guide) warm retail theme.
+   Scoped to this wrapper so the internal admin app keeps its own palette. */
+.customerTheme {
+  /* Override shared design tokens with warm retail equivalents so every
+     component that reads var(--color-primary-deep) etc. (shop, estimate,
+     measure, track, guide) picks up the warm palette automatically,
+     without touching the internal admin app's tokens at :root. */
+  --color-primary: #c9852e;
+  --color-primary-hover: #b3720f;
+  --color-primary-deep: #7a4a1e;
+  --color-accent: #b3542a;
+  --color-secondary: #8a7a68;
+  --color-border: rgba(176, 158, 138, 0.28);
+  --color-border-hover: rgba(201, 133, 46, 0.38);
+  --shadow-md: 0 24px 55px -38px rgba(28, 20, 14, 0.5), 0 12px 28px -24px rgba(90, 56, 24, 0.28);
+  --shadow-lg: 0 36px 90px -48px rgba(90, 56, 24, 0.55), 0 18px 42px -28px rgba(28, 20, 14, 0.3);
+  --shadow-glow: 0 0 0 1px rgba(255, 255, 255, 0.5), 0 28px 70px -42px rgba(201, 133, 46, 0.85);
+
+  position: relative;
+  min-height: 100vh;
+  background-color: #f3ece1;
+  background-image:
+    radial-gradient(circle at 14% 6%, rgba(242, 193, 78, 0.16) 0, transparent 26rem),
+    radial-gradient(circle at 92% 2%, rgba(196, 120, 90, 0.14) 0, transparent 30rem),
+    linear-gradient(160deg, #faf5ec 0%, #f3ece1 55%, #f5e9db 100%);
+  animation: customerThemeFadeIn 0.4s var(--ease-out) both;
+}
+
+@keyframes customerThemeFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* Utility Classes */

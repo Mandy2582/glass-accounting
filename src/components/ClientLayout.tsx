@@ -66,7 +66,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     };
 
     if (isPublicPage) {
-        return <>{children}</>;
+        return <div className="customerTheme">{children}</div>;
     }
 
     if (isCheckingSession) {
