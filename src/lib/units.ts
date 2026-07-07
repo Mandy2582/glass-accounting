@@ -107,14 +107,17 @@ export function convertRateBetweenUnits(rate: number, fromUnit?: string, toUnit?
 }
 
 export function getSheetAreaSqft(input: { width?: number; height?: number; conversionFactor?: number }): number {
-    const explicitFactor = Number(input.conversionFactor) || 0;
-    if (explicitFactor > 0) return explicitFactor;
-
+    // Width/height are the geometric source of truth for a sheet's area.
+    // conversionFactor is only a fallback for items with no fixed dimensions
+    // (it must not silently override a real width x height, which stale or
+    // default-seeded conversionFactor values otherwise would).
     const width = Number(input.width) || 0;
     const height = Number(input.height) || 0;
-    if (width <= 0 || height <= 0) return 0;
+    if (width > 0 && height > 0) {
+        return roundCurrency((roundToNextEvenInch(width) * roundToNextEvenInch(height)) / 144);
+    }
 
-    return roundCurrency((roundToNextEvenInch(width) * roundToNextEvenInch(height)) / 144);
+    return Number(input.conversionFactor) || 0;
 }
 
 export function convertRateForItemUnit(input: {
