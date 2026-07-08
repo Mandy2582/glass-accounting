@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server';
 import { calculateCost, roundToNextEvenInch } from '@/lib/designCalculations';
 import { db } from '@/lib/storage';
+import { convertInchesToLength, convertLengthToInches, normalizeUnit } from '@/lib/units';
 import { roundCurrency } from '@/lib/utils';
 
 type EstimateBody = {
     width?: number;
     height?: number;
-    unit?: 'inch' | 'ft' | 'mm' | 'cm' | 'm';
+    unit?: string;
     thickness?: number;
     quantity?: number;
     holes?: number;
@@ -18,26 +19,10 @@ function toNumber(value: unknown, fallback = 0) {
     return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function dimensionToInches(value: number, unit: EstimateBody['unit']) {
-    if (unit === 'ft') return value * 12;
-    if (unit === 'mm') return value / 25.4;
-    if (unit === 'cm') return value / 2.54;
-    if (unit === 'm') return value * 39.37007874;
-    return value;
-}
-
-function inchesToDisplay(value: number, unit: EstimateBody['unit']) {
-    if (unit === 'ft') return value / 12;
-    if (unit === 'mm') return value * 25.4;
-    if (unit === 'cm') return value * 2.54;
-    if (unit === 'm') return value / 39.37007874;
-    return value;
-}
-
 export async function POST(request: Request) {
     try {
         const body = await request.json().catch(() => null) as EstimateBody | null;
-        const unit = body?.unit || 'inch';
+        const unit = normalizeUnit(body?.unit, 'inch');
         const width = toNumber(body?.width);
         const height = toNumber(body?.height);
         const thickness = toNumber(body?.thickness, 6);
@@ -53,8 +38,8 @@ export async function POST(request: Request) {
             return NextResponse.json({ message: 'Thickness must be greater than zero.' }, { status: 400 });
         }
 
-        const widthInches = dimensionToInches(width, unit);
-        const heightInches = dimensionToInches(height, unit);
+        const widthInches = convertLengthToInches(width, unit);
+        const heightInches = convertLengthToInches(height, unit);
         const billedWidthInches = roundToNextEvenInch(widthInches);
         const billedHeightInches = roundToNextEvenInch(heightInches);
         const netArea = roundCurrency((billedWidthInches * billedHeightInches / 144) * quantity);
@@ -80,8 +65,8 @@ export async function POST(request: Request) {
                     cuts,
                 },
                 billed: {
-                    width: roundCurrency(inchesToDisplay(billedWidthInches, unit)),
-                    height: roundCurrency(inchesToDisplay(billedHeightInches, unit)),
+                    width: roundCurrency(convertInchesToLength(billedWidthInches, unit)),
+                    height: roundCurrency(convertInchesToLength(billedHeightInches, unit)),
                     unit,
                     widthInches: billedWidthInches,
                     heightInches: billedHeightInches,

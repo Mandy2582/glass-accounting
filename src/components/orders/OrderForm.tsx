@@ -212,7 +212,7 @@ export default function OrderForm({ onSave, onCancel }: OrderFormProps) {
             const taxAmount = roundCurrency(subtotal * (taxRate / 100));
             const total = roundCurrency(subtotal + taxAmount);
 
-            const orderNumber = await db.orders.generateNextOrderNumber(orderType, party?.name || '');
+            const orderNumber = await db.orders.generateNextOrderNumber(orderType);
 
             const order: Order = {
                 id: crypto.randomUUID(),

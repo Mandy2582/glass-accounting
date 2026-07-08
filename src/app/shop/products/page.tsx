@@ -43,7 +43,9 @@ type CheckoutChargeConfig = {
     installationChargePerSqft: number;
 };
 
-type CustomerAccount = Pick<CustomerForm, 'name' | 'phone' | 'email' | 'address' | 'pincode' | 'deliveryPreference' | 'wantsInstallation' | 'preferredDate' | 'deliverySlot' | 'paymentPreference' | 'paymentMode'>;
+type CustomerAccount = Pick<CustomerForm, 'name' | 'phone' | 'email' | 'address' | 'pincode' | 'deliveryPreference' | 'wantsInstallation' | 'preferredDate' | 'deliverySlot' | 'paymentPreference' | 'paymentMode'> & {
+    id?: string;
+};
 
 type CustomerCredentialAccount = CustomerAccount & {
     id: string;
@@ -515,7 +517,7 @@ const getStockComparison = (item: GlassItem, quantity: number, unit: Unit) => {
 };
 
 const getQuantityStep = (unit: Unit) => {
-    if (['nos', 'pieces', 'pair', 'sets', 'sheets', 'box'].includes(unit)) return 1;
+    if (['nos', 'pcs', 'pair', 'sets', 'sheets', 'box'].includes(unit)) return 1;
     if (['sqft', 'sqm', 'sqin', 'sqyd'].includes(unit)) return 0.25;
     return 0.01;
 };
@@ -786,7 +788,6 @@ export default function ShopPage() {
             let parsedCustomer: CustomerAccount | null = null;
             if (savedCustomer) {
                 parsedCustomer = JSON.parse(savedCustomer) as CustomerAccount;
-                setCustomerAccount(parsedCustomer);
                 setCustomer(prev => ({ ...prev, ...parsedCustomer }));
             }
 
@@ -817,6 +818,28 @@ export default function ShopPage() {
         } catch {
             setCart([]);
         }
+
+        void (async () => {
+            try {
+                const response = await fetch('/api/customer/session', {
+                    method: 'GET',
+                    headers: { Accept: 'application/json' },
+                    cache: 'no-store',
+                });
+                if (!response.ok) return;
+
+                const payload = await response.json();
+                if (!payload.customer) return;
+
+                const serverAccount = payload.customer as CustomerAccount;
+                window.localStorage.setItem(CUSTOMER_KEY, JSON.stringify(serverAccount));
+                setCustomerAccount(serverAccount);
+                setCustomer(prev => ({ ...prev, ...serverAccount }));
+                loadCustomerLocalData(serverAccount);
+            } catch (error) {
+                console.warn('Could not restore customer session:', error);
+            }
+        })();
     }, []);
 
     useEffect(() => {
@@ -1222,11 +1245,8 @@ export default function ShopPage() {
             }
             return [...prev, { cartId: generateUUID(), itemId: item.id, quantity: safeQuantity, unit }];
         });
-        if (openCart) {
-            setCartOpen(true);
-        } else {
-            setSuccessMessage(`${item.name} added to cart.`);
-        }
+        setCartOpen(true);
+        if (!openCart) setSuccessMessage(`${item.name} added to cart.`);
     };
 
     const addCustomSizeToCart = (event: React.FormEvent) => {
@@ -1422,7 +1442,7 @@ export default function ShopPage() {
         setSuccessMessage(`${finderResult.title} recommendation applied.`);
     };
 
-    const persistCustomerAccount = (message: string) => {
+    const persistCustomerAccount = async (message: string) => {
         setErrorMessage('');
         const account: CustomerAccount = {
             name: customer.name.trim(),
@@ -1443,10 +1463,22 @@ export default function ShopPage() {
             return false;
         }
 
-        window.localStorage.setItem(CUSTOMER_KEY, JSON.stringify(account));
-        setCustomerAccount(account);
-        setCustomer(prev => ({ ...prev, ...account }));
-        loadCustomerLocalData(account);
+        const response = await fetch('/api/customer/session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(account),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload.customer) {
+            setErrorMessage(payload.message || 'Could not save customer login.');
+            return false;
+        }
+
+        const serverAccount = payload.customer as CustomerAccount;
+        window.localStorage.setItem(CUSTOMER_KEY, JSON.stringify(serverAccount));
+        setCustomerAccount(serverAccount);
+        setCustomer(prev => ({ ...prev, ...serverAccount }));
+        loadCustomerLocalData(serverAccount);
         setSuccessMessage(message);
         return true;
     };
@@ -1482,146 +1514,31 @@ export default function ShopPage() {
                 return;
             }
 
-            const accounts = readCustomerAccounts();
-            const currentIndex = accounts.findIndex(saved => (
-                normalizeLoginValue(saved.phone) === normalizeLoginValue(customerAccount.phone) ||
-                (!!customerAccount.email && normalizeLoginValue(saved.email) === normalizeLoginValue(customerAccount.email))
-            ));
-            const duplicate = accounts.some((saved, index) => (
-                index !== currentIndex &&
-                (
-                    normalizeLoginValue(saved.phone) === normalizeLoginValue(account.phone) ||
-                    (!!account.email && normalizeLoginValue(saved.email) === normalizeLoginValue(account.email))
-                )
-            ));
-
-            if (duplicate) {
-                setErrorMessage('Another customer already uses this phone/email.');
-                return;
-            }
-
-            if (currentIndex >= 0) {
-                accounts[currentIndex] = { ...accounts[currentIndex], ...account };
-                writeCustomerAccounts(accounts);
-            }
-
             migrateCustomerStorage(CUSTOMER_ORDERS_KEY, customerAccount, account);
             migrateCustomerStorage(WISHLIST_KEY, customerAccount, account);
-            window.localStorage.setItem(CUSTOMER_KEY, JSON.stringify(account));
-            setCustomerAccount(account);
-            setCustomer(prev => ({ ...prev, ...account }));
-            loadCustomerLocalData(account);
+            const saved = await persistCustomerAccount('Customer details updated.');
+            if (!saved) return;
             setAuthOpen(false);
-            setSuccessMessage('Customer details updated.');
             return;
         }
 
-        if (authMode === 'register') {
-            const account: CustomerAccount = {
-                name: customer.name.trim(),
-                phone: customer.phone.trim(),
-                email: customer.email.trim(),
-                address: customer.address.trim(),
-                pincode: customer.pincode.trim(),
-                deliveryPreference: customer.deliveryPreference,
-                wantsInstallation: customer.wantsInstallation,
-                preferredDate: customer.preferredDate,
-                deliverySlot: customer.deliverySlot,
-                paymentPreference: customer.paymentPreference,
-                paymentMode: customer.paymentMode,
-            };
-
-            if (!account.name || !account.phone) {
-                setErrorMessage('Please enter customer name and phone number.');
-                return;
-            }
-
-            if (authCredentials.password.length < 6) {
-                setErrorMessage('Please create a password with at least 6 characters.');
-                return;
-            }
-
-            if (authCredentials.password !== authCredentials.confirmPassword) {
-                setErrorMessage('Password and confirm password do not match.');
-                return;
-            }
-
-            const accounts = readCustomerAccounts();
-            const phoneKey = normalizeLoginValue(account.phone);
-            const emailKey = normalizeLoginValue(account.email);
-            const alreadyExists = accounts.some(saved => (
-                normalizeLoginValue(saved.phone) === phoneKey ||
-                (!!emailKey && normalizeLoginValue(saved.email) === emailKey)
-            ));
-
-            if (alreadyExists) {
-                setErrorMessage('This phone/email is already registered. Please login instead.');
-                return;
-            }
-
-            const registeredAccount: CustomerCredentialAccount = {
-                ...account,
-                id: generateUUID(),
-                passwordHash: await hashCustomerPassword(authCredentials.password),
-                createdAt: new Date().toISOString(),
-            };
-
-            writeCustomerAccounts([registeredAccount, ...accounts]);
-            window.localStorage.setItem(CUSTOMER_KEY, JSON.stringify(account));
-            setCustomerAccount(account);
-            setCustomer(prev => ({ ...prev, ...account }));
-            loadCustomerLocalData(account);
+        if (authMode === 'register' || authMode === 'login') {
+            const saved = await persistCustomerAccount(authMode === 'register' ? 'Customer profile saved.' : 'Customer session started.');
+            if (!saved) return;
             setAuthCredentials({ identifier: '', password: '', confirmPassword: '' });
             setAuthOpen(false);
-            setSuccessMessage('Customer account registered and logged in.');
+            setCartOpen(true);
             return;
         }
 
-        const identifier = normalizeLoginValue(authCredentials.identifier || customer.phone || customer.email);
-        if (!identifier || !authCredentials.password) {
-            setErrorMessage('Please enter phone/email and password.');
-            return;
-        }
-
-        const accounts = readCustomerAccounts();
-        const passwordHash = await hashCustomerPassword(authCredentials.password);
-        const matchedAccount = accounts.find(saved => (
-            (normalizeLoginValue(saved.phone) === identifier || normalizeLoginValue(saved.email) === identifier) &&
-            saved.passwordHash === passwordHash
-        ));
-
-        if (!matchedAccount) {
-            setErrorMessage('Invalid customer login details. Please check phone/email and password.');
-            return;
-        }
-
-        const account: CustomerAccount = {
-            name: matchedAccount.name,
-            phone: matchedAccount.phone,
-            email: matchedAccount.email,
-            address: matchedAccount.address,
-            pincode: matchedAccount.pincode || '',
-            deliveryPreference: matchedAccount.deliveryPreference,
-            wantsInstallation: matchedAccount.wantsInstallation || false,
-            preferredDate: matchedAccount.preferredDate,
-            deliverySlot: matchedAccount.deliverySlot,
-            paymentPreference: matchedAccount.paymentPreference,
-            paymentMode: matchedAccount.paymentMode,
-        };
-        window.localStorage.setItem(CUSTOMER_KEY, JSON.stringify(account));
-        setCustomerAccount(account);
-        setCustomer(prev => ({ ...prev, ...account }));
-        loadCustomerLocalData(account);
-        setAuthCredentials({ identifier: '', password: '', confirmPassword: '' });
-        setAuthOpen(false);
-        setSuccessMessage('Customer logged in.');
     };
 
-    const saveCheckoutDetails = () => {
-        persistCustomerAccount('Checkout details saved for next order.');
+    const saveCheckoutDetails = async () => {
+        await persistCustomerAccount('Checkout details saved for next order.');
     };
 
-    const logoutCustomer = () => {
+    const logoutCustomer = async () => {
+        await fetch('/api/customer/session', { method: 'DELETE' }).catch(() => null);
         window.localStorage.removeItem(CUSTOMER_KEY);
         setCustomerAccount(null);
         setCart([]);
@@ -1653,7 +1570,7 @@ export default function ShopPage() {
             date: order.date,
             total: order.total,
             items: cartDetails.rowCount || order.items.length,
-            status: 'Order received',
+            status: CUSTOMER_STATUS_LABELS[order.status] || 'Order received',
             paymentMode: customer.paymentMode,
             paymentStatus: order.paymentStatus || 'unpaid',
             deliveryPreference: customer.deliveryPreference,
@@ -1958,6 +1875,21 @@ export default function ShopPage() {
 
     const createOrFindCustomer = async () => {
         const parties = await db.parties.getAll();
+        const sessionCustomer = customerAccount?.id
+            ? parties.find(party => party.id === customerAccount.id && party.type === 'customer')
+            : null;
+        if (sessionCustomer) {
+            const updatedCustomer: Party = {
+                ...sessionCustomer,
+                name: customer.name.trim() || sessionCustomer.name,
+                phone: customer.phone.trim() || sessionCustomer.phone,
+                email: customer.email.trim() || sessionCustomer.email,
+                address: customer.address.trim() || sessionCustomer.address,
+            };
+            await db.parties.update(updatedCustomer);
+            return updatedCustomer;
+        }
+
         const existingCustomer = findCustomerByPhone(parties, customer.phone);
 
         if (existingCustomer) {
@@ -2125,7 +2057,7 @@ export default function ShopPage() {
             const allOrderItems = [...orderItems, ...chargeItems];
 
             const [orderNumber, generalNumber] = await Promise.all([
-                db.orders.generateNextOrderNumber('sale_order', party.name),
+                db.orders.generateNextOrderNumber('sale_order'),
                 db.orders.generateNextGeneralNumber(),
             ]);
             const today = new Date().toISOString().split('T')[0];
@@ -2143,10 +2075,13 @@ export default function ShopPage() {
                 taxRate: GST_RATE,
                 taxAmount: cartDetails.taxAmount,
                 total: cartDetails.total,
-                status: 'pending',
+                status: 'approved',
                 notes: [
                     'Source: Online shop',
                     'Order type: Customer checkout',
+                    '[ONLINE_ORDER_CONFIRMED:true]',
+                    '[ESTIMATE_SENT:true]',
+                    '[ESTIMATE_APPROVED:true]',
                     customer.email ? `Email: ${customer.email.trim()}` : '',
                     `Delivery preference: ${customer.deliveryPreference}`,
                     customer.pincode.trim() ? `Delivery pincode: ${customer.pincode.trim()}` : '',
@@ -2216,7 +2151,7 @@ export default function ShopPage() {
         try {
             const party = await createOrFindCustomer();
             const [orderNumber, generalNumber] = await Promise.all([
-                db.orders.generateNextOrderNumber('sale_order', party.name),
+                db.orders.generateNextOrderNumber('sale_order'),
                 db.orders.generateNextGeneralNumber(),
             ]);
             const today = new Date().toISOString().split('T')[0];
@@ -3149,13 +3084,13 @@ export default function ShopPage() {
                     <div className={styles.authCard}>
                         <div className={styles.cartTitleRow}>
                             <div>
-                                <h2>{authMode === 'edit' ? 'Edit Customer Details' : authMode === 'register' ? 'Customer Registration' : 'Customer Login'}</h2>
+                                <h2>{authMode === 'edit' ? 'Edit Customer Details' : authMode === 'register' ? 'Customer Registration' : 'Customer Details'}</h2>
                                 <p style={{ color: 'var(--color-text-muted)' }}>
                                     {authMode === 'edit'
                                         ? 'Update your delivery details and preferences for future orders.'
                                         : authMode === 'register'
-                                            ? 'Create a customer account for orders, delivery details and order history.'
-                                            : 'Login with your registered phone/email and password.'}
+                                            ? 'Save customer details for checkout and order history on this device.'
+                                            : 'Enter customer details to continue checkout.'}
                                 </p>
                             </div>
                             <button className={styles.iconButton} type="button" onClick={() => setAuthOpen(false)} aria-label="Close customer login">
@@ -3163,55 +3098,21 @@ export default function ShopPage() {
                             </button>
                         </div>
                         <form className={styles.checkoutForm} onSubmit={saveCustomerAccount}>
-                            {authMode === 'login' ? (
-                                <>
-                                    <input
-                                        className={styles.checkoutInput}
-                                        value={authCredentials.identifier}
-                                        onChange={event => setAuthCredentials(prev => ({ ...prev, identifier: event.target.value }))}
-                                        placeholder="Phone or email *"
-                                        autoComplete="username"
-                                    />
-                                    <input
-                                        className={styles.checkoutInput}
-                                        type="password"
-                                        value={authCredentials.password}
-                                        onChange={event => setAuthCredentials(prev => ({ ...prev, password: event.target.value }))}
-                                        placeholder="Password *"
-                                        autoComplete="current-password"
-                                    />
-                                </>
-                            ) : (
-                                <>
-                                    <input className={styles.checkoutInput} value={customer.name} onChange={event => setCustomer(prev => ({ ...prev, name: event.target.value }))} placeholder="Customer name *" autoComplete="name" />
-                                    <input className={styles.checkoutInput} value={customer.phone} onChange={event => setCustomer(prev => ({ ...prev, phone: event.target.value }))} placeholder="Phone number *" autoComplete="tel" />
-                                    <input className={styles.checkoutInput} value={customer.email} onChange={event => setCustomer(prev => ({ ...prev, email: event.target.value }))} placeholder="Email address" autoComplete="email" />
-                                    <textarea className={styles.checkoutTextarea} value={customer.address} onChange={event => setCustomer(prev => ({ ...prev, address: event.target.value }))} placeholder="Delivery address" rows={3} />
-                                    {authMode === 'register' && (
-                                        <>
-                                            <input
-                                                className={styles.checkoutInput}
-                                                type="password"
-                                                value={authCredentials.password}
-                                                onChange={event => setAuthCredentials(prev => ({ ...prev, password: event.target.value }))}
-                                                placeholder="Create password *"
-                                                autoComplete="new-password"
-                                            />
-                                            <input
-                                                className={styles.checkoutInput}
-                                                type="password"
-                                                value={authCredentials.confirmPassword}
-                                                onChange={event => setAuthCredentials(prev => ({ ...prev, confirmPassword: event.target.value }))}
-                                                placeholder="Confirm password *"
-                                                autoComplete="new-password"
-                                            />
-                                        </>
-                                    )}
-                                </>
-                            )}
+                            <input className={styles.checkoutInput} value={customer.name} onChange={event => setCustomer(prev => ({ ...prev, name: event.target.value }))} placeholder="Customer name *" autoComplete="name" />
+                            <input className={styles.checkoutInput} value={customer.phone} onChange={event => setCustomer(prev => ({ ...prev, phone: event.target.value }))} placeholder="Phone number *" autoComplete="tel" />
+                            <input className={styles.checkoutInput} value={customer.email} onChange={event => setCustomer(prev => ({ ...prev, email: event.target.value }))} placeholder="Email address" autoComplete="email" />
+                            <textarea className={styles.checkoutTextarea} value={customer.address} onChange={event => setCustomer(prev => ({ ...prev, address: event.target.value }))} placeholder="Delivery address" rows={3} />
+                            <input
+                                className={styles.checkoutInput}
+                                value={customer.pincode}
+                                onChange={event => setCustomer(prev => ({ ...prev, pincode: event.target.value }))}
+                                placeholder="Delivery pincode"
+                                inputMode="numeric"
+                                maxLength={6}
+                            />
                             {errorMessage && <div className={styles.inlineError}>{errorMessage}</div>}
                             <button className="btn btn-primary" type="submit">
-                                {authMode === 'edit' ? 'Save Details' : authMode === 'register' ? 'Register & Continue' : 'Login & Continue'}
+                                {authMode === 'edit' ? 'Save Details' : authMode === 'register' ? 'Save & Continue' : 'Continue Checkout'}
                             </button>
                         </form>
                         {authMode !== 'edit' && (
@@ -3224,7 +3125,7 @@ export default function ShopPage() {
                                     setErrorMessage('');
                                 }}
                             >
-                                {authMode === 'login' ? 'New customer? Register here' : 'Already registered? Login here'}
+                                {authMode === 'login' ? 'Save as customer profile' : 'Use quick checkout details'}
                             </button>
                         )}
                     </div>

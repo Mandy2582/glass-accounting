@@ -72,6 +72,24 @@ const getLatestPaymentConfirmation = (notes?: string) => {
     return latest.replace(/^\[Payment confirmation[^\]]*\]\s*/, '').trim();
 };
 
+const hasNoteMarker = (notes: string | undefined, marker: string) => (notes || '').includes(marker);
+
+const isOnlineCatalogOrder = (order: Order) => {
+    const notes = order.notes || '';
+    return hasNoteMarker(notes, '[ONLINE_ORDER_CONFIRMED:true]')
+        || (notes.includes('Source: Online shop') && notes.includes('Order type: Customer checkout'));
+};
+
+const isEnquiryOrManualReviewOrder = (order: Order) => {
+    const notes = order.notes || '';
+    return notes.includes('Online product enquiry')
+        || notes.includes('Online bulk/project quote request')
+        || notes.includes('Online estimate request')
+        || notes.includes('Online instant estimate quote request')
+        || notes.includes('Email order')
+        || notes.includes('WhatsApp order');
+};
+
 export default function OrderDetailPage() {
     const params = useParams();
     const router = useRouter();
@@ -248,7 +266,7 @@ export default function OrderDetailPage() {
         const taxAmount = roundCurrency(subtotal * (order.taxRate / 100));
         const total = roundCurrency(subtotal + taxAmount);
 
-        const poNumber = await db.orders.generateNextOrderNumber('purchase_order', supplier.name);
+        const poNumber = await db.orders.generateNextOrderNumber('purchase_order');
 
         const purchaseOrder: Order = {
             id: crypto.randomUUID(),
@@ -392,6 +410,19 @@ export default function OrderDetailPage() {
         alert('Estimate marked as sent to customer.');
     };
 
+    const markEstimateSentSilently = async () => {
+        if (!order || isEstimateSent) return;
+        const updatedOrder = {
+            ...order,
+            notes: [
+                order.notes || '',
+                '[ESTIMATE_SENT:true]',
+            ].filter(Boolean).join('\n'),
+        };
+        await db.orders.update(updatedOrder);
+        setOrder(updatedOrder);
+    };
+
     const handleMarkEstimateApproved = async () => {
         if (!order) return;
         let notes = order.notes || '';
@@ -502,6 +533,9 @@ export default function OrderDetailPage() {
                 ? `https://wa.me/${phone}?text=${encodeURIComponent(messageText)}`
                 : `https://wa.me/?text=${encodeURIComponent(messageText)}`;
             window.open(waUrl, '_blank');
+            if (!excludePricing && order.type === 'sale_order') {
+                await markEstimateSentSilently();
+            }
         } catch (e) {
             console.error(e);
             alert('Failed to generate WhatsApp share link');
@@ -561,6 +595,9 @@ export default function OrderDetailPage() {
             
             const data = await res.json();
             if (res.ok && data.success) {
+                if (!excludePricing && order.type === 'sale_order') {
+                    await markEstimateSentSilently();
+                }
                 alert(`Email sent successfully via direct SMTP to ${email}!`);
             } else {
                 // Fallback to mailto link if SMTP direct send fails (e.g. no environment config)
@@ -594,7 +631,9 @@ export default function OrderDetailPage() {
         if (!order) return null;
 
         const isPO = order.type === 'purchase_order';
-        const requiresDesign = order.requiresDesign || (order.items || []).some(isCustomDesignOrderItem);
+        const onlineCatalogOrder = isOnlineCatalogOrder(order);
+        const needsManualReview = isEnquiryOrManualReviewOrder(order);
+        const requiresDesign = !onlineCatalogOrder && (order.requiresDesign || (order.items || []).some(isCustomDesignOrderItem));
 
         let steps: {
             title: string;
@@ -822,6 +861,73 @@ export default function OrderDetailPage() {
                     )
                 }
             ];
+        } else if (onlineCatalogOrder) {
+            const isDelivered = order.status === 'customer_delivered' || order.status === 'completed';
+            const isCompleted = order.status === 'completed';
+            const isPaid = balanceDue <= 0;
+            const hasInvoice = !!order.invoiceId;
+
+            steps = [
+                {
+                    title: '1. Fulfil Order',
+                    description: 'Online checkout order is already confirmed. Reserve stock, prepare items, and dispatch when ready.',
+                    status: isDelivered || isCompleted ? 'completed' : 'current',
+                    action: !isDelivered && (
+                        <button onClick={() => { setDeliveryType('customer'); setShowDeliveryModal(true); }} className="btn btn-primary" style={{ fontSize: '0.875rem', padding: '0.5rem 1rem', cursor: 'pointer' }}>
+                            <Truck size={16} style={{ marginRight: '0.25rem' }} />
+                            Mark Delivered
+                        </button>
+                    )
+                },
+                {
+                    title: '2. Payment',
+                    description: isPaid ? 'Payment is settled.' : `Collect or verify balance: ₹${balanceDue.toFixed(2)}.`,
+                    status: isPaid ? 'completed' : (isDelivered ? 'current' : 'upcoming'),
+                    action: !isPaid && (
+                        <button onClick={() => setShowPaymentModal(true)} className="btn" style={{ fontSize: '0.875rem', padding: '0.5rem 1rem', background: '#8b5cf6', color: 'white', border: 'none', cursor: 'pointer' }}>
+                            <IndianRupee size={16} style={{ marginRight: '0.25rem' }} />
+                            Record Receipt
+                        </button>
+                    )
+                },
+                {
+                    title: '3. Invoice',
+                    description: hasInvoice ? 'Invoice generated.' : 'Generate invoice when the order is ready for billing.',
+                    status: hasInvoice ? 'completed' : (isDelivered ? 'current' : 'upcoming'),
+                    action: !hasInvoice && isDelivered && (
+                        <button
+                            onClick={async () => {
+                                if (confirm('Create an invoice from this order?')) {
+                                    try {
+                                        await db.orders.convertToInvoice(order.id);
+                                        alert('Invoice created successfully!');
+                                        loadOrder();
+                                    } catch (e) {
+                                        console.error(e);
+                                        alert('Failed to create invoice');
+                                    }
+                                }
+                            }}
+                            className="btn"
+                            style={{ fontSize: '0.875rem', padding: '0.5rem 1rem', background: '#3b82f6', border: 'none', color: 'white', cursor: 'pointer' }}
+                        >
+                            <CreditCard size={16} style={{ marginRight: '0.25rem' }} />
+                            Generate Invoice
+                        </button>
+                    )
+                },
+                {
+                    title: '4. Complete',
+                    description: isCompleted ? 'Order marked completed.' : 'Close the order after delivery and billing are done.',
+                    status: isCompleted ? 'completed' : (isDelivered && (isPaid || hasInvoice) ? 'current' : 'upcoming'),
+                    action: !isCompleted && isDelivered && (
+                        <button onClick={handleCompleteOrder} className="btn" style={{ fontSize: '0.875rem', padding: '0.5rem 1rem', background: '#10b981', border: 'none', color: 'white', cursor: 'pointer' }}>
+                            <CheckCircle size={16} style={{ marginRight: '0.25rem' }} />
+                            Complete Order
+                        </button>
+                    )
+                }
+            ];
         } else {
             const isApproved = order.status === 'approved' || order.status === 'customer_delivered' || order.status === 'completed';
             const isDelivered = order.status === 'customer_delivered' || order.status === 'completed';
@@ -834,9 +940,9 @@ export default function OrderDetailPage() {
                     title: '1. Send Quotation to Customer',
                     description: isEstimateSent
                         ? 'Quotation estimate sent to customer.'
-                        : 'Provide the quotation/estimate details to the customer for pricing approval.',
-                    status: isEstimateSent ? 'completed' : 'current',
-                    action: !isEstimateSent && (
+                        : needsManualReview ? 'Provide the quotation/estimate details to the customer for pricing approval.' : 'Review order details before dispatch.',
+                    status: isEstimateSent || !needsManualReview ? 'completed' : 'current',
+                    action: !isEstimateSent && needsManualReview && (
                         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                             <button onClick={() => handleWhatsAppShare(false)} className="btn" style={{ fontSize: '0.875rem', padding: '0.5rem 1rem', background: '#25D366', border: 'none', color: 'white', cursor: 'pointer' }}>
                                 Share WhatsApp
@@ -853,8 +959,8 @@ export default function OrderDetailPage() {
                 {
                     title: '2. Approve Order (Stock)',
                     description: isApproved ? 'Order approved to fulfill from existing inventory.' : 'Approve order details to fulfill from inventory catalog.',
-                    status: isApproved ? 'completed' : (isEstimateSent ? 'current' : 'upcoming'),
-                    action: !isApproved && isEstimateSent && (
+                    status: isApproved ? 'completed' : ((isEstimateSent || !needsManualReview) ? 'current' : 'upcoming'),
+                    action: !isApproved && (isEstimateSent || !needsManualReview) && (
                         <div style={{ display: 'flex', gap: '0.5rem' }}>
                             <button
                                 onClick={async () => {
@@ -1016,6 +1122,11 @@ export default function OrderDetailPage() {
     const poRequired = order.notes?.includes('[PO_REQUIRED:true]') ?? false;
     const customerAttachments = getCustomerAttachments(order.notes);
     const paymentConfirmationText = getLatestPaymentConfirmation(order.notes);
+    const shouldShowDesignSection = order.type === 'sale_order' && (
+        Boolean(order.requiresDesign)
+        || linkedDesigns.length > 0
+        || (order.items || []).some(isCustomDesignOrderItem)
+    );
 
     return (
         <div className="container">
@@ -1191,6 +1302,7 @@ export default function OrderDetailPage() {
             )}
 
             {/* Custom Glass Drawings & Designs */}
+            {shouldShowDesignSection && (
             <div className="card" style={{ marginBottom: '1.5rem' }}>
                 <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
@@ -1242,6 +1354,7 @@ export default function OrderDetailPage() {
                     )}
                 </div>
             </div>
+            )}
 
             {/* Order Details */}
             <div className="card" style={{ marginBottom: '1.5rem' }}>

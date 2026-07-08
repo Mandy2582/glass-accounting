@@ -183,7 +183,7 @@ async function saveEmailOrder(input: {
 }): Promise<Order> {
     const orderItems = input.matchedLines.map(parsedLineToInvoiceItem);
     const totals = getWhatsAppOrderTotals(input.matchedLines);
-    const orderNumber = await db.orders.generateNextOrderNumber('sale_order', input.customer.name);
+    const orderNumber = await db.orders.generateNextOrderNumber('sale_order');
     const generalNumber = await db.orders.generateNextGeneralNumber();
     const order: Order = {
         id: generateUUID(),
@@ -226,7 +226,7 @@ async function createReviewOrderForEmailImage(
     analysis: WhatsAppImageAnalysis,
     caption: string
 ): Promise<Order> {
-    const orderNumber = await db.orders.generateNextOrderNumber('sale_order', customer.name);
+    const orderNumber = await db.orders.generateNextOrderNumber('sale_order');
     const generalNumber = await db.orders.generateNextGeneralNumber();
     const order: Order = {
         id: generateUUID(),

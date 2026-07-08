@@ -6,7 +6,7 @@ import { roundCurrency } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
-const RESERVING_ORDER_STATUSES = new Set(['pending', 'confirmed', 'processing', 'in_progress', 'supplier_delivered']);
+const RESERVING_ORDER_STATUSES = new Set(['pending', 'approved', 'confirmed', 'processing', 'in_progress', 'supplier_delivered']);
 
 const isOnlineCustomerOrder = (notes?: string) => {
     const normalizedNotes = (notes || '').toLowerCase();

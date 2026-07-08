@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import { Download, Database, AlertCircle, DollarSign, Save, FileText, Building2, CreditCard, Tags } from 'lucide-react';
 import { db } from '@/lib/storage';
-import { PricingConfig, BusinessConfig, GSTType } from '@/types';
+import { PricingConfig, BusinessConfig, GSTType, Unit } from '@/types';
+import { UNIT_DEFINITIONS } from '@/lib/units';
 import MigrationTool from '@/components/MigrationTool';
 
 export default function SettingsPage() {
@@ -60,6 +61,18 @@ export default function SettingsPage() {
         } finally {
             setSavingBusiness(false);
         }
+    };
+
+    const updateUnitPreference = (field: keyof NonNullable<BusinessConfig['unitPreferences']>, value: Unit) => {
+        const defaults = db.businessConfig.getDefaults().unitPreferences!;
+        setBusinessConfig({
+            ...businessConfig,
+            unitPreferences: {
+                ...defaults,
+                ...(businessConfig.unitPreferences || {}),
+                [field]: value,
+            },
+        });
     };
 
 
@@ -502,6 +515,76 @@ export default function SettingsPage() {
                                         </select>
                                     </div>
                                 </div>
+                            </div>
+
+                            {/* Unit Handling */}
+                            <div style={{ marginBottom: '2rem' }}>
+                                <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem', color: 'var(--color-primary)' }}>Unit Handling</h3>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                                    <div>
+                                        <label style={{ display: 'block', marginBottom: '0.375rem', fontWeight: 500, fontSize: '0.875rem' }}>Default Length Unit</label>
+                                        <select
+                                            className="input"
+                                            value={businessConfig.unitPreferences?.defaultLengthUnit || 'inch'}
+                                            onChange={(e) => updateUnitPreference('defaultLengthUnit', e.target.value as Unit)}
+                                        >
+                                            {UNIT_DEFINITIONS.filter(unit => unit.category === 'length').map(unit => (
+                                                <option key={unit.value} value={unit.value}>{unit.label}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', marginBottom: '0.375rem', fontWeight: 500, fontSize: '0.875rem' }}>Default Area Unit</label>
+                                        <select
+                                            className="input"
+                                            value={businessConfig.unitPreferences?.defaultAreaUnit || 'sqft'}
+                                            onChange={(e) => updateUnitPreference('defaultAreaUnit', e.target.value as Unit)}
+                                        >
+                                            {UNIT_DEFINITIONS.filter(unit => unit.category === 'area').map(unit => (
+                                                <option key={unit.value} value={unit.value}>{unit.label}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', marginBottom: '0.375rem', fontWeight: 500, fontSize: '0.875rem' }}>Default Count Unit</label>
+                                        <select
+                                            className="input"
+                                            value={businessConfig.unitPreferences?.defaultCountUnit || 'nos'}
+                                            onChange={(e) => updateUnitPreference('defaultCountUnit', e.target.value as Unit)}
+                                        >
+                                            {UNIT_DEFINITIONS.filter(unit => unit.category === 'count').map(unit => (
+                                                <option key={unit.value} value={unit.value}>{unit.label}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', marginBottom: '0.375rem', fontWeight: 500, fontSize: '0.875rem' }}>Glass Billing Unit</label>
+                                        <select
+                                            className="input"
+                                            value={businessConfig.unitPreferences?.defaultGlassBillingUnit || 'sqft'}
+                                            onChange={(e) => updateUnitPreference('defaultGlassBillingUnit', e.target.value as Unit)}
+                                        >
+                                            {UNIT_DEFINITIONS.filter(unit => unit.category === 'area' || unit.value === 'sheets').map(unit => (
+                                                <option key={unit.value} value={unit.value}>{unit.label}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', marginBottom: '0.375rem', fontWeight: 500, fontSize: '0.875rem' }}>Unknown Unit Fallback</label>
+                                        <select
+                                            className="input"
+                                            value={businessConfig.unitPreferences?.unknownUnitFallback || 'nos'}
+                                            onChange={(e) => updateUnitPreference('unknownUnitFallback', e.target.value as Unit)}
+                                        >
+                                            {UNIT_DEFINITIONS.filter(unit => ['count', 'area'].includes(unit.category)).map(unit => (
+                                                <option key={unit.value} value={unit.value}>{unit.label}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                                <p style={{ marginTop: '0.75rem', color: 'var(--color-text-muted)', fontSize: '0.8rem' }}>
+                                    The app also accepts common aliases such as sq ft, feet, inches, pcs, pieces, sheet, metre, meter, mm and cm.
+                                </p>
                             </div>
 
                             {/* Checkout Charges */}

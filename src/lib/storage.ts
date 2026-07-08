@@ -885,54 +885,43 @@ export const db = {
             const { data, error } = await supabase
                 .from('orders')
                 .select('general_number')
-                .not('general_number', 'is', null)
-                .order('general_number', { ascending: false })
-                .limit(1);
+                .not('general_number', 'is', null);
 
             handleSupabaseError(error);
 
             let maxNum = 100000;
-            if (data && data.length > 0 && data[0].general_number) {
-                const num = parseInt(data[0].general_number, 10);
-                if (!isNaN(num)) {
+            (data || []).forEach(row => {
+                const num = parseInt(String(row.general_number || '').replace(/\D/g, ''), 10);
+                if (!isNaN(num) && num > maxNum) {
                     maxNum = num;
                 }
-            }
+            });
             return String(maxNum + 1);
         },
 
-        generateNextOrderNumber: async (type: 'sale_order' | 'purchase_order', partyName: string): Promise<string> => {
-            if (!partyName) return type === 'sale_order' ? 'SO-001' : 'PO-001';
-            const firstWord = partyName.trim().split(/\s+/)[0] || '';
-            const partySlug = firstWord.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+        generateNextOrderNumber: async (type: 'sale_order' | 'purchase_order'): Promise<string> => {
             const prefix = type === 'sale_order' ? 'SO' : 'PO';
-            const prefixPattern = `${prefix}-${partySlug}-`;
 
             const { data, error } = await supabase
                 .from('orders')
                 .select('number')
                 .eq('type', type)
-                .like('number', `${prefixPattern}%`);
+                .like('number', `${prefix}-%`);
 
             handleSupabaseError(error);
 
             let maxSerial = 0;
-            if (data && data.length > 0) {
-                data.forEach(o => {
-                    const parts = o.number.split('-');
-                    if (parts.length >= 3) {
-                        const serialStr = parts[parts.length - 1];
-                        const serialVal = parseInt(serialStr, 10);
-                        if (!isNaN(serialVal) && serialVal > maxSerial) {
-                            maxSerial = serialVal;
-                        }
-                    }
-                });
-            }
+            (data || []).forEach(o => {
+                const matches = String(o.number || '').match(/\d+/g);
+                const serialVal = matches?.length ? parseInt(matches[matches.length - 1], 10) : NaN;
+                if (!isNaN(serialVal) && serialVal > maxSerial) {
+                    maxSerial = serialVal;
+                }
+            });
 
             const nextSerial = maxSerial + 1;
-            const formattedSerial = String(nextSerial).padStart(3, '0');
-            return `${prefix}-${partySlug}-${formattedSerial}`;
+            const formattedSerial = String(nextSerial).padStart(6, '0');
+            return `${prefix}-${formattedSerial}`;
         },
 
         getAll: async (): Promise<Order[]> => {
@@ -1836,6 +1825,13 @@ export const db = {
                     { id: 'nearby', place: 'Nearby area', charge: 1000 }
                 ],
                 installationChargePerSqft: 0,
+                unitPreferences: {
+                    defaultLengthUnit: 'inch',
+                    defaultAreaUnit: 'sqft',
+                    defaultCountUnit: 'nos',
+                    defaultGlassBillingUnit: 'sqft',
+                    unknownUnitFallback: 'nos',
+                },
                 tallyServerIp: '192.168.1.100',
                 tallyServerPort: '9000',
                 tallyCompanyName: 'Arjun Glass House',
@@ -2224,7 +2220,7 @@ export const designsDb = {
         }
 
         // 3. Generate order number
-        const orderNumber = await db.orders.generateNextOrderNumber('sale_order', design.customerName || '');
+        const orderNumber = await db.orders.generateNextOrderNumber('sale_order');
 
         // 4. Create the order
         const newOrder: Order = {

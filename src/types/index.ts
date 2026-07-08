@@ -364,6 +364,7 @@ export interface BusinessConfig {
     logo?: string; // base64 or URL
     deliveryChargeRules?: DeliveryChargeRule[];
     installationChargePerSqft?: number;
+    unitPreferences?: UnitPreferences;
     
     // Tally Integration Settings
     tallyServerIp?: string;
@@ -376,6 +377,14 @@ export interface BusinessConfig {
     tallyConsecutiveFailures?: number;
     employeeConfigs?: Record<string, EmployeeConfig>;
     customAccounts?: LedgerAccount[];
+}
+
+export interface UnitPreferences {
+    defaultLengthUnit: Unit;
+    defaultAreaUnit: Unit;
+    defaultCountUnit: Unit;
+    defaultGlassBillingUnit: Unit;
+    unknownUnitFallback: Unit;
 }
 
 export interface DeliveryChargeRule {

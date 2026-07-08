@@ -41,6 +41,109 @@ export const UNIT_OPTIONS_BY_GROUP = [
     { label: 'Weight / Volume', units: UNIT_DEFINITIONS.filter(unit => ['weight', 'volume'].includes(unit.category)) },
 ];
 
+const UNIT_ALIASES: Record<string, Unit> = {
+    squarefeet: 'sqft',
+    squarefoot: 'sqft',
+    sqfeet: 'sqft',
+    sqfoot: 'sqft',
+    sqft: 'sqft',
+    'sq ft': 'sqft',
+    ft2: 'sqft',
+    foot2: 'sqft',
+    feet2: 'sqft',
+    squaremetre: 'sqm',
+    squaremeter: 'sqm',
+    sqmetre: 'sqm',
+    sqmeter: 'sqm',
+    sqm: 'sqm',
+    'sq m': 'sqm',
+    m2: 'sqm',
+    squareinch: 'sqin',
+    squareinches: 'sqin',
+    sqinch: 'sqin',
+    sqinches: 'sqin',
+    sqin: 'sqin',
+    'sq in': 'sqin',
+    in2: 'sqin',
+    squareyard: 'sqyd',
+    squareyards: 'sqyd',
+    sqyard: 'sqyd',
+    sqyards: 'sqyd',
+    sqyd: 'sqyd',
+    'sq yd': 'sqyd',
+    yd2: 'sqyd',
+    number: 'nos',
+    numbers: 'nos',
+    no: 'nos',
+    nos: 'nos',
+    piece: 'pcs',
+    pieces: 'pcs',
+    pc: 'pcs',
+    pcs: 'pcs',
+    set: 'sets',
+    sets: 'sets',
+    pair: 'pair',
+    pairs: 'pair',
+    sheet: 'sheets',
+    sheets: 'sheets',
+    box: 'box',
+    boxes: 'box',
+    inch: 'inch',
+    inches: 'inch',
+    in: 'inch',
+    '"': 'inch',
+    feet: 'ft',
+    foot: 'ft',
+    ft: 'ft',
+    "'": 'ft',
+    mm: 'mm',
+    millimetre: 'mm',
+    millimeter: 'mm',
+    millimetres: 'mm',
+    millimeters: 'mm',
+    cm: 'cm',
+    centimetre: 'cm',
+    centimeter: 'cm',
+    centimetres: 'cm',
+    centimeters: 'cm',
+    metre: 'm',
+    meter: 'm',
+    metres: 'm',
+    meters: 'm',
+    m: 'm',
+    kg: 'kg',
+    kilogram: 'kg',
+    kilograms: 'kg',
+    g: 'g',
+    gram: 'g',
+    grams: 'g',
+    litre: 'ltr',
+    liter: 'ltr',
+    litres: 'ltr',
+    liters: 'ltr',
+    ltr: 'ltr',
+    l: 'ltr',
+};
+
+function normalizeUnitKey(unit?: string): string {
+    return String(unit || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[._-]+/g, ' ')
+        .replace(/\s+/g, ' ');
+}
+
+export function normalizeUnit(unit?: string, fallback: Unit = 'nos'): Unit {
+    const key = normalizeUnitKey(unit);
+    if (!key) return fallback;
+
+    const direct = UNIT_DEFINITIONS.find(definition => definition.value === key);
+    if (direct) return direct.value;
+
+    const compactKey = key.replace(/\s+/g, '');
+    return UNIT_ALIASES[key] || UNIT_ALIASES[compactKey] || fallback;
+}
+
 export function getUnitOptionsForItem(item?: { category?: string; type?: string; unit?: string }) {
     const category = item?.category?.toLowerCase();
     const type = item?.type?.toLowerCase() || '';
@@ -60,10 +163,11 @@ export function getUnitOptionsForItem(item?: { category?: string; type?: string;
 }
 
 export function getUnitDefinition(unit?: string): UnitDefinition {
-    return UNIT_DEFINITIONS.find(definition => definition.value === unit) || {
-        value: (unit || 'nos') as Unit,
-        label: unit || 'Nos',
-        shortLabel: unit || 'nos',
+    const normalizedUnit = normalizeUnit(unit);
+    return UNIT_DEFINITIONS.find(definition => definition.value === normalizedUnit) || {
+        value: normalizedUnit,
+        label: normalizedUnit,
+        shortLabel: normalizedUnit,
         category: 'count',
     };
 }
@@ -84,6 +188,18 @@ export function convertAreaToSqft(value: number, unit?: string): number {
 export function convertSqftToArea(value: number, unit?: string): number {
     const definition = getUnitDefinition(unit);
     return definition.toSqftFactor ? (Number(value) || 0) / definition.toSqftFactor : Number(value) || 0;
+}
+
+export function convertLengthToInches(value: number, unit?: string): number {
+    const definition = getUnitDefinition(normalizeUnit(unit, 'inch'));
+    const numericValue = Number(value) || 0;
+    return definition.toInchFactor ? numericValue * definition.toInchFactor : numericValue;
+}
+
+export function convertInchesToLength(value: number, unit?: string): number {
+    const definition = getUnitDefinition(normalizeUnit(unit, 'inch'));
+    const numericValue = Number(value) || 0;
+    return definition.toInchFactor ? numericValue / definition.toInchFactor : numericValue;
 }
 
 export function convertRateBetweenUnits(rate: number, fromUnit?: string, toUnit?: string): number {
@@ -198,7 +314,7 @@ export function calculateLineMeasurement(input: {
     billingUnit: Unit;
     billingLabel: string;
 } {
-    const unit = (input.unit || 'nos') as Unit;
+    const unit = normalizeUnit(input.unit);
     const definition = getUnitDefinition(unit);
     const qty = Number(input.quantity) || 0;
     const dimensionSqft = calculateDimensionAreaSqft(Number(input.width) || 0, Number(input.height) || 0, qty);

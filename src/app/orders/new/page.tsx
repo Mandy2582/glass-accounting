@@ -559,7 +559,7 @@ export default function NewOrderPage() {
 
             // Generate numbers
             const generalNumber = await db.orders.generateNextGeneralNumber();
-            const soNumber = await db.orders.generateNextOrderNumber('sale_order', customer?.name || '');
+            const soNumber = await db.orders.generateNextOrderNumber('sale_order');
             const saleOrderId = crypto.randomUUID();
 
             let notesWithSupplier = formData.notes.trim();

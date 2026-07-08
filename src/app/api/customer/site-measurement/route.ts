@@ -113,7 +113,7 @@ export async function POST(request: Request) {
         }
 
         const [orderNumber, generalNumber] = await Promise.all([
-            db.orders.generateNextOrderNumber('sale_order', customer.name),
+            db.orders.generateNextOrderNumber('sale_order'),
             db.orders.generateNextGeneralNumber(),
         ]);
         const today = new Date().toISOString().split('T')[0];

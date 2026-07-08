@@ -188,7 +188,7 @@ export default function BusinessAssistantPage() {
         try {
             const orderItems = usableLines.map(toInvoiceItem);
             const totals = getTotals(usableLines);
-            const number = await db.orders.generateNextOrderNumber('sale_order', input.party.name);
+            const number = await db.orders.generateNextOrderNumber('sale_order');
             const order: Order = {
                 id: generateUUID(),
                 type: 'sale_order',

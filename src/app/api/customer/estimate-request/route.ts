@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { calculateCost, roundToNextEvenInch } from '@/lib/designCalculations';
 import { db } from '@/lib/storage';
+import { convertLengthToInches, normalizeUnit } from '@/lib/units';
 import { generateUUID, roundCurrency } from '@/lib/utils';
 import { Order, Party } from '@/types';
 
@@ -12,7 +13,7 @@ type EstimateRequestBody = {
     notes?: string;
     width?: number;
     height?: number;
-    unit?: 'inch' | 'ft' | 'mm' | 'cm' | 'm';
+    unit?: string;
     thickness?: number;
     quantity?: number;
     holes?: number;
@@ -30,14 +31,6 @@ function toNumber(value: unknown, fallback = 0) {
 
 function phoneDigits(value: string): string {
     return value.replace(/\D/g, '');
-}
-
-function dimensionToInches(value: number, unit: EstimateRequestBody['unit']) {
-    if (unit === 'ft') return value * 12;
-    if (unit === 'mm') return value / 25.4;
-    if (unit === 'cm') return value / 2.54;
-    if (unit === 'm') return value * 39.37007874;
-    return value;
 }
 
 function findCustomerByPhone(parties: Party[], phone: string) {
@@ -60,7 +53,7 @@ export async function POST(request: Request) {
         const email = clean(body?.email);
         const address = clean(body?.address);
         const notes = clean(body?.notes);
-        const unit = body?.unit || 'inch';
+        const unit = normalizeUnit(body?.unit, 'inch');
         const width = toNumber(body?.width);
         const height = toNumber(body?.height);
         const thickness = toNumber(body?.thickness, 6);
@@ -80,8 +73,8 @@ export async function POST(request: Request) {
             return NextResponse.json({ message: 'Width, height and thickness must be valid.' }, { status: 400 });
         }
 
-        const widthInches = dimensionToInches(width, unit);
-        const heightInches = dimensionToInches(height, unit);
+        const widthInches = convertLengthToInches(width, unit);
+        const heightInches = convertLengthToInches(height, unit);
         const billedWidthInches = roundToNextEvenInch(widthInches);
         const billedHeightInches = roundToNextEvenInch(heightInches);
         const areaSqft = roundCurrency((billedWidthInches * billedHeightInches / 144) * quantity);
@@ -122,7 +115,7 @@ export async function POST(request: Request) {
         }
 
         const [orderNumber, generalNumber] = await Promise.all([
-            db.orders.generateNextOrderNumber('sale_order', customer.name),
+            db.orders.generateNextOrderNumber('sale_order'),
             db.orders.generateNextGeneralNumber(),
         ]);
         const today = new Date().toISOString().split('T')[0];
