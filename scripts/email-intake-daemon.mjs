@@ -21,23 +21,45 @@ const IMAP_PORT = Number(process.env.EMAIL_IMAP_PORT || 993);
 const WEBHOOK_URL = process.env.EMAIL_INTAKE_WEBHOOK_URL || 'http://127.0.0.1:3000/api/email-intake/webhook';
 
 async function processUnseenMessages(client) {
+    // IMAP only allows one command in flight per connection. Draining the
+    // whole fetch() stream into memory first, then issuing the \Seen flag
+    // update as a separate command afterwards, avoids interleaving a STORE
+    // command into an in-progress FETCH response (which otherwise silently
+    // truncates the stream after the first message).
+    const messages = [];
     const lock = await client.getMailboxLock('INBOX');
     try {
         for await (const message of client.fetch({ seen: false }, { source: true, uid: true })) {
-            try {
-                const parsed = await simpleParser(message.source);
-                await forwardToWebhook(parsed);
-            } catch (err) {
-                console.error(`[email-intake] Failed to process message uid=${message.uid}:`, err.message);
-            } finally {
-                // Mark seen regardless of outcome -- the webhook itself dedupes by
-                // Message-ID, so a failed forward won't silently retry forever
-                // and spam the same broken message on every reconnect.
-                await client.messageFlagsAdd(message.uid, ['\\Seen'], { uid: true }).catch(() => {});
-            }
+            messages.push(message);
         }
     } finally {
         lock.release();
+    }
+
+    if (!messages.length) return;
+
+    const processedUids = [];
+    for (const message of messages) {
+        try {
+            const parsed = await simpleParser(message.source);
+            await forwardToWebhook(parsed);
+        } catch (err) {
+            console.error(`[email-intake] Failed to process message uid=${message.uid}:`, err.message);
+        } finally {
+            // Mark seen regardless of outcome -- the webhook itself dedupes by
+            // Message-ID, so a failed forward won't silently retry forever
+            // and spam the same broken message on every reconnect.
+            processedUids.push(message.uid);
+        }
+    }
+
+    const markLock = await client.getMailboxLock('INBOX');
+    try {
+        await client.messageFlagsAdd(processedUids, ['\\Seen'], { uid: true });
+    } catch (err) {
+        console.error('[email-intake] Failed to mark messages seen:', err.message);
+    } finally {
+        markLock.release();
     }
 }
 
@@ -99,15 +121,18 @@ async function watchMailbox() {
 
     await client.connect();
     console.log(`[email-intake] Connected to ${IMAP_HOST} as ${process.env.EMAIL_USER}. Watching INBOX...`);
-
-    client.on('exists', () => {
-        processUnseenMessages(client).catch(err => console.error('[email-intake] Error handling new mail:', err.message));
-    });
+    await client.mailboxOpen('INBOX');
 
     await processUnseenMessages(client); // catch up on anything unseen from before we started
 
+    // client.idle() resolves as soon as the server pushes any mailbox change
+    // (new mail, deletion, etc.), or after its own internal keepalive
+    // interval. Only check for unseen messages *after* it resolves --
+    // never run another command while idle() is still pending, or the
+    // connection ends up with two commands in flight at once.
     while (client.usable) {
         await client.idle();
+        await processUnseenMessages(client);
     }
 }
 
