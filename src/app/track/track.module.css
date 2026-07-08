@@ -1,10 +1,10 @@
 .page {
     min-height: 100vh;
-    color: #0f172a;
+    color: #211712;
     background:
-        radial-gradient(circle at 12% 16%, rgba(125, 211, 252, 0.42), transparent 28rem),
-        radial-gradient(circle at 88% 10%, rgba(45, 212, 191, 0.22), transparent 25rem),
-        linear-gradient(135deg, #f8fbff 0%, #e9f7ff 45%, #f6f9ff 100%);
+        radial-gradient(circle at 12% 16%, rgba(242, 193, 78, 0.42), transparent 28rem),
+        radial-gradient(circle at 88% 10%, rgba(217, 122, 74, 0.22), transparent 25rem),
+        linear-gradient(135deg, #fdf8f0 0%, #ffe9d6 45%, #fdf0ec 100%);
 }
 
 .header {
@@ -16,7 +16,7 @@
     justify-content: space-between;
     gap: 1rem;
     padding: 0.9rem clamp(1rem, 4vw, 4rem);
-    border-bottom: 1px solid rgba(148, 163, 184, 0.24);
+    border-bottom: 1px solid rgba(176, 158, 138, 0.24);
     background: rgba(255, 255, 255, 0.72);
     backdrop-filter: blur(24px) saturate(160%);
 }
@@ -42,9 +42,9 @@
     height: 44px;
     place-items: center;
     border-radius: 16px;
-    background: linear-gradient(145deg, #0f172a, #075985 54%, #0ea5e9);
+    background: linear-gradient(145deg, #211712, #7a4a1e 54%, #c9852e);
     color: #fff;
-    box-shadow: 0 18px 35px -24px rgba(2, 132, 199, 0.9);
+    box-shadow: 0 18px 35px -24px rgba(154, 98, 26, 0.9);
 }
 
 .nav {
@@ -55,11 +55,11 @@
 }
 
 .nav a {
-    color: rgba(15, 23, 42, 0.68);
+    color: rgba(28, 20, 14, 0.68);
 }
 
 .nav a:hover {
-    color: #075985;
+    color: #7a4a1e;
 }
 
 .hero {
@@ -83,13 +83,13 @@
 
 .backLink {
     margin-bottom: 1.4rem;
-    color: #0369a1;
+    color: #8a5320;
     font-weight: 800;
 }
 
 .eyebrow {
     margin: 0 0 0.45rem;
-    color: #0284c7;
+    color: #8a5320;
     font-size: 0.78rem;
     font-weight: 900;
     letter-spacing: 0.16em;
@@ -107,17 +107,17 @@
 .copy p:not(.eyebrow) {
     max-width: 660px;
     margin: 1.25rem 0 0;
-    color: rgba(15, 23, 42, 0.68);
+    color: rgba(28, 20, 14, 0.68);
     font-size: clamp(1rem, 1.7vw, 1.2rem);
     line-height: 1.7;
 }
 
 .prefillNote {
     max-width: 580px !important;
-    border: 1px solid rgba(20, 184, 166, 0.26);
+    border: 1px solid rgba(107, 142, 74, 0.3);
     border-radius: 18px;
-    background: rgba(240, 253, 250, 0.78);
-    color: #0f766e !important;
+    background: rgba(242, 246, 236, 0.85);
+    color: #4d5f2e !important;
     font-size: 0.95rem !important;
     font-weight: 800;
     padding: 0.85rem 1rem;
@@ -131,11 +131,11 @@
 }
 
 .trustRow span {
-    border: 1px solid rgba(14, 165, 233, 0.18);
+    border: 1px solid rgba(201, 133, 46, 0.18);
     border-radius: 999px;
     padding: 0.65rem 0.85rem;
     background: rgba(255, 255, 255, 0.7);
-    color: rgba(15, 23, 42, 0.76);
+    color: rgba(28, 20, 14, 0.76);
     font-weight: 800;
 }
 
@@ -143,10 +143,10 @@
 .statusCard,
 .summaryCard,
 .itemsCard {
-    border: 1px solid rgba(148, 163, 184, 0.22);
+    border: 1px solid rgba(176, 158, 138, 0.22);
     border-radius: 32px;
     background: rgba(255, 255, 255, 0.78);
-    box-shadow: 0 30px 90px -60px rgba(15, 23, 42, 0.44);
+    box-shadow: 0 30px 90px -60px rgba(28, 20, 14, 0.44);
     backdrop-filter: blur(22px);
 }
 
@@ -159,7 +159,7 @@
 .lookupCard label {
     display: block;
     margin: 0 0 0.45rem;
-    color: rgba(15, 23, 42, 0.68);
+    color: rgba(28, 20, 14, 0.68);
     font-size: 0.78rem;
     font-weight: 900;
     letter-spacing: 0.08em;
@@ -171,14 +171,14 @@
     align-items: center;
     gap: 0.65rem;
     min-height: 56px;
-    border: 1px solid rgba(148, 163, 184, 0.26);
+    border: 1px solid rgba(176, 158, 138, 0.26);
     border-radius: 18px;
     padding: 0 0.95rem;
     background: rgba(255, 255, 255, 0.9);
 }
 
 .inputShell svg {
-    color: #0284c7;
+    color: #8a5320;
     flex: 0 0 auto;
 }
 
@@ -187,7 +187,7 @@
     border: 0;
     outline: 0;
     background: transparent;
-    color: #0f172a;
+    color: #211712;
     font: inherit;
     font-weight: 750;
 }
@@ -196,12 +196,12 @@
     min-height: 56px;
     border: 0;
     border-radius: 18px;
-    background: linear-gradient(135deg, #0f172a, #0ea5e9, #2dd4bf);
+    background: linear-gradient(135deg, #211712, #c9852e, #d97a4a);
     color: #fff;
     font-size: 1rem;
     font-weight: 900;
     cursor: pointer;
-    box-shadow: 0 20px 42px -24px rgba(2, 132, 199, 0.95);
+    box-shadow: 0 20px 42px -24px rgba(154, 98, 26, 0.95);
 }
 
 .primaryButton:disabled {
@@ -212,7 +212,7 @@
 .recentOrders {
     display: grid;
     gap: 0.65rem;
-    border-top: 1px solid rgba(148, 163, 184, 0.18);
+    border-top: 1px solid rgba(176, 158, 138, 0.18);
     padding-top: 0.95rem;
 }
 
@@ -220,7 +220,7 @@
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;
-    color: #0369a1;
+    color: #8a5320;
     font-size: 0.82rem;
     font-weight: 900;
     letter-spacing: 0.08em;
@@ -237,10 +237,10 @@
     justify-content: space-between;
     gap: 0.8rem;
     width: 100%;
-    border: 1px solid rgba(14, 165, 233, 0.14);
+    border: 1px solid rgba(201, 133, 46, 0.14);
     border-radius: 18px;
-    background: rgba(240, 249, 255, 0.62);
-    color: #0f172a;
+    background: rgba(253, 248, 240, 0.62);
+    color: #211712;
     cursor: pointer;
     padding: 0.8rem 0.9rem;
     text-align: left;
@@ -248,8 +248,8 @@
 }
 
 .recentOrders button:hover {
-    border-color: rgba(14, 165, 233, 0.32);
-    box-shadow: 0 16px 34px -28px rgba(2, 132, 199, 0.72);
+    border-color: rgba(201, 133, 46, 0.32);
+    box-shadow: 0 16px 34px -28px rgba(154, 98, 26, 0.72);
     transform: translateY(-1px);
 }
 
@@ -265,13 +265,13 @@
 
 .recentOrders small {
     margin-top: 0.2rem;
-    color: rgba(15, 23, 42, 0.58);
+    color: rgba(28, 20, 14, 0.58);
     font-size: 0.82rem;
     font-weight: 750;
 }
 
 .recentOrders em {
-    color: #0369a1;
+    color: #8a5320;
     font-size: 0.88rem;
     font-style: normal;
     font-weight: 950;
@@ -316,11 +316,11 @@
 }
 
 .statusPill {
-    border: 1px solid rgba(14, 165, 233, 0.2);
+    border: 1px solid rgba(201, 133, 46, 0.2);
     border-radius: 999px;
     padding: 0.5rem 0.75rem;
-    background: rgba(240, 249, 255, 0.82);
-    color: #0369a1;
+    background: rgba(253, 248, 240, 0.82);
+    color: #8a5320;
     font-size: 0.8rem;
     font-weight: 900;
     white-space: nowrap;
@@ -336,7 +336,7 @@
     grid-template-columns: 34px 1fr;
     align-items: center;
     gap: 0.75rem;
-    color: rgba(15, 23, 42, 0.52);
+    color: rgba(28, 20, 14, 0.52);
     font-weight: 850;
 }
 
@@ -346,22 +346,22 @@
     height: 34px;
     place-items: center;
     border-radius: 999px;
-    background: rgba(226, 232, 240, 0.72);
-    color: #64748b;
+    background: rgba(230, 220, 206, 0.72);
+    color: #8a7a68;
 }
 
 .stepDone,
 .stepCurrent {
-    color: #0f172a;
+    color: #211712;
 }
 
 .stepDone .stepDot {
-    background: rgba(220, 252, 231, 0.88);
-    color: #16a34a;
+    background: rgba(224, 233, 210, 0.9);
+    color: #5b7a3a;
 }
 
 .stepCurrent .stepDot {
-    background: linear-gradient(135deg, #0ea5e9, #2dd4bf);
+    background: linear-gradient(135deg, #c9852e, #d97a4a);
     color: #fff;
 }
 
@@ -373,15 +373,15 @@
 }
 
 .paymentStrip div {
-    border: 1px solid rgba(14, 165, 233, 0.16);
+    border: 1px solid rgba(201, 133, 46, 0.16);
     border-radius: 18px;
-    background: rgba(240, 249, 255, 0.78);
+    background: rgba(253, 248, 240, 0.78);
     padding: 0.8rem;
 }
 
 .paymentStrip span {
     display: block;
-    color: rgba(15, 23, 42, 0.56);
+    color: rgba(28, 20, 14, 0.56);
     font-size: 0.74rem;
     font-weight: 900;
     letter-spacing: 0.08em;
@@ -391,7 +391,7 @@
 .paymentStrip strong {
     display: block;
     margin-top: 0.25rem;
-    color: #075985;
+    color: #7a4a1e;
     font-size: 1.05rem;
 }
 
@@ -399,20 +399,20 @@
     display: grid;
     gap: 0.25rem;
     margin-top: 0.85rem;
-    border: 1px solid rgba(20, 184, 166, 0.26);
+    border: 1px solid rgba(107, 142, 74, 0.3);
     border-radius: 18px;
-    background: rgba(240, 253, 250, 0.82);
+    background: rgba(242, 246, 236, 0.85);
     padding: 0.85rem;
 }
 
 .paymentConfirmationNote strong {
-    color: #0f766e;
+    color: #4d5f2e;
     font-size: 0.88rem;
     font-weight: 950;
 }
 
 .paymentConfirmationNote span {
-    color: rgba(15, 23, 42, 0.68);
+    color: rgba(28, 20, 14, 0.68);
     font-size: 0.88rem;
     font-weight: 750;
     line-height: 1.45;
@@ -422,14 +422,14 @@
     display: grid;
     gap: 0.5rem;
     margin-top: 0.85rem;
-    border: 1px solid rgba(14, 165, 233, 0.2);
+    border: 1px solid rgba(201, 133, 46, 0.2);
     border-radius: 18px;
-    background: rgba(240, 249, 255, 0.82);
+    background: rgba(253, 248, 240, 0.82);
     padding: 0.85rem;
 }
 
 .paymentReferenceForm label {
-    color: #075985;
+    color: #7a4a1e;
     font-size: 0.78rem;
     font-weight: 950;
     letter-spacing: 0.08em;
@@ -444,10 +444,10 @@
 
 .referenceInputRow input {
     min-height: 46px;
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    border: 1px solid rgba(176, 158, 138, 0.28);
     border-radius: 14px;
     background: white;
-    color: #0f172a;
+    color: #211712;
     font: inherit;
     font-weight: 750;
     outline: 0;
@@ -458,7 +458,7 @@
     min-height: 46px;
     border: 0;
     border-radius: 14px;
-    background: linear-gradient(135deg, #075985, #14b8a6);
+    background: linear-gradient(135deg, #7a4a1e, #b3542a);
     color: white;
     cursor: pointer;
     font-weight: 950;
@@ -472,13 +472,13 @@
 
 .paymentReferenceForm small,
 .referenceSuccess {
-    color: rgba(15, 23, 42, 0.62);
+    color: rgba(28, 20, 14, 0.62);
     font-size: 0.8rem;
     font-weight: 750;
 }
 
 .referenceSuccess {
-    color: #0f766e;
+    color: #4d5f2e;
     font-weight: 900;
 }
 
@@ -490,21 +490,21 @@
 
 .metricGrid div {
     min-height: 112px;
-    border: 1px solid rgba(148, 163, 184, 0.2);
+    border: 1px solid rgba(176, 158, 138, 0.2);
     border-radius: 22px;
     padding: 0.85rem;
-    background: rgba(248, 250, 252, 0.76);
+    background: rgba(250, 247, 242, 0.76);
 }
 
 .metricGrid svg {
-    color: #0284c7;
+    color: #8a5320;
 }
 
 .metricGrid span,
 .detailList span {
     display: block;
     margin: 0.42rem 0 0.25rem;
-    color: rgba(15, 23, 42, 0.54);
+    color: rgba(28, 20, 14, 0.54);
     font-size: 0.78rem;
     font-weight: 850;
     text-transform: uppercase;
@@ -513,7 +513,7 @@
 
 .metricGrid strong,
 .detailList strong {
-    color: #0f172a;
+    color: #211712;
     font-size: 1rem;
 }
 
@@ -529,7 +529,7 @@
     justify-content: space-between;
     gap: 1rem;
     margin: 0;
-    border-top: 1px solid rgba(148, 163, 184, 0.16);
+    border-top: 1px solid rgba(176, 158, 138, 0.16);
     padding-top: 0.65rem;
 }
 
@@ -551,9 +551,9 @@
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 1rem;
     align-items: start;
-    border: 1px solid rgba(148, 163, 184, 0.2);
+    border: 1px solid rgba(176, 158, 138, 0.2);
     border-radius: 18px;
-    background: rgba(248, 250, 252, 0.72);
+    background: rgba(250, 247, 242, 0.72);
     padding: 0.85rem;
 }
 
@@ -565,13 +565,13 @@
 }
 
 .trackedItem strong {
-    color: #0f172a;
+    color: #211712;
     font-size: 0.98rem;
 }
 
 .trackedItem p {
     margin: 0.3rem 0 0;
-    color: rgba(15, 23, 42, 0.62);
+    color: rgba(28, 20, 14, 0.62);
     font-size: 0.84rem;
     font-weight: 700;
     line-height: 1.45;
@@ -579,13 +579,13 @@
 
 .trackedItem span {
     margin-top: 0.35rem;
-    color: #0369a1;
+    color: #8a5320;
     font-size: 0.82rem;
     font-weight: 900;
 }
 
 .trackedItem em {
-    color: #0f172a;
+    color: #211712;
     font-style: normal;
     font-weight: 950;
     white-space: nowrap;

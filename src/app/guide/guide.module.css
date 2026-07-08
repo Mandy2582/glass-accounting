@@ -1,10 +1,10 @@
 .page {
     min-height: 100vh;
-    color: #0f172a;
+    color: #211712;
     background:
-        radial-gradient(circle at 10% 12%, rgba(56, 189, 248, 0.34), transparent 29rem),
-        radial-gradient(circle at 86% 15%, rgba(45, 212, 191, 0.23), transparent 28rem),
-        linear-gradient(135deg, #f8fbff 0%, #eef9ff 44%, #f7f9ff 100%);
+        radial-gradient(circle at 10% 12%, rgba(230, 170, 90, 0.34), transparent 29rem),
+        radial-gradient(circle at 86% 15%, rgba(217, 122, 74, 0.23), transparent 28rem),
+        linear-gradient(135deg, #fdf8f0 0%, #ffe9d6 44%, #fdf0ec 100%);
 }
 
 .header {
@@ -16,7 +16,7 @@
     justify-content: space-between;
     gap: 1rem;
     padding: 0.9rem clamp(1rem, 4vw, 4rem);
-    border-bottom: 1px solid rgba(148, 163, 184, 0.24);
+    border-bottom: 1px solid rgba(176, 158, 138, 0.24);
     background: rgba(255, 255, 255, 0.74);
     backdrop-filter: blur(24px) saturate(160%);
 }
@@ -43,9 +43,9 @@
     height: 44px;
     place-items: center;
     border-radius: 16px;
-    background: linear-gradient(145deg, #0f172a, #075985 54%, #0ea5e9);
+    background: linear-gradient(145deg, #211712, #7a4a1e 54%, #c9852e);
     color: #fff;
-    box-shadow: 0 18px 35px -24px rgba(2, 132, 199, 0.9);
+    box-shadow: 0 18px 35px -24px rgba(154, 98, 26, 0.9);
 }
 
 .nav {
@@ -56,12 +56,12 @@
 }
 
 .nav a {
-    color: rgba(15, 23, 42, 0.68);
+    color: rgba(28, 20, 14, 0.68);
 }
 
 .nav a:hover,
 .backLink {
-    color: #0369a1;
+    color: #8a5320;
 }
 
 .hero {
@@ -85,7 +85,7 @@
 
 .eyebrow {
     margin: 0 0 0.45rem;
-    color: #0284c7;
+    color: #8a5320;
     font-size: 0.78rem;
     font-weight: 900;
     letter-spacing: 0.16em;
@@ -103,7 +103,7 @@
 .hero p:not(.eyebrow) {
     max-width: 680px;
     margin: 1.25rem 0 0;
-    color: rgba(15, 23, 42, 0.68);
+    color: rgba(28, 20, 14, 0.68);
     font-size: clamp(1rem, 1.7vw, 1.18rem);
     line-height: 1.7;
 }
@@ -118,10 +118,10 @@
 
 .quizCard,
 .resultCard {
-    border: 1px solid rgba(148, 163, 184, 0.22);
+    border: 1px solid rgba(176, 158, 138, 0.22);
     border-radius: 32px;
     background: rgba(255, 255, 255, 0.78);
-    box-shadow: 0 30px 90px -60px rgba(15, 23, 42, 0.44);
+    box-shadow: 0 30px 90px -60px rgba(28, 20, 14, 0.44);
     backdrop-filter: blur(22px);
 }
 
@@ -132,7 +132,7 @@
 }
 
 .questionBlock {
-    border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+    border-bottom: 1px solid rgba(176, 158, 138, 0.16);
     padding-bottom: 1rem;
 }
 
@@ -158,10 +158,10 @@
 .optionGrid button,
 .finishOption {
     min-height: 56px;
-    border: 1px solid rgba(148, 163, 184, 0.24);
+    border: 1px solid rgba(176, 158, 138, 0.24);
     border-radius: 18px;
-    background: rgba(248, 250, 252, 0.82);
-    color: rgba(15, 23, 42, 0.72);
+    background: rgba(250, 247, 242, 0.82);
+    color: rgba(28, 20, 14, 0.72);
     font: inherit;
     font-weight: 850;
     cursor: pointer;
@@ -172,15 +172,15 @@
 
 .optionGrid button:hover,
 .finishOption:hover {
-    border-color: rgba(14, 165, 233, 0.44);
-    box-shadow: 0 16px 34px -28px rgba(2, 132, 199, 0.95);
+    border-color: rgba(201, 133, 46, 0.44);
+    box-shadow: 0 16px 34px -28px rgba(154, 98, 26, 0.95);
     transform: translateY(-1px);
 }
 
 .activeOption {
-    border-color: rgba(14, 165, 233, 0.58) !important;
-    background: linear-gradient(135deg, rgba(14, 165, 233, 0.14), rgba(45, 212, 191, 0.18)) !important;
-    color: #075985 !important;
+    border-color: rgba(201, 133, 46, 0.58) !important;
+    background: linear-gradient(135deg, rgba(201, 133, 46, 0.14), rgba(217, 122, 74, 0.18)) !important;
+    color: #7a4a1e !important;
 }
 
 .resultCard {
@@ -201,7 +201,7 @@
 
 .resultBody p:not(.eyebrow) {
     margin: 0 0 1rem;
-    color: rgba(15, 23, 42, 0.66);
+    color: rgba(28, 20, 14, 0.66);
     line-height: 1.65;
 }
 
@@ -214,28 +214,28 @@
 }
 
 .resultBody li {
-    color: rgba(15, 23, 42, 0.72);
+    color: rgba(28, 20, 14, 0.72);
     font-weight: 800;
 }
 
 .resultBody li svg {
-    color: #16a34a;
+    color: #5b7a3a;
     flex: 0 0 auto;
 }
 
 .hint {
     margin-top: 1rem;
-    border: 1px solid rgba(14, 165, 233, 0.18);
+    border: 1px solid rgba(201, 133, 46, 0.18);
     border-radius: 18px;
     padding: 0.85rem;
-    background: rgba(240, 249, 255, 0.78);
-    color: rgba(15, 23, 42, 0.68);
+    background: rgba(253, 248, 240, 0.78);
+    color: rgba(28, 20, 14, 0.68);
     font-weight: 800;
     line-height: 1.5;
 }
 
 .hint svg {
-    color: #0284c7;
+    color: #8a5320;
     flex: 0 0 auto;
 }
 
@@ -250,13 +250,13 @@
     justify-content: center;
     min-height: 48px;
     border-radius: 16px;
-    background: rgba(14, 165, 233, 0.1);
-    color: #0369a1;
+    background: rgba(201, 133, 46, 0.1);
+    color: #8a5320;
     font-weight: 900;
 }
 
 .actions a:first-child {
-    background: linear-gradient(135deg, #0f172a, #0ea5e9, #2dd4bf);
+    background: linear-gradient(135deg, #211712, #c9852e, #d97a4a);
     color: #fff;
 }
 
