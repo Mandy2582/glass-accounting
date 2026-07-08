@@ -17,8 +17,9 @@ if [ ! -f ".env.production" ]; then
   exit 1
 fi
 
-git pull --ff-only || true
+git pull --ff-only
 npm ci
+rm -rf .next
 npm run build
 
 cp deploy/hostinger/ecosystem.config.cjs ./ecosystem.config.cjs
@@ -27,4 +28,3 @@ pm2 startOrReload ecosystem.config.cjs --env production
 pm2 save
 
 echo "App deployed. Check: pm2 status arjun-glass-house"
-
