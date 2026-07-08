@@ -3,6 +3,7 @@
 // forwards each new message to the app's /api/email-intake/webhook route,
 // which does the actual order parsing / vision analysis / order creation.
 import dotenv from 'dotenv';
+import fs from 'node:fs';
 import path from 'node:path';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
@@ -20,17 +21,38 @@ const IMAP_HOST = process.env.EMAIL_IMAP_HOST || 'imap.titan.email';
 const IMAP_PORT = Number(process.env.EMAIL_IMAP_PORT || 993);
 const WEBHOOK_URL = process.env.EMAIL_INTAKE_WEBHOOK_URL || 'http://127.0.0.1:3000/api/email-intake/webhook';
 
-async function processUnseenMessages(client) {
-    // IMAP only allows one command in flight per connection. Draining the
-    // whole fetch() stream into memory first, then issuing the \Seen flag
-    // update as a separate command afterwards, avoids interleaving a STORE
-    // command into an in-progress FETCH response (which otherwise silently
-    // truncates the stream after the first message).
-    const messages = [];
-    const lock = await client.getMailboxLock('INBOX');
+// Progress is tracked by UID ourselves rather than relying on the IMAP
+// \Seen flag -- if anything else touches this mailbox (webmail, a phone
+// app, someone manually checking a message), it would mark mail as seen
+// before we get to it and we'd silently skip it forever. UID is per-connection
+// stable for a given mailbox, so persisting "highest UID processed" here
+// survives restarts/deploys regardless of what else reads the inbox.
+const STATE_FILE = path.resolve(process.cwd(), '.email-intake-state.json');
+
+function loadState() {
     try {
-        for await (const message of client.fetch({ seen: false }, { source: true, uid: true })) {
-            messages.push(message);
+        return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+    } catch {
+        return { lastProcessedUid: 0 };
+    }
+}
+
+function saveState(state) {
+    fs.writeFileSync(STATE_FILE, JSON.stringify(state));
+}
+
+async function processNewMessages(client, state) {
+    const lock = await client.getMailboxLock('INBOX');
+    let uids;
+    const messages = [];
+    try {
+        uids = await client.search({ uid: `${state.lastProcessedUid + 1}:*` }, { uid: true });
+        uids = (uids || []).filter(uid => uid > state.lastProcessedUid);
+
+        if (uids.length) {
+            for await (const message of client.fetch(uids, { source: true, uid: true })) {
+                messages.push(message);
+            }
         }
     } finally {
         lock.release();
@@ -38,24 +60,25 @@ async function processUnseenMessages(client) {
 
     if (!messages.length) return;
 
-    const processedUids = [];
+    let highestUid = state.lastProcessedUid;
     for (const message of messages) {
         try {
             const parsed = await simpleParser(message.source);
             await forwardToWebhook(parsed);
         } catch (err) {
             console.error(`[email-intake] Failed to process message uid=${message.uid}:`, err.message);
-        } finally {
-            // Mark seen regardless of outcome -- the webhook itself dedupes by
-            // Message-ID, so a failed forward won't silently retry forever
-            // and spam the same broken message on every reconnect.
-            processedUids.push(message.uid);
         }
+        highestUid = Math.max(highestUid, message.uid);
     }
 
+    state.lastProcessedUid = highestUid;
+    saveState(state);
+
+    // Best-effort tidiness for anyone glancing at the mailbox -- not the
+    // source of truth for what we've processed (see STATE_FILE above).
     const markLock = await client.getMailboxLock('INBOX');
     try {
-        await client.messageFlagsAdd(processedUids, ['\\Seen'], { uid: true });
+        await client.messageFlagsAdd(messages.map(m => m.uid), ['\\Seen'], { uid: true });
     } catch (err) {
         console.error('[email-intake] Failed to mark messages seen:', err.message);
     } finally {
@@ -103,7 +126,7 @@ async function forwardToWebhook(parsed) {
     }
 }
 
-async function watchMailbox() {
+async function watchMailbox(state) {
     const client = new ImapFlow({
         host: IMAP_HOST,
         port: IMAP_PORT,
@@ -123,23 +146,24 @@ async function watchMailbox() {
     console.log(`[email-intake] Connected to ${IMAP_HOST} as ${process.env.EMAIL_USER}. Watching INBOX...`);
     await client.mailboxOpen('INBOX');
 
-    await processUnseenMessages(client); // catch up on anything unseen from before we started
+    await processNewMessages(client, state); // catch up on anything since we last ran
 
     // client.idle() resolves as soon as the server pushes any mailbox change
     // (new mail, deletion, etc.), or after its own internal keepalive
-    // interval. Only check for unseen messages *after* it resolves --
-    // never run another command while idle() is still pending, or the
-    // connection ends up with two commands in flight at once.
+    // interval. Only check for new messages *after* it resolves -- never run
+    // another command while idle() is still pending, or the connection ends
+    // up with two commands in flight at once.
     while (client.usable) {
         await client.idle();
-        await processUnseenMessages(client);
+        await processNewMessages(client, state);
     }
 }
 
 async function main() {
+    const state = loadState();
     for (;;) {
         try {
-            await watchMailbox();
+            await watchMailbox(state);
             console.warn('[email-intake] IMAP connection closed, reconnecting in 10s...');
         } catch (err) {
             console.error('[email-intake] Connection failed, retrying in 10s:', err.message);

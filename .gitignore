@@ -56,3 +56,6 @@ next-env.d.ts
 /src/scripts/test_db.mjs
 /src/scripts/testOrderInsert.ts
 *.backup
+
+# runtime state for scripts/email-intake-daemon.mjs (per-deployment, not code)
+.email-intake-state.json
