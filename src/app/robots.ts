@@ -32,7 +32,6 @@ export default function robots(): MetadataRoute.Robots {
                     '/vouchers',
                     '/daybook',
                     '/tally-sync',
-                    '/business-assistant',
                     '/notifications',
                 ],
             },
