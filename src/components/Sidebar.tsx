@@ -5,7 +5,6 @@ import { usePathname } from 'next/navigation';
 import {
     BarChart3,
     Bell,
-    Bot,
     BookOpen,
     Box,
     Briefcase,
@@ -57,7 +56,6 @@ const sections: NavSection[] = [
         title: 'Sales & Orders',
         icon: ClipboardList,
         items: [
-            { label: 'Business Assistant', href: '/business-assistant', icon: Bot },
             { label: 'Orders', href: '/orders', icon: ClipboardList },
             { label: 'Sales Invoices', href: '/sales', icon: FileText },
             { label: 'Customer Analytics', href: '/parties/analytics', icon: TrendingUp },

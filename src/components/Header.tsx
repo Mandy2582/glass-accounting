@@ -1,4 +1,4 @@
-import { Menu, Bell, AlertCircle, AlertTriangle, Lightbulb, Package } from 'lucide-react';
+import { Menu, Bell, AlertCircle, AlertTriangle, Lightbulb, Package, Mail } from 'lucide-react';
 import styles from './Layout.module.css';
 import { useState } from 'react';
 import { useNotifications } from '@/components/NotificationContext';
@@ -22,6 +22,7 @@ export default function Header({ toggleSidebar, isSidebarCollapsed, role }: Head
         const style = { marginRight: '0.5rem', flexShrink: 0 };
         if (type === 'low_stock') return <Package size={16} style={{ ...style, color: severity === 'error' ? '#ef4444' : '#eab308' }} />;
         if (type === 'overdue_payment') return <AlertCircle size={16} style={{ ...style, color: severity === 'error' ? '#ef4444' : '#eab308' }} />;
+        if (type === 'email_order') return <Mail size={16} style={{ ...style, color: severity === 'error' ? '#ef4444' : '#2563eb' }} />;
         if (type === 'pending_order') return <AlertTriangle size={16} style={{ ...style, color: '#eab308' }} />;
         return <Lightbulb size={16} style={{ ...style, color: '#3b82f6' }} />;
     };
@@ -210,6 +211,11 @@ export default function Header({ toggleSidebar, isSidebarCollapsed, role }: Head
                                             }}>
                                                 {n.message}
                                             </p>
+                                            {n.actionLabel && (
+                                                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--color-primary)' }}>
+                                                    {n.actionLabel}
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
                                 ))

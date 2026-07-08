@@ -401,11 +401,18 @@ export interface AppNotification {
     id: string;
     title: string;
     message: string;
-    type: 'insight' | 'pending_order' | 'overdue_payment' | 'low_stock';
+    type: 'insight' | 'pending_order' | 'email_order' | 'overdue_payment' | 'low_stock';
     severity: 'info' | 'warning' | 'error';
     timestamp: string;
     read: boolean;
     link?: string;
+    actionLabel?: string;
+    secondaryLink?: string;
+    secondaryActionLabel?: string;
+    details?: {
+        label: string;
+        value: string;
+    }[];
 }
 
 export interface EmployeeAdvance {

@@ -77,11 +77,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             sessionStorage.setItem('agh_shown_toasts', JSON.stringify(shownToasts));
             setToasts(prev => [...prev, ...newToasts]);
             
-            // Automatically clear toasts after 6 seconds
+            // Automatically clear toasts after 10 seconds
             newToasts.forEach(t => {
                 setTimeout(() => {
                     removeToast(t.id);
-                }, 6000);
+                }, 10000);
             });
         }
 
@@ -217,8 +217,8 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
                         <p style={{ fontSize: '0.8rem', color: 'var(--color-text-main)', margin: 0, lineHeight: 1.4 }}>
                             {toast.message}
                         </p>
-                        <span style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', alignSelf: 'flex-end', marginTop: '4px' }}>
-                            Click to review
+                        <span style={{ fontSize: '0.65rem', color: 'var(--color-primary)', alignSelf: 'flex-end', marginTop: '4px', fontWeight: 700 }}>
+                            {toast.actionLabel || 'Review'}
                         </span>
                     </div>
                 ))}

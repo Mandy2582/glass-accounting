@@ -88,8 +88,11 @@ async function createOrderFromEmail(email: IncomingEmail) {
     const matchedLines = parsedLines.filter(line => line.item);
 
     if (!matchedLines.length) {
+        const order = await createReviewOrderForEmailText(email, customer, body, parsedLines);
         return {
-            status: 'needs_review',
+            status: 'text_review_created',
+            orderId: order.id,
+            orderNumber: order.number,
             customerId: customer.id,
             customerName: customer.name,
             matchedRows: 0,
@@ -211,6 +214,49 @@ async function saveEmailOrder(input: {
             '',
             'Parsed rows:',
             summarizeParsedWhatsAppLines(input.parsedLines),
+        ].filter(Boolean).join('\n'),
+        paidAmount: 0,
+        paymentStatus: 'unpaid',
+    };
+
+    await db.orders.add(order);
+    return order;
+}
+
+async function createReviewOrderForEmailText(
+    email: IncomingEmail,
+    customer: Party,
+    originalMessage: string,
+    parsedLines: ReturnType<typeof parseWhatsAppOrderText>
+): Promise<Order> {
+    const orderNumber = await db.orders.generateNextOrderNumber('sale_order');
+    const generalNumber = await db.orders.generateNextGeneralNumber();
+    const order: Order = {
+        id: generateUUID(),
+        type: 'sale_order',
+        number: orderNumber,
+        generalNumber,
+        soNumber: orderNumber,
+        date: new Date().toISOString().slice(0, 10),
+        partyId: customer.id,
+        partyName: customer.name,
+        items: [],
+        subtotal: 0,
+        taxRate: 18,
+        taxAmount: 0,
+        total: 0,
+        status: 'pending',
+        notes: [
+            'Created from emailed order text for staff review.',
+            `Email Message ID: ${email.messageId}`,
+            `Email From: ${email.fromName ? `${email.fromName} <${email.fromAddress}>` : email.fromAddress}`,
+            email.subject ? `Subject: ${email.subject}` : '',
+            '',
+            'Original message:',
+            originalMessage,
+            '',
+            'Parsed rows:',
+            summarizeParsedWhatsAppLines(parsedLines),
         ].filter(Boolean).join('\n'),
         paidAmount: 0,
         paymentStatus: 'unpaid',

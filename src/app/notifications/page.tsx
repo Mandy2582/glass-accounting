@@ -3,12 +3,12 @@
 import { useState, useEffect } from 'react';
 import { useNotifications } from '@/components/NotificationContext';
 import { db } from '@/lib/storage';
-import { ArrowLeft, Bell, AlertCircle, AlertTriangle, Lightbulb, Package, Check, Trash2, ArrowRight } from 'lucide-react';
+import { ArrowLeft, Bell, AlertCircle, AlertTriangle, Lightbulb, Package, Check, ArrowRight, Mail } from 'lucide-react';
 import Link from 'next/link';
 
 export default function NotificationsHubPage() {
     const { notifications, unreadCount, markAsRead, markAllAsRead, refresh } = useNotifications();
-    const [activeFilter, setActiveFilter] = useState<'all' | 'insight' | 'pending_order' | 'overdue_payment' | 'low_stock'>('all');
+    const [activeFilter, setActiveFilter] = useState<'all' | 'email_order' | 'pending_order' | 'overdue_payment' | 'low_stock' | 'insight'>('all');
     const [filteredNotifications, setFilteredNotifications] = useState<any[]>([]);
 
     useEffect(() => {
@@ -23,6 +23,7 @@ export default function NotificationsHubPage() {
         const style = { marginRight: '0.75rem', flexShrink: 0 };
         if (type === 'low_stock') return <Package size={22} style={{ ...style, color: severity === 'error' ? '#ef4444' : '#eab308' }} />;
         if (type === 'overdue_payment') return <AlertCircle size={22} style={{ ...style, color: severity === 'error' ? '#ef4444' : '#eab308' }} />;
+        if (type === 'email_order') return <Mail size={22} style={{ ...style, color: severity === 'error' ? '#ef4444' : '#2563eb' }} />;
         if (type === 'pending_order') return <AlertTriangle size={22} style={{ ...style, color: '#eab308' }} />;
         return <Lightbulb size={22} style={{ ...style, color: '#3b82f6' }} />;
     };
@@ -56,7 +57,7 @@ export default function NotificationsHubPage() {
                     </Link>
                     <div>
                         <h1 style={{ fontSize: '1.5rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            Notifications Hub
+                            Notifications
                             {unreadCount > 0 && (
                                 <span style={{
                                     fontSize: '0.8rem',
@@ -70,7 +71,6 @@ export default function NotificationsHubPage() {
                                 </span>
                             )}
                         </h1>
-                        <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>Follow up on critical items and business intelligence</p>
                     </div>
                 </div>
                 
@@ -87,73 +87,20 @@ export default function NotificationsHubPage() {
                 </div>
             </div>
 
-            {/* Filter Tabs */}
-            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', flexWrap: 'wrap', background: 'rgba(0,0,0,0.03)', padding: '6px', borderRadius: '8px' }}>
-                <button
-                    onClick={() => setActiveFilter('all')}
-                    className="btn"
-                    style={{
-                        padding: '0.5rem 1rem',
-                        fontSize: '0.8rem',
-                        background: activeFilter === 'all' ? 'var(--color-primary)' : 'transparent',
-                        color: activeFilter === 'all' ? 'white' : 'var(--color-text-muted)',
-                        border: 'none'
-                    }}
+            <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <select
+                    className="input"
+                    value={activeFilter}
+                    onChange={(event) => setActiveFilter(event.target.value as typeof activeFilter)}
+                    style={{ width: '220px' }}
                 >
-                    All Notifications
-                </button>
-                <button
-                    onClick={() => setActiveFilter('insight')}
-                    className="btn"
-                    style={{
-                        padding: '0.5rem 1rem',
-                        fontSize: '0.8rem',
-                        background: activeFilter === 'insight' ? 'var(--color-primary)' : 'transparent',
-                        color: activeFilter === 'insight' ? 'white' : 'var(--color-text-muted)',
-                        border: 'none'
-                    }}
-                >
-                    Buying Insights
-                </button>
-                <button
-                    onClick={() => setActiveFilter('pending_order')}
-                    className="btn"
-                    style={{
-                        padding: '0.5rem 1rem',
-                        fontSize: '0.8rem',
-                        background: activeFilter === 'pending_order' ? 'var(--color-primary)' : 'transparent',
-                        color: activeFilter === 'pending_order' ? 'white' : 'var(--color-text-muted)',
-                        border: 'none'
-                    }}
-                >
-                    Pending Orders
-                </button>
-                <button
-                    onClick={() => setActiveFilter('overdue_payment')}
-                    className="btn"
-                    style={{
-                        padding: '0.5rem 1rem',
-                        fontSize: '0.8rem',
-                        background: activeFilter === 'overdue_payment' ? 'var(--color-primary)' : 'transparent',
-                        color: activeFilter === 'overdue_payment' ? 'white' : 'var(--color-text-muted)',
-                        border: 'none'
-                    }}
-                >
-                    Overdue Payments
-                </button>
-                <button
-                    onClick={() => setActiveFilter('low_stock')}
-                    className="btn"
-                    style={{
-                        padding: '0.5rem 1rem',
-                        fontSize: '0.8rem',
-                        background: activeFilter === 'low_stock' ? 'var(--color-primary)' : 'transparent',
-                        color: activeFilter === 'low_stock' ? 'white' : 'var(--color-text-muted)',
-                        border: 'none'
-                    }}
-                >
-                    Low Stock Alerts
-                </button>
+                    <option value="all">All notifications</option>
+                    <option value="email_order">Email orders</option>
+                    <option value="pending_order">Pending orders</option>
+                    <option value="overdue_payment">Overdue payments</option>
+                    <option value="low_stock">Low stock</option>
+                    <option value="insight">Buying insights</option>
+                </select>
             </div>
 
             {/* List */}
@@ -170,7 +117,7 @@ export default function NotificationsHubPage() {
                             key={n.id}
                             style={{
                                 display: 'flex',
-                                alignItems: 'center',
+                                alignItems: 'flex-start',
                                 padding: '1.25rem',
                                 borderRadius: '12px',
                                 border: '1px solid var(--color-border)',
@@ -214,6 +161,16 @@ export default function NotificationsHubPage() {
                                 <p style={{ fontSize: '0.85rem', color: 'var(--color-text-main)', margin: 0, lineHeight: 1.4 }}>
                                     {n.message}
                                 </p>
+                                {n.details?.length > 0 && (
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.5rem', marginTop: '0.6rem' }}>
+                                        {n.details.map((detail: any) => (
+                                            <div key={`${n.id}-${detail.label}`} style={{ border: '1px solid var(--color-border)', borderRadius: '6px', padding: '0.55rem', background: 'rgba(255,255,255,0.55)' }}>
+                                                <div style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>{detail.label}</div>
+                                                <div style={{ fontSize: '0.8rem', color: 'var(--color-text-main)', whiteSpace: 'pre-wrap', maxHeight: detail.value.length > 180 ? '120px' : 'none', overflow: 'auto' }}>{detail.value}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                                 <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
                                     {new Date(n.timestamp).toLocaleDateString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                                 </span>
@@ -239,6 +196,32 @@ export default function NotificationsHubPage() {
                                     </button>
                                 )}
                                 {n.link && (
+                                    <Link
+                                        href={n.link}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            markAsRead(n.id);
+                                        }}
+                                        className="btn btn-primary"
+                                        style={{ padding: '0.45rem 0.75rem', fontSize: '0.75rem', whiteSpace: 'nowrap' }}
+                                    >
+                                        {n.actionLabel || 'Open'}
+                                    </Link>
+                                )}
+                                {n.secondaryLink && (
+                                    <Link
+                                        href={n.secondaryLink}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            markAsRead(n.id);
+                                        }}
+                                        className="btn"
+                                        style={{ padding: '0.45rem 0.75rem', fontSize: '0.75rem', whiteSpace: 'nowrap', background: 'white', border: '1px solid var(--color-border)' }}
+                                    >
+                                        {n.secondaryActionLabel || 'View'}
+                                    </Link>
+                                )}
+                                {n.link && !n.actionLabel && (
                                     <ArrowRight size={18} style={{ color: 'var(--color-text-muted)', opacity: 0.6 }} />
                                 )}
                             </div>

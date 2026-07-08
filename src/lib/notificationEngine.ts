@@ -22,6 +22,36 @@ export async function evaluateNotifications(): Promise<AppNotification[]> {
 
         // 1. Pending Orders Check
         orders.forEach(order => {
+            const emailIntake = getEmailIntakeDetails(order);
+            if (emailIntake) {
+                notifications.push({
+                    id: `email-order-${order.id}`,
+                    title: emailIntake.hasItems ? 'Email Order Ready to Review' : 'Email Order Needs Item Review',
+                    message: emailIntake.hasItems
+                        ? `${emailIntake.from || order.partyName} emailed an order. ${order.items.length} item${order.items.length === 1 ? '' : 's'} were filled automatically.`
+                        : `${emailIntake.from || order.partyName} emailed an order, but items need staff review before conversion.`,
+                    type: 'email_order',
+                    severity: emailIntake.hasItems ? 'warning' : 'error',
+                    timestamp: order.date,
+                    read: false,
+                    link: `/orders/${order.id}/edit`,
+                    actionLabel: emailIntake.hasItems ? 'Review Order' : 'Fill Order',
+                    secondaryLink: `/orders/${order.id}`,
+                    secondaryActionLabel: 'View Details',
+                    details: [
+                        { label: 'Customer', value: order.partyName },
+                        { label: 'Order', value: order.number },
+                        { label: 'General No.', value: String(order.generalNumber || '-') },
+                        { label: 'From', value: emailIntake.from || '-' },
+                        { label: 'Subject', value: emailIntake.subject || '-' },
+                        { label: 'Items Filled', value: `${order.items.length}` },
+                        { label: 'Total', value: `₹${Number(order.total || 0).toLocaleString('en-IN')}` },
+                        { label: 'Email Message', value: emailIntake.originalMessage || '-' },
+                        { label: 'Parsed Rows', value: emailIntake.parsedRows || '-' },
+                    ].filter(detail => detail.value && detail.value !== '-')
+                });
+            }
+
             if (order.status !== 'completed' && order.status !== 'cancelled') {
                 const orderDate = new Date(order.date);
                 const daysPending = (now.getTime() - orderDate.getTime()) / oneDayMs;
@@ -35,7 +65,7 @@ export async function evaluateNotifications(): Promise<AppNotification[]> {
                     || orderNotes.includes('Online site measurement request');
 
                 // Any order that is not completed or cancelled is pending
-                if (daysPending >= 0) {
+                if (daysPending >= 0 && !emailIntake) {
                     const roundedDays = Math.round(daysPending);
                     notifications.push({
                         id: `pending-order-${order.id}`,
@@ -234,6 +264,42 @@ export async function evaluateNotifications(): Promise<AppNotification[]> {
     }
 
     return notifications;
+}
+
+function getEmailIntakeDetails(order: Order): {
+    from: string;
+    subject: string;
+    originalMessage: string;
+    parsedRows: string;
+    hasItems: boolean;
+} | null {
+    const notes = order.notes || '';
+    if (!notes.includes('Email Message ID:')) return null;
+
+    return {
+        from: getNoteLine(notes, 'Email From'),
+        subject: getNoteLine(notes, 'Subject'),
+        originalMessage: getNoteBlock(notes, 'Original message:', 'Parsed rows:') || getNoteBlock(notes, 'Caption:', 'Extracted text:') || getNoteBlock(notes, 'Extracted text:', 'Drawing notes:'),
+        parsedRows: getNoteBlock(notes, 'Parsed rows:'),
+        hasItems: order.items.length > 0,
+    };
+}
+
+function getNoteLine(notes: string, label: string): string {
+    const line = notes.split('\n').find(entry => entry.toLowerCase().startsWith(`${label.toLowerCase()}:`));
+    return line ? line.slice(line.indexOf(':') + 1).trim() : '';
+}
+
+function getNoteBlock(notes: string, label: string, untilLabel?: string): string {
+    const start = notes.indexOf(label);
+    if (start < 0) return '';
+
+    const contentStart = start + label.length;
+    const end = untilLabel ? notes.indexOf(untilLabel, contentStart) : -1;
+    return notes
+        .slice(contentStart, end >= 0 ? end : undefined)
+        .trim()
+        .slice(0, 900);
 }
 
 /**
