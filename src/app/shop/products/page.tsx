@@ -1230,7 +1230,11 @@ export default function ShopPage() {
             return;
         }
 
-        const sqft = roundCurrency((width * height * pieces) / 144);
+        // Bill on the next-even-inch size, same rounding rule used everywhere
+        // else (order/estimate calculators) to account for cutting margin.
+        const billedWidth = roundToNextEvenInch(width);
+        const billedHeight = roundToNextEvenInch(height);
+        const sqft = roundCurrency((billedWidth * billedHeight * pieces) / 144);
         const label = `${customSizeProduct.name} - Custom ${width}" x ${height}" x ${pieces} pc${pieces === 1 ? '' : 's'}`;
 
         setCart(prev => ([
@@ -1999,6 +2003,42 @@ export default function ShopPage() {
         }
 
         setSubmitting(true);
+
+        // Stock in `items` may be stale (loaded whenever this tab opened) --
+        // re-check against live inventory right before actually placing the
+        // order, so two customers racing for the last sheet don't both win.
+        let freshItems: GlassItem[];
+        try {
+            freshItems = await loadPublicShopProducts();
+        } catch {
+            setSubmitting(false);
+            setErrorMessage('Could not verify current stock. Please try again.');
+            return;
+        }
+
+        const freshItemById = new Map(freshItems.map(item => [item.id, item]));
+        const staleWarnings: string[] = [];
+        for (const line of cartDetails.lines) {
+            const freshItem = freshItemById.get(line.item.id);
+            if (!freshItem) {
+                staleWarnings.push(`${line.customLabel || line.item.name} is no longer available online.`);
+                continue;
+            }
+            const check = getStockComparison(freshItem, line.quantity, line.unit);
+            if (check.isOutOfStock) {
+                staleWarnings.push(`${line.customLabel || line.item.name}: now out of stock.`);
+            } else if (check.isInsufficient) {
+                staleWarnings.push(`${line.customLabel || line.item.name}: only ${check.stockLabel} left (requested ${check.requestedLabel}).`);
+            }
+        }
+
+        if (staleWarnings.length > 0) {
+            setItems(freshItems);
+            setSubmitting(false);
+            setErrorMessage(`Stock changed since you added these items: ${staleWarnings.slice(0, 2).join(' ')}`);
+            return;
+        }
+
         try {
             const party = await createOrFindCustomer();
             const orderItems: InvoiceItem[] = cartDetails.lines.map(line => ({
@@ -3650,10 +3690,14 @@ export default function ShopPage() {
                                     const width = Number(customSize.width) || 0;
                                     const height = Number(customSize.height) || 0;
                                     const pieces = Number(customSize.pieces) || 0;
-                                    const sqft = roundCurrency((width * height * pieces) / 144);
+                                    const billedWidth = roundToNextEvenInch(width);
+                                    const billedHeight = roundToNextEvenInch(height);
+                                    const sqft = roundCurrency((billedWidth * billedHeight * pieces) / 144);
                                     const amount = getLineAmounts(customSizeProduct, sqft, 'sqft').lineTotal;
                                     return (
                                         <>
+                                            <span>Billed Size</span>
+                                            <strong>{width > 0 && height > 0 ? `${billedWidth}" x ${billedHeight}"` : '—'}</strong>
                                             <span>Calculated Area</span>
                                             <strong>{sqft.toFixed(2)} sq.ft</strong>
                                             <span>Estimated Amount</span>
