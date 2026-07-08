@@ -124,9 +124,38 @@ function findBestItem(line: string, items: GlassItem[]): GlassItem | undefined {
     return ranked[0]?.item;
 }
 
+// A thickness like "4mm" or a size pair like "4x8"/"4*8" must never be
+// mistaken for the order quantity -- both are extremely common in how glass
+// orders are actually typed ("4mm plain 4*8 - 10" meaning ten 4x8ft sheets
+// of 4mm clear glass, not a quantity of 4).
+function extractThicknessMm(line: string): number | undefined {
+    const match = line.match(/(\d+(?:\.\d+)?)\s*mm\b/i);
+    return match ? Number(match[1]) : undefined;
+}
+
+function extractDimensionPair(line: string): { a: number; b: number } | undefined {
+    const match = line.match(/(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)/i);
+    return match ? { a: Number(match[1]), b: Number(match[2]) } : undefined;
+}
+
 function extractQuantity(line: string): number {
-    const match = line.match(/(?:^|\s)(\d+(?:\.\d+)?)(?:\s*(?:sheets?|pcs?|pieces?|nos|sets?|pair|sq\.?\s*ft|sqft|sqm|sq\.?\s*m))?/i);
-    return match ? Number(match[1]) || 1 : 1;
+    // Prefer an explicit trailing quantity, e.g. "... - 10" or "... x 10" at
+    // the end of the line -- the standard shorthand for "spec - count".
+    const trailing = line.match(/[-x×]\s*(\d+(?:\.\d+)?)\s*(?:sheets?|pcs?|pieces?|nos|sets?|pair)?\s*$/i);
+    if (trailing) return Number(trailing[1]) || 1;
+
+    // Next, a number explicitly tagged with a unit keyword.
+    const withUnit = line.match(/(\d+(?:\.\d+)?)\s*(?:sheets?|pcs?|pieces?|nos|sets?|pair|sq\.?\s*ft|sqft|sqm|sq\.?\s*m)\b/i);
+    if (withUnit) return Number(withUnit[1]) || 1;
+
+    // Last resort: the first standalone number that isn't the thickness or
+    // part of a WxH dimension pair.
+    const thickness = extractThicknessMm(line);
+    const dims = extractDimensionPair(line);
+    const excluded = new Set([thickness, dims?.a, dims?.b].filter((n): n is number => n !== undefined));
+    const numbers = [...line.matchAll(/\d+(?:\.\d+)?/g)].map(m => Number(m[0]));
+    const candidate = numbers.find(n => !excluded.has(n));
+    return candidate ?? 1;
 }
 
 function extractUnit(line: string, item?: GlassItem): Unit {
@@ -138,6 +167,9 @@ function extractUnit(line: string, item?: GlassItem): Unit {
     if (/pair/.test(lower)) return 'pair';
     if (/pcs?|pieces?/.test(lower)) return 'pcs';
     if (/nos/.test(lower)) return 'nos';
+    // A WxH pattern ("4x8", "4*8") with no explicit unit strongly implies
+    // "N sheets of that size" for a fixed-size sheet product, not raw sqft.
+    if (item?.width && item?.height && extractDimensionPair(line)) return 'sheets';
     return item?.unit || 'nos';
 }
 
@@ -145,8 +177,22 @@ function normalize(value: string): string {
     return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+// Shop-floor slang for catalogue terms customers actually type, none of
+// which appear anywhere in the catalogue's own naming (item name/type/make
+// use "Clear Float"/"Standard Clear" etc., never "plain").
+const CATALOGUE_SYNONYMS: Record<string, string> = {
+    plain: 'clear',
+    plane: 'clear',
+    simple: 'clear',
+    tuff: 'toughened',
+    tuffen: 'toughened',
+    tempered: 'toughened',
+    mirror: 'mirror',
+};
+
 function tokenize(value: string): string[] {
     return normalize(value)
         .split(/\s+/)
+        .map(token => CATALOGUE_SYNONYMS[token] || token)
         .filter(token => token.length > 1 && !['mm', 'the', 'and', 'for', 'pcs', 'nos', 'set'].includes(token));
 }
