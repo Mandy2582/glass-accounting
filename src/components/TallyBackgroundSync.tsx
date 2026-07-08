@@ -4,6 +4,12 @@ import { useEffect, useRef } from 'react';
 import { db } from '@/lib/storage';
 import { tallyApi } from '@/lib/tally';
 
+// After this many consecutive failures (roughly 3 sync intervals), stop
+// retrying and disable auto-sync instead of hammering an unreachable Tally
+// server forever. Most common cause: the app is now cloud-hosted, so it can
+// no longer reach a Tally instance on the shop's local network at all.
+const MAX_CONSECUTIVE_FAILURES = 3;
+
 export default function TallyBackgroundSync() {
     const isSyncingRef = useRef(false);
 
@@ -27,8 +33,10 @@ export default function TallyBackgroundSync() {
     const checkAndRunSync = async () => {
         if (isSyncingRef.current) return;
 
+        let config: Awaited<ReturnType<typeof db.businessConfig.get>> | undefined;
+
         try {
-            const config = await db.businessConfig.get();
+            config = await db.businessConfig.get();
             if (!config.tallyAutoSyncEnabled) return;
 
             const ip = config.tallyServerIp;
@@ -60,21 +68,44 @@ export default function TallyBackgroundSync() {
             if (shouldSync) {
                 console.log(`[Tally Background Sync] Starting autonomous sync at ${new Date().toLocaleTimeString()}...`);
                 isSyncingRef.current = true;
-                
+
                 const result = await tallyApi.syncFromTally(ip, port, companyName);
-                
-                // Save updated sync details to DB
-                const updatedConfig = {
-                    ...config,
-                    tallyLastSyncTime: new Date().toISOString(),
-                    tallySyncLogs: result.logs
-                };
-                
-                await db.businessConfig.update(updatedConfig);
-                console.log(`[Tally Background Sync] Completed! Synced ${result.itemsSynced} stock items and ${result.partiesSynced} ledgers.`);
+
+                if (result.hadErrors) {
+                    const failures = (config.tallyConsecutiveFailures || 0) + 1;
+                    const disableSync = failures >= MAX_CONSECUTIVE_FAILURES;
+
+                    if (disableSync) {
+                        console.warn(
+                            `[Tally Background Sync] Disabling auto-sync after ${failures} consecutive failed attempts ` +
+                            `(Tally at ${ip}:${port} appears unreachable from this deployment). ` +
+                            `Re-enable it in Settings once Tally is reachable again.`
+                        );
+                    } else {
+                        console.warn(`[Tally Background Sync] Attempt ${failures}/${MAX_CONSECUTIVE_FAILURES} had errors, see logs.`);
+                    }
+
+                    await db.businessConfig.update({
+                        ...config,
+                        tallyLastSyncTime: new Date().toISOString(),
+                        tallySyncLogs: result.logs,
+                        tallyConsecutiveFailures: failures,
+                        ...(disableSync ? { tallyAutoSyncEnabled: false } : {}),
+                    });
+                } else {
+                    await db.businessConfig.update({
+                        ...config,
+                        tallyLastSyncTime: new Date().toISOString(),
+                        tallySyncLogs: result.logs,
+                        tallyConsecutiveFailures: 0,
+                    });
+                    console.log(`[Tally Background Sync] Completed! Synced ${result.itemsSynced} stock items and ${result.partiesSynced} ledgers.`);
+                }
             }
         } catch (error) {
-            console.error('[Tally Background Sync] Error during check/sync:', error);
+            // Only reachable for genuine unexpected failures (e.g. config fetch
+            // itself failing) since syncFromTally catches its own errors.
+            console.warn('[Tally Background Sync] Unexpected error:', error);
         } finally {
             isSyncingRef.current = false;
         }

@@ -178,10 +178,11 @@ export const tallyApi = {
     /**
      * Synchronize Stock Items and Ledgers from Tally Prime into the local Supabase Database
      */
-    async syncFromTally(tallyIp: string, port: string, companyName: string): Promise<{ itemsSynced: number, partiesSynced: number, logs: string[] }> {
+    async syncFromTally(tallyIp: string, port: string, companyName: string): Promise<{ itemsSynced: number, partiesSynced: number, logs: string[], hadErrors: boolean }> {
         const logs: string[] = [];
         let itemsSynced = 0;
         let partiesSynced = 0;
+        let hadErrors = false;
 
         logs.push(`Starting Tally sync at ${new Date().toLocaleTimeString()}...`);
 
@@ -227,7 +228,8 @@ export const tallyApi = {
             }
         } catch (err: any) {
             logs.push(`❌ Stock Item Sync failed: ${err.message}`);
-            console.error('Stock Item Sync failed:', err);
+            console.warn('Stock Item Sync failed:', err.message);
+            hadErrors = true;
         }
 
         // 2. Sync Ledgers / Parties
@@ -270,11 +272,12 @@ export const tallyApi = {
             }
         } catch (err: any) {
             logs.push(`❌ Ledger Sync failed: ${err.message}`);
-            console.error('Ledger Sync failed:', err);
+            console.warn('Ledger Sync failed:', err.message);
+            hadErrors = true;
         }
 
-        logs.push(`Tally sync completed!`);
-        return { itemsSynced, partiesSynced, logs };
+        logs.push(hadErrors ? 'Tally sync completed with errors.' : 'Tally sync completed!');
+        return { itemsSynced, partiesSynced, logs, hadErrors };
     }
 };
 

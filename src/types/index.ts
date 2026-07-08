@@ -373,6 +373,7 @@ export interface BusinessConfig {
     tallySyncInterval?: number; // In minutes
     tallyLastSyncTime?: string;
     tallySyncLogs?: string[];
+    tallyConsecutiveFailures?: number;
     employeeConfigs?: Record<string, EmployeeConfig>;
     customAccounts?: LedgerAccount[];
 }

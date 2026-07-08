@@ -57,7 +57,7 @@ export async function POST(request: Request) {
         });
 
     } catch (error: any) {
-        console.error('Tally API Proxy Error:', error);
+        console.warn('Tally API Proxy Error:', error.message);
         return NextResponse.json(
             { error: 'Failed to connect to Tally', details: error.message },
             { status: 500 }
