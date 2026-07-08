@@ -1,5 +1,6 @@
 import { db, designsDb } from './storage';
 import { AppNotification, CustomDesign, Invoice, Order, Party, Voucher } from '@/types';
+import { getOrderWorkSummary, getWorkTypeLabel } from './orderWork';
 
 /**
  * Evaluate all business rules and generate actionable alerts & insights
@@ -22,6 +23,35 @@ export async function evaluateNotifications(): Promise<AppNotification[]> {
 
         // 1. Pending Orders Check
         orders.forEach(order => {
+            getOrderWorkSummary(order).open.forEach(task => {
+                const scheduledDate = new Date(task.scheduledDate);
+                const daysLate = Math.floor((now.getTime() - scheduledDate.getTime()) / oneDayMs);
+                const isDueToday = scheduledDate.toISOString().slice(0, 10) === now.toISOString().slice(0, 10);
+                if (daysLate >= 1 || isDueToday) {
+                    notifications.push({
+                        id: `operation-${order.id}-${task.id}`,
+                        title: daysLate >= 1 ? `${getWorkTypeLabel(task.type)} Overdue` : `${getWorkTypeLabel(task.type)} Due Today`,
+                        message: `${task.assignedToName} has ${getWorkTypeLabel(task.type).toLowerCase()} work for order #${order.number} (${order.partyName})${daysLate >= 1 ? ` overdue by ${daysLate} day${daysLate === 1 ? '' : 's'}` : ' scheduled today'}.`,
+                        type: 'operation',
+                        severity: daysLate >= 1 ? 'error' : 'warning',
+                        timestamp: task.scheduledDate,
+                        read: false,
+                        link: '/operations',
+                        actionLabel: 'Open Operations',
+                        secondaryLink: `/orders/${order.id}`,
+                        secondaryActionLabel: 'View Order',
+                        details: [
+                            { label: 'Work', value: getWorkTypeLabel(task.type) },
+                            { label: 'Assigned To', value: task.assignedToName },
+                            { label: 'Scheduled', value: task.scheduledDate },
+                            { label: 'Customer', value: order.partyName },
+                            { label: 'Order', value: order.generalNumber || order.number },
+                            { label: 'Notes', value: task.notes || '-' },
+                        ].filter(detail => detail.value && detail.value !== '-')
+                    });
+                }
+            });
+
             const emailIntake = getEmailIntakeDetails(order);
             if (emailIntake) {
                 notifications.push({

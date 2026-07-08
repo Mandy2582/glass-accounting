@@ -3,12 +3,12 @@
 import { useState, useEffect } from 'react';
 import { useNotifications } from '@/components/NotificationContext';
 import { db } from '@/lib/storage';
-import { ArrowLeft, Bell, AlertCircle, AlertTriangle, Lightbulb, Package, Check, ArrowRight, Mail } from 'lucide-react';
+import { ArrowLeft, Bell, AlertCircle, AlertTriangle, Lightbulb, Package, Check, ArrowRight, Mail, Truck } from 'lucide-react';
 import Link from 'next/link';
 
 export default function NotificationsHubPage() {
     const { notifications, unreadCount, markAsRead, markAllAsRead, refresh } = useNotifications();
-    const [activeFilter, setActiveFilter] = useState<'all' | 'email_order' | 'pending_order' | 'overdue_payment' | 'low_stock' | 'insight'>('all');
+    const [activeFilter, setActiveFilter] = useState<'all' | 'email_order' | 'operation' | 'pending_order' | 'overdue_payment' | 'low_stock' | 'insight'>('all');
     const [filteredNotifications, setFilteredNotifications] = useState<any[]>([]);
 
     useEffect(() => {
@@ -24,6 +24,7 @@ export default function NotificationsHubPage() {
         if (type === 'low_stock') return <Package size={22} style={{ ...style, color: severity === 'error' ? '#ef4444' : '#eab308' }} />;
         if (type === 'overdue_payment') return <AlertCircle size={22} style={{ ...style, color: severity === 'error' ? '#ef4444' : '#eab308' }} />;
         if (type === 'email_order') return <Mail size={22} style={{ ...style, color: severity === 'error' ? '#ef4444' : '#2563eb' }} />;
+        if (type === 'operation') return <Truck size={22} style={{ ...style, color: severity === 'error' ? '#ef4444' : '#0f766e' }} />;
         if (type === 'pending_order') return <AlertTriangle size={22} style={{ ...style, color: '#eab308' }} />;
         return <Lightbulb size={22} style={{ ...style, color: '#3b82f6' }} />;
     };
@@ -96,6 +97,7 @@ export default function NotificationsHubPage() {
                 >
                     <option value="all">All notifications</option>
                     <option value="email_order">Email orders</option>
+                    <option value="operation">Operations</option>
                     <option value="pending_order">Pending orders</option>
                     <option value="overdue_payment">Overdue payments</option>
                     <option value="low_stock">Low stock</option>

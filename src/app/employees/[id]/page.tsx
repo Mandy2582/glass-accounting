@@ -1,13 +1,15 @@
 'use client';
 
-import { useState, useEffect, Fragment } from 'react';
+import { useState, useEffect, Fragment, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { db } from '@/lib/storage';
 import { getEmployeeConfig, saveEmployeeConfig } from '@/lib/employeeSettings';
-import { Employee, EmployeeConfig, EmployeeAdvance, EmployeeOvertimeLog, BankAccount, Voucher, SalarySlip } from '@/types';
-import { ArrowLeft, User, Calendar, Plus, DollarSign, Clock, Landmark, FileText, Settings, ShieldCheck, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
+import { Employee, EmployeeConfig, EmployeeAdvance, EmployeeOvertimeLog, BankAccount, Voucher, SalarySlip, Order } from '@/types';
+import { ArrowLeft, User, Calendar, Plus, DollarSign, Clock, Landmark, FileText, Settings, ShieldCheck, ArrowUpRight, ArrowDownLeft, Route, Truck, Wrench } from 'lucide-react';
 import Modal from '@/components/Modal';
 import { formatIndianCurrency, roundCurrency } from '@/lib/utils';
+import { getOrderWorkSummary, getWorkStatusColor, getWorkStatusLabel, getWorkTypeLabel } from '@/lib/orderWork';
 
 export default function EmployeeDetailPage() {
     const params = useParams();
@@ -17,10 +19,11 @@ export default function EmployeeDetailPage() {
     const [employee, setEmployee] = useState<Employee | null>(null);
     const [config, setConfig] = useState<EmployeeConfig | null>(null);
     const [transactions, setTransactions] = useState<any[]>([]);
+    const [orders, setOrders] = useState<Order[]>([]);
     const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
     const [loading, setLoading] = useState(true);
 
-    const [activeTab, setActiveTab] = useState<'overview' | 'advances' | 'overtime' | 'ledger'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'operations' | 'advances' | 'overtime' | 'ledger'>('overview');
 
     // Configuration Edit State
     const [overtimeRate, setOvertimeRate] = useState(100);
@@ -53,12 +56,13 @@ export default function EmployeeDetailPage() {
     const loadData = async () => {
         setLoading(true);
         try {
-            const [emp, empConfig, allVouchers, allSlips, banks] = await Promise.all([
+            const [emp, empConfig, allVouchers, allSlips, banks, allOrders] = await Promise.all([
                 db.employees.getAll().then(es => es.find(e => e.id === employeeId)),
                 getEmployeeConfig(employeeId),
                 db.vouchers.getAll(),
                 db.payroll.getAll(),
-                db.bankAccounts.getAll()
+                db.bankAccounts.getAll(),
+                db.orders.getAll()
             ]);
 
             if (emp) {
@@ -67,6 +71,7 @@ export default function EmployeeDetailPage() {
                 setOvertimeRate(empConfig.overtimeRate);
                 setMaxCeiling(empConfig.maxOvertimeCeiling);
                 setBankAccounts(banks);
+                setOrders(allOrders);
                 if (banks.length > 0) setAdvBankId(banks[0].id);
 
                 // Build unified ledger
@@ -134,6 +139,20 @@ export default function EmployeeDetailPage() {
             setLoading(false);
         }
     };
+
+    const assignedWork = useMemo(() => {
+        return orders
+            .flatMap(order => getOrderWorkSummary(order).assignments
+                .filter(task => task.assignedToId === employeeId)
+                .map(task => ({ order, task })))
+            .sort((a, b) => {
+                const statusWeight = (status: string) => status === 'completed' || status === 'cancelled' ? 1 : 0;
+                const weightA = statusWeight(a.task.status);
+                const weightB = statusWeight(b.task.status);
+                if (weightA !== weightB) return weightA - weightB;
+                return new Date(a.task.scheduledDate || a.order.date).getTime() - new Date(b.task.scheduledDate || b.order.date).getTime();
+            });
+    }, [employeeId, orders]);
 
     const handleSaveConfig = async () => {
         if (!employee || !config) return;
@@ -353,8 +372,8 @@ export default function EmployeeDetailPage() {
             </div>
 
             {/* Tabs */}
-            <div style={{ display: 'flex', background: 'rgba(0,0,0,0.05)', padding: '4px', borderRadius: '8px', gap: '4px', marginBottom: '1.5rem', maxWidth: '500px' }}>
-                {(['overview', 'advances', 'overtime', 'ledger'] as const).map(tab => (
+            <div style={{ display: 'flex', background: 'rgba(0,0,0,0.05)', padding: '4px', borderRadius: '8px', gap: '4px', marginBottom: '1.5rem', maxWidth: '680px', flexWrap: 'wrap' }}>
+                {(['overview', 'operations', 'advances', 'overtime', 'ledger'] as const).map(tab => (
                     <button
                         key={tab}
                         onClick={() => setActiveTab(tab)}
@@ -447,6 +466,75 @@ export default function EmployeeDetailPage() {
                             <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem', margin: 0, textAlign: 'center', padding: '1rem' }}>No overtime hours logged recently.</p>
                         )}
                     </div>
+                </div>
+            )}
+
+            {activeTab === 'operations' && (
+                <div className="card">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', gap: '1rem', flexWrap: 'wrap' }}>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <Route size={18} />
+                            Assigned Operations
+                        </h3>
+                        <Link href="/operations" className="btn" style={{ background: 'white', border: '1px solid var(--color-border)' }}>
+                            Open Operations
+                        </Link>
+                    </div>
+
+                    {assignedWork.length === 0 ? (
+                        <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                            No transport or installation work is assigned to this employee.
+                        </div>
+                    ) : (
+                        <table className="table" style={{ width: '100%' }}>
+                            <thead>
+                                <tr>
+                                    <th>Work</th>
+                                    <th>Order</th>
+                                    <th>Customer</th>
+                                    <th>Scheduled</th>
+                                    <th>Status</th>
+                                    <th>Payment Recorded</th>
+                                    <th>Notes</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {assignedWork.map(({ order, task }) => (
+                                    <tr key={`${order.id}-${task.id}`}>
+                                        <td style={{ fontWeight: 700 }}>
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                                                {task.type === 'transport' ? <Truck size={15} /> : <Wrench size={15} />}
+                                                {getWorkTypeLabel(task.type)}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <Link href={`/orders/${order.id}`} style={{ color: 'var(--color-primary)', fontWeight: 700 }}>
+                                                {order.generalNumber || order.number}
+                                            </Link>
+                                        </td>
+                                        <td>{order.partyName}</td>
+                                        <td>{task.scheduledDate ? new Date(task.scheduledDate).toLocaleDateString('en-IN') : '-'}</td>
+                                        <td>
+                                            <span style={{
+                                                padding: '2px 8px',
+                                                borderRadius: '999px',
+                                                background: `${getWorkStatusColor(task.status)}18`,
+                                                color: getWorkStatusColor(task.status),
+                                                fontSize: '0.75rem',
+                                                fontWeight: 700,
+                                            }}>
+                                                {getWorkStatusLabel(task.status)}
+                                            </span>
+                                        </td>
+                                        <td>{task.paymentRecordedAmount ? formatIndianCurrency(task.paymentRecordedAmount) : '-'}</td>
+                                        <td style={{ color: 'var(--color-text-muted)', fontSize: '0.82rem', maxWidth: '260px' }}>
+                                            {task.completionNotes || task.notes || '-'}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
                 </div>
             )}
 

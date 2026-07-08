@@ -1,4 +1,4 @@
-import { Menu, Bell, AlertCircle, AlertTriangle, Lightbulb, Package, Mail } from 'lucide-react';
+import { Menu, Bell, AlertCircle, AlertTriangle, Lightbulb, Package, Mail, Truck } from 'lucide-react';
 import styles from './Layout.module.css';
 import { useState } from 'react';
 import { useNotifications } from '@/components/NotificationContext';
@@ -23,6 +23,7 @@ export default function Header({ toggleSidebar, isSidebarCollapsed, role }: Head
         if (type === 'low_stock') return <Package size={16} style={{ ...style, color: severity === 'error' ? '#ef4444' : '#eab308' }} />;
         if (type === 'overdue_payment') return <AlertCircle size={16} style={{ ...style, color: severity === 'error' ? '#ef4444' : '#eab308' }} />;
         if (type === 'email_order') return <Mail size={16} style={{ ...style, color: severity === 'error' ? '#ef4444' : '#2563eb' }} />;
+        if (type === 'operation') return <Truck size={16} style={{ ...style, color: severity === 'error' ? '#ef4444' : '#0f766e' }} />;
         if (type === 'pending_order') return <AlertTriangle size={16} style={{ ...style, color: '#eab308' }} />;
         return <Lightbulb size={16} style={{ ...style, color: '#3b82f6' }} />;
     };
