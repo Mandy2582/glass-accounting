@@ -9,6 +9,7 @@ import {
 } from '@/lib/whatsappOrders';
 import { analyzeWhatsAppImage, buildDesignDataFromImageAnalysis, WhatsAppImageAnalysis } from '@/lib/whatsappVision';
 import { generateUUID } from '@/lib/utils';
+import { hasSufficientAvailableStock, withAvailableStock } from '@/lib/stockReservations';
 import type { CustomDesign, Order, Party } from '@/types';
 
 export const runtime = 'nodejs';
@@ -154,14 +155,18 @@ async function createOrderFromWhatsAppEvent(event: WhatsAppMessageEvent) {
         return await createDraftFromWhatsAppImage(event, customer, body);
     }
 
-    const items = await db.items.getAll();
+    const items = await withAvailableStock(await db.items.getAll());
     const parsedLines = parseWhatsAppOrderText(body, items);
     const matchedLines = parsedLines.filter(line => line.item);
+    const stockShortLines = matchedLines.filter(line => !hasSufficientAvailableStock(line.item!, line.quantity, line.unit));
 
-    if (!matchedLines.length) {
+    if (!matchedLines.length || stockShortLines.length > 0) {
+        const order = await createReviewOrderForWhatsAppText(event, customer, body, parsedLines, stockShortLines);
         return {
             messageId,
-            status: 'needs_review',
+            status: stockShortLines.length > 0 ? 'stock_review_created' : 'text_review_created',
+            orderId: order.id,
+            orderNumber: order.number,
             customerId: customer.id,
             customerName: customer.name,
             matchedRows: 0,
@@ -206,9 +211,23 @@ async function createDraftFromWhatsAppImage(event: WhatsAppMessageEvent, custome
             analysis.extractedText,
             ...analysis.orderLines.map(line => `${line.quantity || 1} ${line.unit || ''} ${line.description}`.trim()),
         ].filter(Boolean).join('\n');
-        const items = await db.items.getAll();
+        const items = await withAvailableStock(await db.items.getAll());
         const parsedLines = parseWhatsAppOrderText(orderText, items);
         const matchedLines = parsedLines.filter(line => line.item);
+        const stockShortLines = matchedLines.filter(line => !hasSufficientAvailableStock(line.item!, line.quantity, line.unit));
+
+        if (matchedLines.length && stockShortLines.length > 0) {
+            const order = await createReviewOrderForWhatsAppText(event, customer, orderText, parsedLines, stockShortLines);
+            return {
+                messageId: event.message.id,
+                status: 'stock_review_created',
+                orderId: order.id,
+                orderNumber: order.number,
+                customerId: customer.id,
+                matchedRows: 0,
+                confidence: analysis.confidence,
+            };
+        }
 
         if (matchedLines.length) {
             const order = await saveWhatsAppOrder({
@@ -287,6 +306,57 @@ async function saveWhatsAppOrder(input: {
             'Parsed rows:',
             summarizeParsedWhatsAppLines(input.parsedLines),
         ].join('\n'),
+        paidAmount: 0,
+        paymentStatus: 'unpaid',
+    };
+
+    await db.orders.add(order);
+    return order;
+}
+
+async function createReviewOrderForWhatsAppText(
+    event: WhatsAppMessageEvent,
+    customer: Party,
+    originalMessage: string,
+    parsedLines: ReturnType<typeof parseWhatsAppOrderText>,
+    stockShortLines: ReturnType<typeof parseWhatsAppOrderText> = []
+): Promise<Order> {
+    const orderNumber = await db.orders.generateNextOrderNumber('sale_order');
+    const generalNumber = await db.orders.generateNextGeneralNumber();
+    const stockNote = stockShortLines.length
+        ? [
+            '',
+            'Stock issue -- requested quantity exceeds what is currently available (accounting for other open orders):',
+            ...stockShortLines.map(line => `- ${line.item?.name || line.raw}: requested ${line.quantity} ${line.unit}, available ${line.item?.stock ?? 0} ${line.item?.unit || line.unit}`),
+        ].join('\n')
+        : '';
+    const order: Order = {
+        id: generateUUID(),
+        type: 'sale_order',
+        number: orderNumber,
+        generalNumber,
+        soNumber: orderNumber,
+        date: new Date().toISOString().slice(0, 10),
+        partyId: customer.id,
+        partyName: customer.name,
+        items: [],
+        subtotal: 0,
+        taxRate: 18,
+        taxAmount: 0,
+        total: 0,
+        status: 'pending',
+        notes: [
+            'Created from WhatsApp order text for staff review.',
+            `WhatsApp Message ID: ${event.message.id}`,
+            `WhatsApp From: ${event.message.from}`,
+            '',
+            'Original message:',
+            originalMessage,
+            '',
+            'Parsed rows:',
+            summarizeParsedWhatsAppLines(parsedLines),
+            stockNote,
+        ].filter(Boolean).join('\n'),
         paidAmount: 0,
         paymentStatus: 'unpaid',
     };

@@ -9,6 +9,7 @@ import {
 } from '@/lib/whatsappOrders';
 import { analyzeWhatsAppImage, buildDesignDataFromImageAnalysis, WhatsAppImageAnalysis } from '@/lib/whatsappVision';
 import { generateUUID } from '@/lib/utils';
+import { hasSufficientAvailableStock, withAvailableStock } from '@/lib/stockReservations';
 import type { CustomDesign, Order, Party } from '@/types';
 
 export const runtime = 'nodejs';
@@ -83,14 +84,15 @@ async function createOrderFromEmail(email: IncomingEmail) {
         return await createDraftFromEmailImage(email, customer, firstImage, body);
     }
 
-    const items = await db.items.getAll();
+    const items = await withAvailableStock(await db.items.getAll());
     const parsedLines = parseWhatsAppOrderText(body, items);
     const matchedLines = parsedLines.filter(line => line.item);
+    const stockShortLines = matchedLines.filter(line => !hasSufficientAvailableStock(line.item!, line.quantity, line.unit));
 
-    if (!matchedLines.length) {
-        const order = await createReviewOrderForEmailText(email, customer, body, parsedLines);
+    if (!matchedLines.length || stockShortLines.length > 0) {
+        const order = await createReviewOrderForEmailText(email, customer, body, parsedLines, stockShortLines);
         return {
-            status: 'text_review_created',
+            status: stockShortLines.length > 0 ? 'stock_review_created' : 'text_review_created',
             orderId: order.id,
             orderNumber: order.number,
             customerId: customer.id,
@@ -137,11 +139,12 @@ async function createDraftFromEmailImage(
             analysis.extractedText,
             ...analysis.orderLines.map(line => `${line.quantity || 1} ${line.unit || ''} ${line.description}`.trim()),
         ].filter(Boolean).join('\n');
-        const items = await db.items.getAll();
+        const items = await withAvailableStock(await db.items.getAll());
         const parsedLines = parseWhatsAppOrderText(orderText, items);
         const matchedLines = parsedLines.filter(line => line.item);
+        const stockShortLines = matchedLines.filter(line => !hasSufficientAvailableStock(line.item!, line.quantity, line.unit));
 
-        if (matchedLines.length) {
+        if (matchedLines.length && stockShortLines.length === 0) {
             const order = await saveEmailOrder({
                 customer,
                 email,
@@ -158,6 +161,18 @@ async function createDraftFromEmailImage(
                 customerId: customer.id,
                 matchedRows: matchedLines.length,
                 total: order.total,
+                confidence: analysis.confidence,
+            };
+        }
+
+        if (matchedLines.length && stockShortLines.length > 0) {
+            const order = await createReviewOrderForEmailText(email, customer, orderText, parsedLines, stockShortLines);
+            return {
+                status: 'stock_review_created',
+                orderId: order.id,
+                orderNumber: order.number,
+                customerId: customer.id,
+                matchedRows: 0,
                 confidence: analysis.confidence,
             };
         }
@@ -227,10 +242,18 @@ async function createReviewOrderForEmailText(
     email: IncomingEmail,
     customer: Party,
     originalMessage: string,
-    parsedLines: ReturnType<typeof parseWhatsAppOrderText>
+    parsedLines: ReturnType<typeof parseWhatsAppOrderText>,
+    stockShortLines: ReturnType<typeof parseWhatsAppOrderText> = []
 ): Promise<Order> {
     const orderNumber = await db.orders.generateNextOrderNumber('sale_order');
     const generalNumber = await db.orders.generateNextGeneralNumber();
+    const stockNote = stockShortLines.length
+        ? [
+            '',
+            'Stock issue -- requested quantity exceeds what is currently available (accounting for other open orders):',
+            ...stockShortLines.map(line => `- ${line.item?.name || line.raw}: requested ${line.quantity} ${line.unit}, available ${line.item?.stock ?? 0} ${line.item?.unit || line.unit}`),
+        ].join('\n')
+        : '';
     const order: Order = {
         id: generateUUID(),
         type: 'sale_order',
@@ -257,6 +280,7 @@ async function createReviewOrderForEmailText(
             '',
             'Parsed rows:',
             summarizeParsedWhatsAppLines(parsedLines),
+            stockNote,
         ].filter(Boolean).join('\n'),
         paidAmount: 0,
         paymentStatus: 'unpaid',
