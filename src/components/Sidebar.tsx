@@ -18,6 +18,7 @@ import {
     LogOut,
     Receipt,
     RefreshCw,
+    Route,
     Settings,
     ShoppingCart,
     TrendingUp,
@@ -50,6 +51,7 @@ const sections: NavSection[] = [
         items: [
             { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
             { label: 'Notifications', href: '/notifications', icon: Bell },
+            { label: 'Operations', href: '/operations', icon: Route },
         ],
     },
     {

@@ -2,13 +2,22 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Package, Truck, CheckCircle, Plus, IndianRupee, CreditCard, PenTool } from 'lucide-react';
+import { ArrowLeft, Package, Truck, CheckCircle, Plus, IndianRupee, CreditCard, PenTool, Route, Wrench } from 'lucide-react';
 import { db, designsDb } from '@/lib/storage';
-import { Order, Party, InvoiceItem, OrderDelivery, BankAccount, CustomDesign } from '@/types';
+import { Order, Party, InvoiceItem, OrderDelivery, BankAccount, CustomDesign, Employee } from '@/types';
 import Link from 'next/link';
 import { formatInchesToFraction, roundCurrency } from '@/lib/utils';
 import { getAuthHeaders } from '@/lib/auth';
 import { calculateCost } from '@/lib/designCalculations';
+import {
+    getOrderWorkSummary,
+    getWorkStatusColor,
+    getWorkStatusLabel,
+    getWorkTypeLabel,
+    OrderWorkAssignment,
+    OrderWorkType,
+    setOrderWorkAssignments,
+} from '@/lib/orderWork';
 
 const isCustomDesignOrderItem = (item: InvoiceItem): boolean => {
     return item.sourceType === 'design' || !!item.designId || !!item.designPieceId;
@@ -98,6 +107,7 @@ export default function OrderDetailPage() {
     const [order, setOrder] = useState<Order | null>(null);
     const [linkedOrder, setLinkedOrder] = useState<Order | null>(null);
     const [suppliers, setSuppliers] = useState<Party[]>([]);
+    const [employees, setEmployees] = useState<Employee[]>([]);
     const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
     const [linkedDesigns, setLinkedDesigns] = useState<CustomDesign[]>([]);
     const [orderParty, setOrderParty] = useState<Party | null>(null);
@@ -107,6 +117,7 @@ export default function OrderDetailPage() {
     const [showPOModal, setShowPOModal] = useState(false);
     const [showDeliveryModal, setShowDeliveryModal] = useState(false);
     const [showPaymentModal, setShowPaymentModal] = useState(false);
+    const [showWorkModal, setShowWorkModal] = useState(false);
 
     const [deliveryType, setDeliveryType] = useState<'supplier' | 'customer'>('supplier');
 
@@ -118,11 +129,12 @@ export default function OrderDetailPage() {
 
     const loadOrder = async () => {
         setLoading(true);
-        const [orders, parties, accounts, allDesigns] = await Promise.all([
+        const [orders, parties, accounts, allDesigns, employeesData] = await Promise.all([
             db.orders.getAll(),
             db.parties.getAll(),
             db.bankAccounts.getAll(),
-            designsDb.getAll()
+            designsDb.getAll(),
+            db.employees.getAll()
         ]);
 
         const currentOrder = orders.find(o => o.id === orderId);
@@ -143,6 +155,7 @@ export default function OrderDetailPage() {
         }
 
         setSuppliers(parties.filter(p => p.type === 'supplier'));
+        setEmployees(employeesData.filter(employee => employee.status === 'active'));
         setBankAccounts(accounts);
         setLoading(false);
     };
@@ -392,6 +405,23 @@ export default function OrderDetailPage() {
             console.error('Payment error:', error);
             alert('Failed to record payment');
         }
+    };
+
+    const handleAssignWork = async (assignment: Omit<OrderWorkAssignment, 'id' | 'createdAt' | 'status'>) => {
+        if (!order) return;
+        const assignments = getOrderWorkSummary(order).assignments;
+        const newAssignment: OrderWorkAssignment = {
+            ...assignment,
+            id: crypto.randomUUID(),
+            status: 'pending',
+            createdAt: new Date().toISOString(),
+        };
+        await db.orders.update({
+            ...order,
+            notes: setOrderWorkAssignments(order.notes, [...assignments, newAssignment]),
+        });
+        setShowWorkModal(false);
+        loadOrder();
     };
 
     const isEstimateSent = order?.notes?.includes('[ESTIMATE_SENT:true]') ?? false;
@@ -1127,6 +1157,7 @@ export default function OrderDetailPage() {
         || linkedDesigns.length > 0
         || (order.items || []).some(isCustomDesignOrderItem)
     );
+    const workSummary = getOrderWorkSummary(order);
 
     return (
         <div className="container">
@@ -1260,6 +1291,24 @@ export default function OrderDetailPage() {
                     </button>
                 )}
 
+                {order.type === 'sale_order' && order.status !== 'completed' && order.status !== 'cancelled' && (
+                    <button
+                        onClick={() => setShowWorkModal(true)}
+                        className="btn"
+                        style={{
+                            background: '#0f766e',
+                            color: 'white',
+                            border: 'none',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center'
+                        }}
+                    >
+                        <Route size={16} />
+                        Assign Work
+                    </button>
+                )}
+
                 {/* Delete Order Button */}
                 {order.status !== 'completed' && (
                     <button
@@ -1282,6 +1331,58 @@ export default function OrderDetailPage() {
                     </button>
                 )}
             </div>
+
+            {order.type === 'sale_order' && (
+                <div className="card" style={{ marginBottom: '1.5rem' }}>
+                    <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                        <div>
+                            <h2 style={{ fontSize: '1.1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <Route size={18} />
+                                Transport & Installation
+                            </h2>
+                        </div>
+                        <Link href="/operations" className="btn" style={{ background: 'white', border: '1px solid var(--color-border)' }}>
+                            Open Operations
+                        </Link>
+                    </div>
+                    <div style={{ padding: '1.5rem' }}>
+                        {workSummary.assignments.length === 0 ? (
+                            <div style={{ color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>
+                                No transport or installation work has been assigned.
+                            </div>
+                        ) : (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem' }}>
+                                {workSummary.assignments.map(task => (
+                                    <div key={task.id} style={{ border: '1px solid var(--color-border)', borderRadius: '8px', padding: '1rem', background: 'var(--color-bg)' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem' }}>
+                                            <div>
+                                                <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                                    {task.type === 'transport' ? <Truck size={16} /> : <Wrench size={16} />}
+                                                    {getWorkTypeLabel(task.type)}
+                                                </div>
+                                                <div style={{ color: 'var(--color-text-muted)', fontSize: '0.82rem', marginTop: '0.2rem' }}>
+                                                    {task.assignedToName} • {task.scheduledDate ? new Date(task.scheduledDate).toLocaleDateString() : 'No date'}
+                                                </div>
+                                            </div>
+                                            <span style={{ padding: '0.25rem 0.5rem', borderRadius: '999px', fontSize: '0.7rem', fontWeight: 700, color: getWorkStatusColor(task.status), background: `${getWorkStatusColor(task.status)}18` }}>
+                                                {getWorkStatusLabel(task.status)}
+                                            </span>
+                                        </div>
+                                        {task.notes && (
+                                            <div style={{ marginTop: '0.75rem', color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>{task.notes}</div>
+                                        )}
+                                        {task.completedAt && (
+                                            <div style={{ marginTop: '0.75rem', color: '#047857', fontSize: '0.82rem', fontWeight: 700 }}>
+                                                Completed {new Date(task.completedAt).toLocaleDateString()}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* Linked Order */}
             {linkedOrder && (
@@ -1539,6 +1640,85 @@ export default function OrderDetailPage() {
                     onSubmit={handleRecordPayment}
                 />
             )}
+
+            {showWorkModal && (
+                <AssignWorkModal
+                    employees={employees}
+                    defaultDate={order.deliveryDate || new Date().toISOString().slice(0, 10)}
+                    onClose={() => setShowWorkModal(false)}
+                    onSubmit={handleAssignWork}
+                />
+            )}
+        </div>
+    );
+}
+
+function AssignWorkModal({
+    employees,
+    defaultDate,
+    onClose,
+    onSubmit,
+}: {
+    employees: Employee[];
+    defaultDate: string;
+    onClose: () => void;
+    onSubmit: (assignment: Omit<OrderWorkAssignment, 'id' | 'createdAt' | 'status'>) => void;
+}) {
+    const [type, setType] = useState<OrderWorkType>('transport');
+    const [assignedToId, setAssignedToId] = useState(employees[0]?.id || '');
+    const [scheduledDate, setScheduledDate] = useState(defaultDate);
+    const [notes, setNotes] = useState('');
+
+    const submit = () => {
+        const employee = employees.find(entry => entry.id === assignedToId);
+        if (!employee) {
+            alert('Select an employee for this work.');
+            return;
+        }
+        onSubmit({
+            type,
+            assignedToId: employee.id,
+            assignedToName: employee.name,
+            scheduledDate,
+            notes,
+        });
+    };
+
+    return (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+            <div className="card" style={{ width: '100%', maxWidth: '520px', padding: '1.5rem' }}>
+                <h2 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '1rem' }}>Assign Work</h2>
+                <div style={{ display: 'grid', gap: '1rem' }}>
+                    <div>
+                        <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Work Type</label>
+                        <select className="input" value={type} onChange={event => setType(event.target.value as OrderWorkType)}>
+                            <option value="transport">Transport / Delivery</option>
+                            <option value="installation">Installation</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Assigned To</label>
+                        <select className="input" value={assignedToId} onChange={event => setAssignedToId(event.target.value)}>
+                            <option value="">Select employee</option>
+                            {employees.map(employee => (
+                                <option key={employee.id} value={employee.id}>{employee.name} - {employee.designation}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div>
+                        <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Scheduled Date</label>
+                        <input type="date" className="input" value={scheduledDate} onChange={event => setScheduledDate(event.target.value)} />
+                    </div>
+                    <div>
+                        <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Notes</label>
+                        <textarea className="input" rows={3} value={notes} onChange={event => setNotes(event.target.value)} placeholder="Address, installation remarks, vehicle note, collection instruction" />
+                    </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1.5rem' }}>
+                    <button className="btn" onClick={onClose}>Cancel</button>
+                    <button className="btn btn-primary" onClick={submit}>Assign</button>
+                </div>
+            </div>
         </div>
     );
 }
