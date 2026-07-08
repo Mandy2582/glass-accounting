@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import type React from 'react';
 import Link from 'next/link';
-import { CheckCircle, CreditCard, PackageCheck, RefreshCw, Route, Search } from 'lucide-react';
+import { AlertTriangle, CheckCircle, CreditCard, IndianRupee, PackageCheck, RefreshCw, Route, Search } from 'lucide-react';
 import { db } from '@/lib/storage';
 import { BankAccount, Employee, Order, OrderDelivery } from '@/types';
 import {
@@ -31,6 +32,7 @@ export default function OperationsPage() {
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState<'open' | OrderWorkStatus | 'all'>('open');
+    const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'overdue'>('all');
     const [activeTask, setActiveTask] = useState<OperationTask | null>(null);
     const [assignTarget, setAssignTarget] = useState<{ order: Order; type: OrderWorkType } | null>(null);
 
@@ -51,15 +53,30 @@ export default function OperationsPage() {
         setLoading(false);
     }
 
-    const tasks = useMemo(() => {
+    const allOperationTasks = useMemo(() => {
         return orders
             .filter(order => order.type === 'sale_order' && order.status !== 'cancelled')
             .flatMap(order => getOrderWorkSummary(order).assignments.map(assignment => ({ order, assignment })))
+            .sort((a, b) => {
+                const dateA = new Date(a.assignment.scheduledDate || a.order.deliveryDate || a.order.date).getTime();
+                const dateB = new Date(b.assignment.scheduledDate || b.order.deliveryDate || b.order.date).getTime();
+                return dateA - dateB;
+            });
+    }, [orders]);
+
+    const tasks = useMemo(() => {
+        return allOperationTasks
             .filter(task => {
                 if (statusFilter === 'open') {
                     return task.assignment.status !== 'completed' && task.assignment.status !== 'cancelled';
                 }
                 if (statusFilter !== 'all') return task.assignment.status === statusFilter;
+                return true;
+            })
+            .filter(task => {
+                const todayKey = today();
+                if (dateFilter === 'today') return task.assignment.scheduledDate === todayKey;
+                if (dateFilter === 'overdue') return !!task.assignment.scheduledDate && task.assignment.scheduledDate < todayKey;
                 return true;
             })
             .filter(task => {
@@ -73,12 +90,7 @@ export default function OperationsPage() {
                     task.assignment.type,
                 ].filter(Boolean).some(value => String(value).toLowerCase().includes(needle));
             })
-            .sort((a, b) => {
-                const dateA = new Date(a.assignment.scheduledDate || a.order.deliveryDate || a.order.date).getTime();
-                const dateB = new Date(b.assignment.scheduledDate || b.order.deliveryDate || b.order.date).getTime();
-                return dateA - dateB;
-            });
-    }, [orders, search, statusFilter]);
+    }, [allOperationTasks, dateFilter, search, statusFilter]);
 
     const unassignedOrders = useMemo(() => {
         return orders
@@ -108,6 +120,26 @@ export default function OperationsPage() {
             })
             .sort((a, b) => new Date(a.order.deliveryDate || a.order.date).getTime() - new Date(b.order.deliveryDate || b.order.date).getTime());
     }, [orders, search]);
+
+    const summary = useMemo(() => {
+        const todayKey = today();
+        const openTasks = allOperationTasks.filter(task => task.assignment.status !== 'completed' && task.assignment.status !== 'cancelled');
+        const dueToday = openTasks.filter(task => task.assignment.scheduledDate === todayKey);
+        const overdue = openTasks.filter(task => task.assignment.scheduledDate && task.assignment.scheduledDate < todayKey);
+        const pendingCollection = openTasks.reduce((sum, task) => (
+            sum + Math.max(0, roundCurrency(task.order.total - (task.order.paidAmount || 0)))
+        ), 0);
+        const completedToday = allOperationTasks.filter(task => task.assignment.completedAt === todayKey);
+
+        return {
+            openTasks: openTasks.length,
+            dueToday: dueToday.length,
+            overdue: overdue.length,
+            unassigned: unassignedOrders.length,
+            pendingCollection,
+            completedToday: completedToday.length,
+        };
+    }, [allOperationTasks, unassignedOrders.length]);
 
     async function updateAssignment(order: Order, assignmentId: string, patch: Partial<OrderWorkAssignment>) {
         const assignments = getOrderWorkSummary(order).assignments.map(assignment => (
@@ -217,6 +249,62 @@ export default function OperationsPage() {
                 </button>
             </div>
 
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '0.85rem', marginBottom: '1rem' }}>
+                <OperationMetricCard
+                    icon={<Route size={18} />}
+                    label="Open Work"
+                    value={summary.openTasks}
+                    tone="#2563eb"
+                    onClick={() => {
+                        setStatusFilter('open');
+                        setDateFilter('all');
+                    }}
+                />
+                <OperationMetricCard
+                    icon={<CheckCircle size={18} />}
+                    label="Due Today"
+                    value={summary.dueToday}
+                    tone="#0f766e"
+                    onClick={() => {
+                        setStatusFilter('open');
+                        setDateFilter('today');
+                        setSearch('');
+                    }}
+                />
+                <OperationMetricCard
+                    icon={<AlertTriangle size={18} />}
+                    label="Overdue"
+                    value={summary.overdue}
+                    tone="#dc2626"
+                    onClick={() => {
+                        setStatusFilter('open');
+                        setDateFilter('overdue');
+                    }}
+                />
+                <OperationMetricCard
+                    icon={<PackageCheck size={18} />}
+                    label="Unassigned"
+                    value={summary.unassigned}
+                    tone="#b45309"
+                />
+                <OperationMetricCard
+                    icon={<IndianRupee size={18} />}
+                    label="Pending Collection"
+                    value={formatIndianCurrency(summary.pendingCollection)}
+                    tone="#7c3aed"
+                />
+                <OperationMetricCard
+                    icon={<CheckCircle size={18} />}
+                    label="Completed Today"
+                    value={summary.completedToday}
+                    tone="#047857"
+                    onClick={() => {
+                        setStatusFilter('completed');
+                        setDateFilter('today');
+                    }}
+                />
+            </div>
+
             <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
                 <div style={{ position: 'relative', width: '280px' }}>
                     <Search size={17} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
@@ -229,6 +317,11 @@ export default function OperationsPage() {
                     <option value="in_progress">In progress</option>
                     <option value="completed">Completed</option>
                     <option value="cancelled">Cancelled</option>
+                </select>
+                <select className="input" value={dateFilter} onChange={event => setDateFilter(event.target.value as typeof dateFilter)} style={{ width: '160px' }}>
+                    <option value="all">All dates</option>
+                    <option value="today">Due today</option>
+                    <option value="overdue">Overdue</option>
                 </select>
             </div>
 
@@ -375,6 +468,43 @@ export default function OperationsPage() {
                 </div>
             )}
         </div>
+    );
+}
+
+function OperationMetricCard({
+    icon,
+    label,
+    value,
+    tone,
+    onClick,
+}: {
+    icon: React.ReactNode;
+    label: string;
+    value: string | number;
+    tone: string;
+    onClick?: () => void;
+}) {
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            className="card"
+            style={{
+                border: '1px solid var(--color-border)',
+                textAlign: 'left',
+                cursor: onClick ? 'pointer' : 'default',
+                padding: '1rem',
+                background: 'var(--color-surface)',
+            }}
+        >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
+                <span style={{ color: tone, display: 'inline-flex' }}>{icon}</span>
+                <span style={{ fontSize: '1.15rem', fontWeight: 800, color: tone }}>{value}</span>
+            </div>
+            <div style={{ marginTop: '0.45rem', color: 'var(--color-text-muted)', fontSize: '0.78rem', fontWeight: 700 }}>
+                {label}
+            </div>
+        </button>
     );
 }
 
