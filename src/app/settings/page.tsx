@@ -525,7 +525,10 @@ export default function SettingsPage() {
                                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center' }}>
                                         <div>
                                             <strong>Transportation by delivery place</strong>
-                                            <p style={{ color: 'var(--color-text-muted)', fontSize: '0.8rem', margin: '0.2rem 0 0' }}>These rates are used automatically on the customer checkout page.</p>
+                                            <p style={{ color: 'var(--color-text-muted)', fontSize: '0.8rem', margin: '0.2rem 0 0' }}>
+                                                Zone is auto-detected from the customer&apos;s delivery pincode &mdash; no dropdown shown at checkout.
+                                                Leave &quot;Pincode prefixes&quot; empty on one zone to make it the fallback for anything unmatched.
+                                            </p>
                                         </div>
                                         <button
                                             type="button"
@@ -534,7 +537,7 @@ export default function SettingsPage() {
                                                 ...businessConfig,
                                                 deliveryChargeRules: [
                                                     ...(businessConfig.deliveryChargeRules || []),
-                                                    { id: Date.now().toString(), place: '', charge: 0 }
+                                                    { id: Date.now().toString(), place: '', charge: 0, pincodePrefixes: [] }
                                                 ]
                                             })}
                                         >
@@ -542,7 +545,7 @@ export default function SettingsPage() {
                                         </button>
                                     </div>
                                     {(businessConfig.deliveryChargeRules || []).map((rule, index) => (
-                                        <div key={rule.id || index} style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) minmax(140px, 180px) auto', gap: '0.75rem', alignItems: 'center' }}>
+                                        <div key={rule.id || index} style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 1fr) minmax(160px, 1fr) minmax(120px, 140px) auto', gap: '0.75rem', alignItems: 'center' }}>
                                             <input
                                                 type="text"
                                                 className="input"
@@ -552,6 +555,19 @@ export default function SettingsPage() {
                                                     deliveryChargeRules: (businessConfig.deliveryChargeRules || []).map((item, itemIndex) => itemIndex === index ? { ...item, place: e.target.value } : item)
                                                 })}
                                                 placeholder="Delivery place"
+                                            />
+                                            <input
+                                                type="text"
+                                                className="input"
+                                                value={(rule.pincodePrefixes || []).join(', ')}
+                                                onChange={(e) => setBusinessConfig({
+                                                    ...businessConfig,
+                                                    deliveryChargeRules: (businessConfig.deliveryChargeRules || []).map((item, itemIndex) => itemIndex === index ? {
+                                                        ...item,
+                                                        pincodePrefixes: e.target.value.split(',').map(p => p.trim()).filter(Boolean)
+                                                    } : item)
+                                                })}
+                                                placeholder="Pincode prefixes, e.g. 180010, 180"
                                             />
                                             <input
                                                 type="number"

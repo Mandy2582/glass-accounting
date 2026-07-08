@@ -382,6 +382,10 @@ export interface DeliveryChargeRule {
     id: string;
     place: string;
     charge: number;
+    // Pincode prefixes this zone auto-matches against (e.g. "180010" for an
+    // exact match, "180" for anything starting with 180). A rule with no
+    // prefixes configured acts as the fallback/default zone.
+    pincodePrefixes?: string[];
 }
 
 export interface AppNotification {

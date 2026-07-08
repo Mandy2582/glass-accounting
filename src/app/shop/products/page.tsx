@@ -28,16 +28,14 @@ type CustomerForm = {
     phone: string;
     email: string;
     address: string;
+    pincode: string;
     notes: string;
     deliveryPreference: string;
+    wantsInstallation: boolean;
     preferredDate: string;
     deliverySlot: string;
     paymentPreference: string;
     paymentMode: string;
-};
-
-type ExtraCharges = {
-    deliveryPlace: string;
 };
 
 type CheckoutChargeConfig = {
@@ -45,7 +43,7 @@ type CheckoutChargeConfig = {
     installationChargePerSqft: number;
 };
 
-type CustomerAccount = Pick<CustomerForm, 'name' | 'phone' | 'email' | 'address' | 'deliveryPreference' | 'preferredDate' | 'deliverySlot' | 'paymentPreference' | 'paymentMode'>;
+type CustomerAccount = Pick<CustomerForm, 'name' | 'phone' | 'email' | 'address' | 'pincode' | 'deliveryPreference' | 'wantsInstallation' | 'preferredDate' | 'deliverySlot' | 'paymentPreference' | 'paymentMode'>;
 
 type CustomerCredentialAccount = CustomerAccount & {
     id: string;
@@ -446,6 +444,26 @@ const getEffectiveRate = (item: GlassItem, unit: Unit) => convertRateForItemUnit
     conversionFactor: item.conversionFactor,
 });
 
+const detectDeliveryRule = (pincode: string, rules: NonNullable<BusinessConfig['deliveryChargeRules']>) => {
+    const digits = pincode.replace(/\D/g, '');
+    if (!digits) return undefined;
+
+    const matches = rules.filter(rule => (rule.pincodePrefixes || []).some(prefix => prefix && digits.startsWith(prefix)));
+    if (matches.length > 0) {
+        // Prefer the most specific (longest) matching prefix, e.g. an exact
+        // 6-digit match beats a 3-digit city-wide prefix.
+        return matches.reduce((best, rule) => {
+            const bestLen = Math.max(0, ...(best.pincodePrefixes || []).map(p => p.length));
+            const ruleLen = Math.max(0, ...(rule.pincodePrefixes || []).map(p => p.length));
+            return ruleLen > bestLen ? rule : best;
+        });
+    }
+
+    // No configured prefix matched: fall back to the zone with no prefixes
+    // configured (the catch-all "everywhere else" tier), if any.
+    return rules.find(rule => !rule.pincodePrefixes || rule.pincodePrefixes.length === 0);
+};
+
 const getLineAmounts = (item: GlassItem, quantity: number, unit: Unit) => calculateLineAmounts({
     width: item.width || 0,
     height: item.height || 0,
@@ -655,8 +673,10 @@ export default function ShopPage() {
         phone: '',
         email: '',
         address: '',
+        pincode: '',
         notes: '',
         deliveryPreference: 'Delivery required',
+        wantsInstallation: false,
         preferredDate: '',
         deliverySlot: 'Any time',
         paymentPreference: 'Pay with selected method',
@@ -664,9 +684,6 @@ export default function ShopPage() {
     });
     const [checkoutCharges, setCheckoutCharges] = useState<CheckoutChargeConfig>(DEFAULT_CHECKOUT_CHARGES);
     const [paymentSettings, setPaymentSettings] = useState(DEFAULT_PAYMENT_SETTINGS);
-    const [extraCharges, setExtraCharges] = useState<ExtraCharges>({
-        deliveryPlace: '',
-    });
 
     const refreshShopProducts = async () => {
         setLoading(true);
@@ -702,9 +719,6 @@ export default function ShopPage() {
                     upiId: businessConfig.upiId || '',
                     paymentInstructions: businessConfig.paymentInstructions || DEFAULT_PAYMENT_SETTINGS.paymentInstructions,
                 });
-                setExtraCharges(prev => ({
-                    deliveryPlace: prev.deliveryPlace || configuredCharges.deliveryChargeRules[0]?.id || configuredCharges.deliveryChargeRules[0]?.place || '',
-                }));
             } catch (error) {
                 console.error('Could not load checkout charge settings:', error);
                 setCheckoutCharges(DEFAULT_CHECKOUT_CHARGES);
@@ -1065,11 +1079,11 @@ export default function ShopPage() {
 
         const productSubtotal = roundCurrency(lines.reduce((sum, line) => sum + line.calculated.amount, 0));
         const areaSqft = roundCurrency(lines.reduce((sum, line) => sum + (line.calculated.sqft || 0), 0));
-        const selectedDeliveryRule = checkoutCharges.deliveryChargeRules.find(rule => (rule.id || rule.place) === extraCharges.deliveryPlace);
+        const selectedDeliveryRule = detectDeliveryRule(customer.pincode, checkoutCharges.deliveryChargeRules);
         const transportCharge = customer.deliveryPreference === 'Pickup from store'
             ? 0
             : roundCurrency(Math.max(0, Number(selectedDeliveryRule?.charge) || 0));
-        const installationCharge = customer.deliveryPreference === 'Need installation support'
+        const installationCharge = customer.wantsInstallation
             ? roundCurrency(areaSqft * Math.max(0, Number(checkoutCharges.installationChargePerSqft) || 0))
             : 0;
         const additionalCharges = roundCurrency(transportCharge + installationCharge);
@@ -1083,7 +1097,7 @@ export default function ShopPage() {
         }, 0));
 
         return { lines, productSubtotal, areaSqft, selectedDeliveryRule, transportCharge, installationCharge, additionalCharges, subtotal, taxAmount, total, itemCount: pieceCount, rowCount, pieceCount };
-    }, [cart, checkoutCharges.deliveryChargeRules, checkoutCharges.installationChargePerSqft, customer.deliveryPreference, extraCharges.deliveryPlace, itemById]);
+    }, [cart, checkoutCharges.deliveryChargeRules, checkoutCharges.installationChargePerSqft, customer.deliveryPreference, customer.pincode, customer.wantsInstallation, itemById]);
 
     const cartAvailability = useMemo(() => {
         const warnings: string[] = [];
@@ -1141,15 +1155,13 @@ export default function ShopPage() {
         const hasCart = cartDetails.lines.length > 0;
         const hasLogin = !!customerAccount;
         const hasValidPhone = phoneDigits(customer.phone).length >= 6;
-        const hasDelivery = !!customer.name.trim() && hasValidPhone && !!customer.address.trim();
+        const hasPincode = customer.deliveryPreference === 'Pickup from store' || customer.pincode.replace(/\D/g, '').length >= 6;
+        const hasDelivery = !!customer.name.trim() && hasValidPhone && !!customer.address.trim() && hasPincode;
         const hasPayment = !!customer.paymentMode.trim();
-        const needsDeliveryPlace = customer.deliveryPreference !== 'Pickup from store' && checkoutCharges.deliveryChargeRules.length > 0;
-        const hasDeliveryPlace = !needsDeliveryPlace || !!extraCharges.deliveryPlace;
         const issues = [
             !hasCart ? 'Add at least one product' : '',
             !hasLogin ? 'Login or register' : '',
-            !hasDelivery ? 'Complete name, valid phone and address' : '',
-            !hasDeliveryPlace ? 'Choose delivery place' : '',
+            !hasDelivery ? 'Complete name, valid phone, address and 6-digit pincode' : '',
             !hasPayment ? 'Choose payment mode' : '',
             cartAvailability.hasBlockingWarnings ? 'Remove out-of-stock items' : '',
         ].filter(Boolean);
@@ -1165,7 +1177,7 @@ export default function ShopPage() {
                 { label: 'Review', done: issues.length === 0 },
             ],
         };
-    }, [cartAvailability.hasBlockingWarnings, cartDetails.lines.length, checkoutCharges.deliveryChargeRules.length, customer.name, customer.phone, customer.address, customer.deliveryPreference, customer.paymentMode, customerAccount, extraCharges.deliveryPlace]);
+    }, [cartAvailability.hasBlockingWarnings, cartDetails.lines.length, customer.name, customer.phone, customer.address, customer.pincode, customer.deliveryPreference, customer.paymentMode, customerAccount]);
 
     const customQuotePreview = useMemo(() => {
         const width = Number(customQuote.width) || 0;
@@ -1417,7 +1429,9 @@ export default function ShopPage() {
             phone: customer.phone.trim(),
             email: customer.email.trim(),
             address: customer.address.trim(),
+            pincode: customer.pincode.trim(),
             deliveryPreference: customer.deliveryPreference,
+            wantsInstallation: customer.wantsInstallation,
             preferredDate: customer.preferredDate,
             deliverySlot: customer.deliverySlot,
             paymentPreference: customer.paymentPreference,
@@ -1454,7 +1468,9 @@ export default function ShopPage() {
                 phone: customer.phone.trim(),
                 email: customer.email.trim(),
                 address: customer.address.trim(),
+                pincode: customer.pincode.trim(),
                 deliveryPreference: customer.deliveryPreference,
+                wantsInstallation: customer.wantsInstallation,
                 preferredDate: customer.preferredDate,
                 deliverySlot: customer.deliverySlot,
                 paymentPreference: customer.paymentPreference,
@@ -1506,7 +1522,9 @@ export default function ShopPage() {
                 phone: customer.phone.trim(),
                 email: customer.email.trim(),
                 address: customer.address.trim(),
+                pincode: customer.pincode.trim(),
                 deliveryPreference: customer.deliveryPreference,
+                wantsInstallation: customer.wantsInstallation,
                 preferredDate: customer.preferredDate,
                 deliverySlot: customer.deliverySlot,
                 paymentPreference: customer.paymentPreference,
@@ -1582,7 +1600,9 @@ export default function ShopPage() {
             phone: matchedAccount.phone,
             email: matchedAccount.email,
             address: matchedAccount.address,
+            pincode: matchedAccount.pincode || '',
             deliveryPreference: matchedAccount.deliveryPreference,
+            wantsInstallation: matchedAccount.wantsInstallation || false,
             preferredDate: matchedAccount.preferredDate,
             deliverySlot: matchedAccount.deliverySlot,
             paymentPreference: matchedAccount.paymentPreference,
@@ -2129,7 +2149,9 @@ export default function ShopPage() {
                     'Order type: Customer checkout',
                     customer.email ? `Email: ${customer.email.trim()}` : '',
                     `Delivery preference: ${customer.deliveryPreference}`,
-                    cartDetails.selectedDeliveryRule?.place ? `Delivery place: ${cartDetails.selectedDeliveryRule.place}` : '',
+                    customer.pincode.trim() ? `Delivery pincode: ${customer.pincode.trim()}` : '',
+                    cartDetails.selectedDeliveryRule?.place ? `Delivery place (auto-detected): ${cartDetails.selectedDeliveryRule.place}` : '',
+                    customer.wantsInstallation ? 'Installation support requested' : '',
                     customer.preferredDate ? `Preferred date: ${customer.preferredDate}` : '',
                     `Preferred time slot: ${customer.deliverySlot}`,
                     `Payment preference: ${customer.paymentPreference}`,
@@ -2962,20 +2984,31 @@ export default function ShopPage() {
                             <select className={styles.checkoutInput} value={customer.deliveryPreference} onChange={event => setCustomer(prev => ({ ...prev, deliveryPreference: event.target.value }))}>
                                 <option>Delivery required</option>
                                 <option>Pickup from store</option>
-                                <option>Need installation support</option>
                             </select>
-                            {customer.deliveryPreference !== 'Pickup from store' && checkoutCharges.deliveryChargeRules.length > 0 && (
-                                <select
-                                    className={styles.checkoutInput}
-                                    value={extraCharges.deliveryPlace}
-                                    onChange={event => setExtraCharges(prev => ({ ...prev, deliveryPlace: event.target.value }))}
-                                >
-                                    {checkoutCharges.deliveryChargeRules.map(rule => (
-                                        <option key={rule.id || rule.place} value={rule.id || rule.place}>
-                                            {rule.place} - {formatIndianCurrency(Number(rule.charge) || 0)}
-                                        </option>
-                                    ))}
-                                </select>
+                            {customer.deliveryPreference !== 'Pickup from store' && (
+                                <>
+                                    <input
+                                        className={styles.checkoutInput}
+                                        value={customer.pincode}
+                                        onChange={event => setCustomer(prev => ({ ...prev, pincode: event.target.value }))}
+                                        placeholder="Delivery pincode *"
+                                        inputMode="numeric"
+                                        maxLength={6}
+                                    />
+                                    {cartDetails.selectedDeliveryRule && (
+                                        <p className={styles.paymentNote}>
+                                            Delivery zone: <strong>{cartDetails.selectedDeliveryRule.place}</strong> — {formatIndianCurrency(cartDetails.transportCharge)} transportation, detected automatically from your pincode.
+                                        </p>
+                                    )}
+                                    <label className={styles.installationToggle}>
+                                        <input
+                                            type="checkbox"
+                                            checked={customer.wantsInstallation}
+                                            onChange={event => setCustomer(prev => ({ ...prev, wantsInstallation: event.target.checked }))}
+                                        />
+                                        Add installation support ({formatIndianCurrency(checkoutCharges.installationChargePerSqft)}/sq.ft)
+                                    </label>
+                                </>
                             )}
                             <input
                                 className={styles.checkoutInput}
@@ -3004,7 +3037,7 @@ export default function ShopPage() {
                                     <div className={styles.chargeSummaryCard}>
                                         <span>Installation</span>
                                         <strong>{formatIndianCurrency(cartDetails.installationCharge)}</strong>
-                                        <small>{customer.deliveryPreference === 'Need installation support' ? `${cartDetails.areaSqft} sq.ft × ${formatIndianCurrency(checkoutCharges.installationChargePerSqft)}` : 'Select installation support to apply'}</small>
+                                        <small>{customer.wantsInstallation ? `${cartDetails.areaSqft} sq.ft × ${formatIndianCurrency(checkoutCharges.installationChargePerSqft)}` : 'Check "Add installation support" above to apply'}</small>
                                     </div>
                                 </div>
                             </section>
