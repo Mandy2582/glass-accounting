@@ -12,6 +12,7 @@ import {
     getWorkTypeLabel,
     OrderWorkAssignment,
     OrderWorkStatus,
+    OrderWorkType,
     setOrderWorkAssignments,
 } from '@/lib/orderWork';
 import { formatIndianCurrency, roundCurrency } from '@/lib/utils';
@@ -31,6 +32,7 @@ export default function OperationsPage() {
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState<'open' | OrderWorkStatus | 'all'>('open');
     const [activeTask, setActiveTask] = useState<OperationTask | null>(null);
+    const [assignTarget, setAssignTarget] = useState<{ order: Order; type: OrderWorkType } | null>(null);
 
     useEffect(() => {
         void loadData();
@@ -78,6 +80,35 @@ export default function OperationsPage() {
             });
     }, [orders, search, statusFilter]);
 
+    const unassignedOrders = useMemo(() => {
+        return orders
+            .filter(order => (
+                order.type === 'sale_order'
+                && !['completed', 'cancelled'].includes(order.status)
+                && (order.items || []).length > 0
+            ))
+            .map(order => {
+                const summary = getOrderWorkSummary(order);
+                return {
+                    order,
+                    needsTransport: !summary.hasOpenTransport && !summary.completed.some(task => task.type === 'transport'),
+                    needsInstallation: !summary.hasOpenInstallation && shouldSuggestInstallation(order),
+                };
+            })
+            .filter(entry => entry.needsTransport || entry.needsInstallation)
+            .filter(entry => {
+                const needle = search.trim().toLowerCase();
+                if (!needle) return true;
+                return [
+                    entry.order.number,
+                    entry.order.generalNumber,
+                    entry.order.partyName,
+                    entry.order.status,
+                ].filter(Boolean).some(value => String(value).toLowerCase().includes(needle));
+            })
+            .sort((a, b) => new Date(a.order.deliveryDate || a.order.date).getTime() - new Date(b.order.deliveryDate || b.order.date).getTime());
+    }, [orders, search]);
+
     async function updateAssignment(order: Order, assignmentId: string, patch: Partial<OrderWorkAssignment>) {
         const assignments = getOrderWorkSummary(order).assignments.map(assignment => (
             assignment.id === assignmentId ? { ...assignment, ...patch } : assignment
@@ -87,6 +118,39 @@ export default function OperationsPage() {
             notes: setOrderWorkAssignments(order.notes, assignments),
         };
         await db.orders.update(updatedOrder);
+        await loadData();
+    }
+
+    async function assignWork(input: {
+        order: Order;
+        type: OrderWorkType;
+        employeeId: string;
+        scheduledDate: string;
+        notes: string;
+    }) {
+        const employee = employees.find(entry => entry.id === input.employeeId);
+        if (!employee) {
+            alert('Select an active employee.');
+            return;
+        }
+
+        const assignments = getOrderWorkSummary(input.order).assignments;
+        const assignment: OrderWorkAssignment = {
+            id: crypto.randomUUID(),
+            type: input.type,
+            assignedToId: employee.id,
+            assignedToName: employee.name,
+            scheduledDate: input.scheduledDate,
+            status: 'pending',
+            notes: input.notes,
+            createdAt: new Date().toISOString(),
+        };
+
+        await db.orders.update({
+            ...input.order,
+            notes: setOrderWorkAssignments(input.order.notes, [...assignments, assignment]),
+        });
+        setAssignTarget(null);
         await loadData();
     }
 
@@ -168,6 +232,65 @@ export default function OperationsPage() {
                 </select>
             </div>
 
+            <div className="card" style={{ overflow: 'hidden', marginBottom: '1.5rem' }}>
+                <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                    <div>
+                        <h2 style={{ fontSize: '1rem', fontWeight: 700 }}>Unassigned Orders</h2>
+                    </div>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>{unassignedOrders.length} waiting</span>
+                </div>
+                {loading ? (
+                    <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>Loading dispatch queue...</div>
+                ) : unassignedOrders.length === 0 ? (
+                    <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>No unassigned order work found.</div>
+                ) : (
+                    <table className="table">
+                        <thead>
+                            <tr>
+                                <th>Order</th>
+                                <th>Customer</th>
+                                <th>Expected</th>
+                                <th>Status</th>
+                                <th>Needed</th>
+                                <th>Assign</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {unassignedOrders.map(({ order, needsTransport, needsInstallation }) => (
+                                <tr key={order.id}>
+                                    <td>
+                                        <Link href={`/orders/${order.id}`} style={{ color: 'var(--color-primary)', fontWeight: 700 }}>
+                                            {order.generalNumber || order.number}
+                                        </Link>
+                                    </td>
+                                    <td>{order.partyName}</td>
+                                    <td>{order.deliveryDate ? new Date(order.deliveryDate).toLocaleDateString() : '-'}</td>
+                                    <td>{order.status.replace(/_/g, ' ')}</td>
+                                    <td>
+                                        <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                                            {needsTransport && <WorkNeedLabel label="Transport" />}
+                                            {needsInstallation && <WorkNeedLabel label="Installation" />}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        {needsTransport && (
+                                            <button className="btn" onClick={() => setAssignTarget({ order, type: 'transport' })} style={{ padding: '0.35rem 0.65rem', fontSize: '0.78rem', marginRight: '0.35rem' }}>
+                                                Assign Transport
+                                            </button>
+                                        )}
+                                        {needsInstallation && (
+                                            <button className="btn btn-primary" onClick={() => setAssignTarget({ order, type: 'installation' })} style={{ padding: '0.35rem 0.65rem', fontSize: '0.78rem' }}>
+                                                Assign Installation
+                                            </button>
+                                        )}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                )}
+            </div>
+
             <div className="card" style={{ overflow: 'hidden' }}>
                 {loading ? (
                     <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>Loading operations...</div>
@@ -236,11 +359,103 @@ export default function OperationsPage() {
                 />
             )}
 
+            {assignTarget && (
+                <AssignOperationModal
+                    order={assignTarget.order}
+                    type={assignTarget.type}
+                    employees={employees}
+                    onClose={() => setAssignTarget(null)}
+                    onSubmit={assignWork}
+                />
+            )}
+
             {employees.length === 0 && !loading && (
                 <div style={{ marginTop: '1rem', color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>
                     Add active employees before assigning installation or transport work from an order.
                 </div>
             )}
+        </div>
+    );
+}
+
+function shouldSuggestInstallation(order: Order): boolean {
+    const notes = (order.notes || '').toLowerCase();
+    if (notes.includes('installation: yes') || notes.includes('wants installation: yes')) return true;
+    if (notes.includes('installation required') || notes.includes('requires installation')) return true;
+
+    return (order.items || []).some(item => {
+        const text = `${item.itemName || ''} ${item.description || ''} ${item.type || ''}`.toLowerCase();
+        return ['shower', 'door', 'partition', 'railing', 'canopy', 'hardware', 'fitting'].some(term => text.includes(term));
+    });
+}
+
+function WorkNeedLabel({ label }: { label: string }) {
+    return (
+        <span style={{ padding: '0.2rem 0.5rem', borderRadius: '999px', background: 'rgba(15,118,110,0.1)', color: '#0f766e', fontSize: '0.72rem', fontWeight: 700 }}>
+            {label}
+        </span>
+    );
+}
+
+function AssignOperationModal({
+    order,
+    type,
+    employees,
+    onClose,
+    onSubmit,
+}: {
+    order: Order;
+    type: OrderWorkType;
+    employees: Employee[];
+    onClose: () => void;
+    onSubmit: (input: { order: Order; type: OrderWorkType; employeeId: string; scheduledDate: string; notes: string }) => void;
+}) {
+    const [employeeId, setEmployeeId] = useState(employees[0]?.id || '');
+    const [scheduledDate, setScheduledDate] = useState(order.deliveryDate || today());
+    const [notes, setNotes] = useState('');
+
+    const submit = () => {
+        if (!employeeId) {
+            alert('Select an active employee.');
+            return;
+        }
+        onSubmit({ order, type, employeeId, scheduledDate, notes });
+    };
+
+    return (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+            <div className="card" style={{ width: '100%', maxWidth: '520px', padding: '1.5rem' }}>
+                <h2 style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: '1rem' }}>
+                    Assign {getWorkTypeLabel(type)}
+                </h2>
+                <div style={{ padding: '0.85rem', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: '8px', marginBottom: '1rem' }}>
+                    <div style={{ fontWeight: 700 }}>{order.partyName}</div>
+                    <div style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>Order {order.generalNumber || order.number}</div>
+                </div>
+                <div style={{ display: 'grid', gap: '1rem' }}>
+                    <div>
+                        <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Assigned To</label>
+                        <select className="input" value={employeeId} onChange={event => setEmployeeId(event.target.value)}>
+                            <option value="">Select employee</option>
+                            {employees.map(employee => (
+                                <option key={employee.id} value={employee.id}>{employee.name} - {employee.designation}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div>
+                        <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Scheduled Date</label>
+                        <input className="input" type="date" value={scheduledDate} onChange={event => setScheduledDate(event.target.value)} />
+                    </div>
+                    <div>
+                        <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Notes</label>
+                        <textarea className="input" rows={3} value={notes} onChange={event => setNotes(event.target.value)} placeholder="Address, timing, material, collection or site instruction" />
+                    </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1.5rem' }}>
+                    <button className="btn" onClick={onClose}>Cancel</button>
+                    <button className="btn btn-primary" onClick={submit}>Assign</button>
+                </div>
+            </div>
         </div>
     );
 }
