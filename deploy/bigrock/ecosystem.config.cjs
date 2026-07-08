@@ -15,6 +15,16 @@ module.exports = {
       time: true,
       autorestart: true,
     },
+    {
+      name: 'arjun-email-intake',
+      script: 'scripts/email-intake-daemon.mjs',
+      cwd: '/var/www/arjun_glass_house',
+      instances: 1,
+      exec_mode: 'fork',
+      max_memory_restart: '250M',
+      time: true,
+      autorestart: true,
+    },
   ],
 };
 
