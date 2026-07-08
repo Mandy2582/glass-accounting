@@ -36,7 +36,6 @@ type WhatsAppContact = {
 type WhatsAppMessageEvent = {
     message: WhatsAppMessage;
     contact?: WhatsAppContact;
-    phoneNumberId?: string;
 };
 
 export async function GET(request: NextRequest) {
@@ -120,14 +119,13 @@ function extractMessageEvents(payload: any): WhatsAppMessageEvent[] {
         for (const change of entry?.changes || []) {
             const value = change?.value;
             const contacts: WhatsAppContact[] = value?.contacts || [];
-            const phoneNumberId = value?.metadata?.phone_number_id;
 
             for (const message of value?.messages || []) {
                 if (message?.type === 'text' && !message?.text?.body) continue;
                 if (message?.type === 'image' && !message?.image?.id) continue;
                 if (!['text', 'image'].includes(message?.type)) continue;
                 const contact = contacts.find(candidate => candidate.wa_id === message.from);
-                events.push({ message, contact, phoneNumberId });
+                events.push({ message, contact });
             }
         }
     }
@@ -161,10 +159,6 @@ async function createOrderFromWhatsAppEvent(event: WhatsAppMessageEvent) {
     const matchedLines = parsedLines.filter(line => line.item);
 
     if (!matchedLines.length) {
-        await sendWhatsAppReply(
-            event,
-            'We received your message, but could not match any catalogue item automatically. Arjun Glass House will review it manually.'
-        );
         return {
             messageId,
             status: 'needs_review',
@@ -183,11 +177,6 @@ async function createOrderFromWhatsAppEvent(event: WhatsAppMessageEvent) {
         matchedLines,
         source: 'WhatsApp Business webhook',
     });
-
-    await sendWhatsAppReply(
-        event,
-        `Thank you. Your order has been received by Arjun Glass House.\nOrder No: ${order.number}\nEstimated total: ₹${order.total.toFixed(2)}`
-    );
 
     return {
         messageId,
@@ -232,11 +221,6 @@ async function createDraftFromWhatsAppImage(event: WhatsAppMessageEvent, custome
                 source: 'WhatsApp image order',
             });
 
-            await sendWhatsAppReply(
-                event,
-                `We read your image order and created draft order ${order.number}. Please wait for confirmation from Arjun Glass House.`
-            );
-
             return {
                 messageId: event.message.id,
                 status: 'image_order_created',
@@ -252,11 +236,6 @@ async function createDraftFromWhatsAppImage(event: WhatsAppMessageEvent, custome
 
     const order = await createReviewOrderForImage(event, customer, analysis, caption);
     const design = await createDesignDraftForImage(order, customer, analysis, event.message.id, caption);
-
-    await sendWhatsAppReply(
-        event,
-        `We received your drawing/image. A review draft has been created: ${order.number}. Our team will verify dimensions, holes, cuts and hardware before final estimate.`
-    );
 
     return {
         messageId: event.message.id,
@@ -458,33 +437,6 @@ async function downloadWhatsAppMedia(mediaId: string): Promise<{ base64: string;
         base64: Buffer.from(arrayBuffer).toString('base64'),
         mimeType: metadata.mime_type || mediaResponse.headers.get('content-type') || 'image/jpeg',
     };
-}
-
-async function sendWhatsAppReply(event: WhatsAppMessageEvent, text: string) {
-    const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
-    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || event.phoneNumberId;
-    const apiVersion = process.env.WHATSAPP_GRAPH_API_VERSION || 'v23.0';
-
-    if (!accessToken || !phoneNumberId) return;
-
-    const response = await fetch(`https://graph.facebook.com/${apiVersion}/${phoneNumberId}/messages`, {
-        method: 'POST',
-        headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            to: event.message.from,
-            type: 'text',
-            text: { body: text },
-        }),
-    });
-
-    if (!response.ok) {
-        const errorText = await response.text();
-        console.error('WhatsApp auto-reply failed:', errorText);
-    }
 }
 
 function imageFallbackAnalysis(caption: string): WhatsAppImageAnalysis {
