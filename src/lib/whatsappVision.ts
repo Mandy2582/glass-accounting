@@ -5,30 +5,36 @@ import type { DesignData, DesignItem } from '@/types';
 export type WhatsAppImageAnalysis = {
     classification: 'text_order' | 'drawing' | 'mixed' | 'unknown';
     extractedText: string;
-    customerName?: string;
+    customerName?: string | null;
     confidence: number;
     orderLines: Array<{
         description: string;
-        quantity?: number;
-        unit?: string;
+        quantity?: number | null;
+        unit?: string | null;
     }>;
     drawing: {
         notes: string;
         pieces: Array<{
             name: string;
             type: string;
-            width?: number;
-            height?: number;
-            thickness?: number;
-            quantity?: number;
-            holes?: number;
-            cuts?: number;
-            hardwareNotes?: string;
+            width?: number | null;
+            height?: number | null;
+            thickness?: number | null;
+            quantity?: number | null;
+            holes?: number | null;
+            cuts?: number | null;
+            hardwareNotes?: string | null;
         }>;
     };
+    // True only when the vision call itself errored/couldn't be parsed --
+    // as opposed to a successful call that genuinely classified the image as
+    // 'unknown'. Callers should fail open (keep for review) on a real
+    // failure instead of treating it the same as "vision looked and this
+    // isn't an order".
+    analysisFailed?: boolean;
 };
 
-const emptyAnalysis = (classification: WhatsAppImageAnalysis['classification'], extractedText = ''): WhatsAppImageAnalysis => ({
+const emptyAnalysis = (classification: WhatsAppImageAnalysis['classification'], extractedText = '', analysisFailed = false): WhatsAppImageAnalysis => ({
     classification,
     extractedText,
     confidence: 0,
@@ -37,6 +43,7 @@ const emptyAnalysis = (classification: WhatsAppImageAnalysis['classification'], 
         notes: '',
         pieces: [],
     },
+    analysisFailed,
 });
 
 export async function analyzeWhatsAppImage(input: {
@@ -85,25 +92,33 @@ export async function analyzeWhatsAppImage(input: {
                 format: {
                     type: 'json_schema',
                     name: 'whatsapp_order_image_analysis',
+                    // OpenAI's strict structured-output mode requires every key
+                    // in `properties` to also appear in `required` -- optional
+                    // fields must instead be modeled as nullable types (the
+                    // model returns null, rather than omitting the key). This
+                    // schema previously left several fields out of `required`
+                    // while still declaring them optional in the type above,
+                    // which OpenAI rejects outright (every image analysis call
+                    // was failing silently as a result).
                     schema: {
                         type: 'object',
                         additionalProperties: false,
-                        required: ['classification', 'extractedText', 'confidence', 'orderLines', 'drawing'],
+                        required: ['classification', 'extractedText', 'customerName', 'confidence', 'orderLines', 'drawing'],
                         properties: {
                             classification: { type: 'string', enum: ['text_order', 'drawing', 'mixed', 'unknown'] },
                             extractedText: { type: 'string' },
-                            customerName: { type: 'string' },
+                            customerName: { type: ['string', 'null'] },
                             confidence: { type: 'number' },
                             orderLines: {
                                 type: 'array',
                                 items: {
                                     type: 'object',
                                     additionalProperties: false,
-                                    required: ['description'],
+                                    required: ['description', 'quantity', 'unit'],
                                     properties: {
                                         description: { type: 'string' },
-                                        quantity: { type: 'number' },
-                                        unit: { type: 'string' },
+                                        quantity: { type: ['number', 'null'] },
+                                        unit: { type: ['string', 'null'] },
                                     },
                                 },
                             },
@@ -118,17 +133,17 @@ export async function analyzeWhatsAppImage(input: {
                                         items: {
                                             type: 'object',
                                             additionalProperties: false,
-                                            required: ['name', 'type'],
+                                            required: ['name', 'type', 'width', 'height', 'thickness', 'quantity', 'holes', 'cuts', 'hardwareNotes'],
                                             properties: {
                                                 name: { type: 'string' },
                                                 type: { type: 'string' },
-                                                width: { type: 'number' },
-                                                height: { type: 'number' },
-                                                thickness: { type: 'number' },
-                                                quantity: { type: 'number' },
-                                                holes: { type: 'number' },
-                                                cuts: { type: 'number' },
-                                                hardwareNotes: { type: 'string' },
+                                                width: { type: ['number', 'null'] },
+                                                height: { type: ['number', 'null'] },
+                                                thickness: { type: ['number', 'null'] },
+                                                quantity: { type: ['number', 'null'] },
+                                                holes: { type: ['number', 'null'] },
+                                                cuts: { type: ['number', 'null'] },
+                                                hardwareNotes: { type: ['string', 'null'] },
                                             },
                                         },
                                     },
@@ -145,20 +160,20 @@ export async function analyzeWhatsAppImage(input: {
     if (!response.ok) {
         const detail = await response.text();
         console.error('OpenAI image analysis failed:', detail);
-        return emptyAnalysis('unknown', input.caption || '');
+        return emptyAnalysis('unknown', input.caption || '', true);
     }
 
     const data = await response.json();
     const outputText = data.output_text || data.output?.flatMap((item: any) => item.content || [])
         .find((content: any) => content.type === 'output_text')?.text;
 
-    if (!outputText) return emptyAnalysis('unknown', input.caption || '');
+    if (!outputText) return emptyAnalysis('unknown', input.caption || '', true);
 
     try {
         return JSON.parse(outputText) as WhatsAppImageAnalysis;
     } catch (error) {
         console.error('Failed to parse image analysis JSON:', error);
-        return emptyAnalysis('unknown', input.caption || '');
+        return emptyAnalysis('unknown', input.caption || '', true);
     }
 }
 
@@ -187,7 +202,7 @@ type GeneratedShape = {
 // instead of an empty canvas -- or worse, silently rendering as a circle
 // (see below). Returns [] when there's no width/height to draw from, in
 // which case the piece falls back to today's blank-canvas behavior.
-function buildPieceShapes(piece: { width?: number; height?: number; holes?: number; cuts?: number }): GeneratedShape[] {
+function buildPieceShapes(piece: { width?: number | null; height?: number | null; holes?: number | null; cuts?: number | null }): GeneratedShape[] {
     const widthIn = Number(piece.width) || 0;
     const heightIn = Number(piece.height) || 0;
     if (widthIn <= 0 || heightIn <= 0) return [];

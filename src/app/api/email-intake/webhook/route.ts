@@ -199,6 +199,7 @@ async function createDraftFromEmailImage(
         confidence: analysis.confidence,
         caption,
         extractedText: analysis.extractedText,
+        analysisFailed: analysis.analysisFailed,
     });
 
     if (!intent.isOrderRelated) {

@@ -274,6 +274,7 @@ async function createDraftFromWhatsAppImage(event: WhatsAppMessageEvent, caption
         confidence: analysis.confidence,
         caption,
         extractedText: analysis.extractedText,
+        analysisFailed: analysis.analysisFailed,
     });
 
     if (!intent.isOrderRelated) {

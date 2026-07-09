@@ -153,7 +153,16 @@ export function resolveImageOrderIntent(input: {
     confidence: number;
     caption?: string;
     extractedText?: string;
+    analysisFailed?: boolean;
 }): OrderIntentResult {
+    // The vision call itself errored/couldn't be parsed -- this is NOT the
+    // same as "vision looked at the image and decided it's not an order".
+    // We genuinely don't know, so fail open rather than silently drop what
+    // could be a real customer photo.
+    if (input.analysisFailed) {
+        return { isOrderRelated: true, reason: 'Image analysis failed; defaulting to review for safety.' };
+    }
+
     if (input.classification === 'drawing' || input.classification === 'mixed' || input.classification === 'text_order') {
         return { isOrderRelated: true, reason: `Vision model classified image as ${input.classification}.` };
     }
