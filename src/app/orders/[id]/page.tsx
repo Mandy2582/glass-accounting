@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Package, Truck, CheckCircle, Plus, IndianRupee, CreditCard, PenTool, Route, Wrench } from 'lucide-react';
+import { ArrowLeft, Package, Truck, CheckCircle, Plus, IndianRupee, CreditCard, PenTool, Route, Wrench, Mail } from 'lucide-react';
 import { db, designsDb } from '@/lib/storage';
 import { Order, Party, InvoiceItem, OrderDelivery, BankAccount, CustomDesign, Employee } from '@/types';
 import Link from 'next/link';
@@ -18,7 +18,7 @@ import {
     OrderWorkType,
     setOrderWorkAssignments,
 } from '@/lib/orderWork';
-import { estimateSent, getOrderSource, needsApproval } from '@/lib/orderNotes';
+import { estimateSent, getOrderIntakeDetails, getOrderSource, needsApproval } from '@/lib/orderNotes';
 import { approveAndInvoiceOrder, sendQuotationForOrder } from '@/lib/orderQuotation';
 
 const isCustomDesignOrderItem = (item: InvoiceItem): boolean => {
@@ -1233,6 +1233,9 @@ export default function OrderDetailPage() {
         || (order.items || []).some(isCustomDesignOrderItem)
     );
     const workSummary = getOrderWorkSummary(order);
+    const orderSource = getOrderSource(order.notes);
+    const showIntakeDetails = order.type === 'sale_order' && (orderSource === 'whatsapp' || orderSource === 'email');
+    const intakeDetails = showIntakeDetails ? getOrderIntakeDetails(order) : null;
 
     return (
         <div className="container">
@@ -1304,6 +1307,81 @@ export default function OrderDetailPage() {
                                 Reject & Delete
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {showIntakeDetails && intakeDetails && (
+                <div className="card" style={{ marginBottom: '1.5rem' }}>
+                    <div style={{ padding: '1.25rem', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <Mail size={18} />
+                        <h2 style={{ fontSize: '1.05rem', fontWeight: 700 }}>
+                            {orderSource === 'whatsapp' ? 'WhatsApp' : 'Email'} Order Intake Details
+                        </h2>
+                    </div>
+                    <div style={{ padding: '1.25rem', display: 'grid', gap: '1rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
+                            <div>
+                                <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>From</div>
+                                <div style={{ fontSize: '0.9rem', marginTop: '0.15rem' }}>{intakeDetails.from || '-'}</div>
+                            </div>
+                            {intakeDetails.subject && (
+                                <div>
+                                    <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Subject</div>
+                                    <div style={{ fontSize: '0.9rem', marginTop: '0.15rem' }}>{intakeDetails.subject}</div>
+                                </div>
+                            )}
+                            {intakeDetails.visionClassification && (
+                                <div>
+                                    <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Image Classification</div>
+                                    <div style={{ fontSize: '0.9rem', marginTop: '0.15rem' }}>
+                                        {intakeDetails.visionClassification}
+                                        {intakeDetails.visionConfidence ? ` (confidence ${Number(intakeDetails.visionConfidence).toFixed(2)})` : ''}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                        {intakeDetails.originalMessage && (
+                            <div>
+                                <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '0.35rem' }}>
+                                    {orderSource === 'whatsapp' ? 'Original Message' : 'Original Message / Caption'}
+                                </div>
+                                <div style={{ fontSize: '0.85rem', whiteSpace: 'pre-wrap', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: '8px', padding: '0.75rem', maxHeight: '220px', overflow: 'auto' }}>
+                                    {intakeDetails.originalMessage}
+                                </div>
+                            </div>
+                        )}
+                        {intakeDetails.extractedText && (
+                            <div>
+                                <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '0.35rem' }}>Text Extracted From Image</div>
+                                <div style={{ fontSize: '0.85rem', whiteSpace: 'pre-wrap', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: '8px', padding: '0.75rem', maxHeight: '220px', overflow: 'auto' }}>
+                                    {intakeDetails.extractedText}
+                                </div>
+                            </div>
+                        )}
+                        {intakeDetails.drawingNotes && (
+                            <div>
+                                <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '0.35rem' }}>Drawing Notes</div>
+                                <div style={{ fontSize: '0.85rem', whiteSpace: 'pre-wrap', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: '8px', padding: '0.75rem' }}>
+                                    {intakeDetails.drawingNotes}
+                                </div>
+                                {shouldShowDesignSection && (
+                                    <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                                        A starting drawing was auto-generated from this image -- see "Custom Glass Drawings & Designs" below to review and finish it.
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        {intakeDetails.parsedRows && (
+                            <div>
+                                <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '0.35rem' }}>
+                                    Parsed Rows {intakeDetails.hasItems ? '' : '(no confident catalogue match -- fill in items manually)'}
+                                </div>
+                                <div style={{ fontSize: '0.85rem', whiteSpace: 'pre-wrap', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: '8px', padding: '0.75rem', maxHeight: '220px', overflow: 'auto' }}>
+                                    {intakeDetails.parsedRows}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}

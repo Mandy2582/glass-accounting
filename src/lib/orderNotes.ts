@@ -109,3 +109,56 @@ export function splitInternalNotes(rawNotes: string | undefined): { visible: str
 export function getVisibleNotes(rawNotes: string | undefined): string {
     return splitInternalNotes(rawNotes).visible;
 }
+
+function getNoteLine(notes: string, label: string): string {
+    const line = notes.split('\n').find(entry => entry.toLowerCase().startsWith(`${label.toLowerCase()}:`));
+    return line ? line.slice(line.indexOf(':') + 1).trim() : '';
+}
+
+function getNoteBlock(notes: string, label: string, untilLabel?: string): string {
+    const start = notes.indexOf(label);
+    if (start < 0) return '';
+    const contentStart = start + label.length;
+    const end = untilLabel ? notes.indexOf(untilLabel, contentStart) : -1;
+    return notes.slice(contentStart, end >= 0 ? end : undefined).trim().slice(0, 2000);
+}
+
+export type OrderIntakeDetails = {
+    source: OrderSource;
+    from: string;
+    subject: string;
+    originalMessage: string;
+    parsedRows: string;
+    hasItems: boolean;
+    visionClassification: string;
+    visionConfidence: string;
+    caption: string;
+    extractedText: string;
+    drawingNotes: string;
+};
+
+// Everything staff need to see about how a WhatsApp/email order was
+// captured: the raw customer message, what matched the catalogue vs still
+// needs review, and (for images) what the vision model read off the photo.
+// Always parses the VISIBLE portion of notes -- the raw string also carries
+// internal markers ([ORDER_SOURCE:...] etc.) appended right after the last
+// labelled section, which would otherwise leak into whichever block happens
+// to run to the end of the string (e.g. an unbounded "Parsed rows:").
+export function getOrderIntakeDetails(order: { notes?: string; items?: unknown[] }): OrderIntakeDetails {
+    const notes = getVisibleNotes(order.notes);
+    const source = getOrderSource(order.notes);
+
+    return {
+        source,
+        from: getNoteLine(notes, source === 'whatsapp' ? 'WhatsApp From' : 'Email From'),
+        subject: getNoteLine(notes, 'Subject'),
+        originalMessage: getNoteBlock(notes, 'Original message:', 'Parsed rows:') || getNoteBlock(notes, 'Caption:', 'Extracted text:'),
+        parsedRows: getNoteBlock(notes, 'Parsed rows:'),
+        hasItems: (order.items || []).length > 0,
+        visionClassification: getNoteLine(notes, 'Vision Classification'),
+        visionConfidence: getNoteLine(notes, 'Vision Confidence'),
+        caption: getNoteBlock(notes, 'Caption:', 'Extracted text:'),
+        extractedText: getNoteBlock(notes, 'Extracted text:', 'Drawing notes:'),
+        drawingNotes: getNoteBlock(notes, 'Drawing notes:'),
+    };
+}

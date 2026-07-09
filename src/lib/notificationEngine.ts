@@ -1,7 +1,7 @@
 import { db, designsDb } from './storage';
 import { AppNotification, CustomDesign, Invoice, Order, Party, Voucher } from '@/types';
 import { getOrderWorkSummary, getWorkTypeLabel } from './orderWork';
-import { estimateSent, getOrderSource, needsApproval } from './orderNotes';
+import { estimateSent, getOrderIntakeDetails, needsApproval } from './orderNotes';
 
 /**
  * Evaluate all business rules and generate actionable alerts & insights
@@ -106,7 +106,7 @@ export async function evaluateNotifications(): Promise<AppNotification[]> {
 
             const orderNeedsApproval = needsApproval(order.notes);
             if (orderNeedsApproval) {
-                const intake = getOrderApprovalDetails(order);
+                const intake = getOrderIntakeDetails(order);
                 const sourceLabel = intake.source === 'whatsapp' ? 'WhatsApp' : intake.source === 'email' ? 'Email' : 'Online';
                 const alreadySent = estimateSent(order.notes);
                 notifications.push({
@@ -359,43 +359,6 @@ export async function evaluateNotifications(): Promise<AppNotification[]> {
     return notifications;
 }
 
-function getOrderApprovalDetails(order: Order): {
-    source: 'whatsapp' | 'email' | 'online' | 'manual';
-    from: string;
-    subject: string;
-    originalMessage: string;
-    parsedRows: string;
-    hasItems: boolean;
-} {
-    const notes = order.notes || '';
-    const source = getOrderSource(notes);
-
-    return {
-        source,
-        from: getNoteLine(notes, source === 'whatsapp' ? 'WhatsApp From' : 'Email From'),
-        subject: getNoteLine(notes, 'Subject'),
-        originalMessage: getNoteBlock(notes, 'Original message:', 'Parsed rows:') || getNoteBlock(notes, 'Caption:', 'Extracted text:') || getNoteBlock(notes, 'Extracted text:', 'Drawing notes:'),
-        parsedRows: getNoteBlock(notes, 'Parsed rows:'),
-        hasItems: order.items.length > 0,
-    };
-}
-
-function getNoteLine(notes: string, label: string): string {
-    const line = notes.split('\n').find(entry => entry.toLowerCase().startsWith(`${label.toLowerCase()}:`));
-    return line ? line.slice(line.indexOf(':') + 1).trim() : '';
-}
-
-function getNoteBlock(notes: string, label: string, untilLabel?: string): string {
-    const start = notes.indexOf(label);
-    if (start < 0) return '';
-
-    const contentStart = start + label.length;
-    const end = untilLabel ? notes.indexOf(untilLabel, contentStart) : -1;
-    return notes
-        .slice(contentStart, end >= 0 ? end : undefined)
-        .trim()
-        .slice(0, 900);
-}
 
 /**
  * Perform detailed buying analytics on all customers
