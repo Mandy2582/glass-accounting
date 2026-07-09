@@ -4,8 +4,9 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { db } from '@/lib/storage';
 import { Invoice } from '@/types';
-import { TrendingUp, AlertCircle, RefreshCw, ArrowUpRight, ArrowDownRight, Package, AlertTriangle, IndianRupee, ShoppingCart, FileText, ClipboardList, type LucideIcon } from 'lucide-react';
-import { formatIndianCurrency } from '@/lib/utils';
+import { TrendingUp, AlertCircle, RefreshCw, ArrowUpRight, ArrowDownRight, Package, AlertTriangle, IndianRupee, ShoppingCart, FileText, ClipboardList, Route, CheckCircle, type LucideIcon } from 'lucide-react';
+import { formatIndianCurrency, roundCurrency } from '@/lib/utils';
+import { getOrderWorkSummary } from '@/lib/orderWork';
 
 export default function Dashboard() {
     type LowStockItem = {
@@ -27,6 +28,7 @@ export default function Dashboard() {
     });
     const [recentInvoices, setRecentInvoices] = useState<Invoice[]>([]);
     const [lowStockDetails, setLowStockDetails] = useState<LowStockItem[]>([]);
+    const [operationsSummary, setOperationsSummary] = useState({ openTasks: 0, overdue: 0, dueToday: 0, pendingCollection: 0 });
     const [loading, setLoading] = useState(false);
     const [currentDate, setCurrentDate] = useState('');
     const [greeting, setGreeting] = useState('');
@@ -56,15 +58,33 @@ export default function Dashboard() {
         setError(null);
         try {
             // Use optimized queries
-            const [statsData, recentInvoicesData, lowStock] = await Promise.all([
+            const [statsData, recentInvoicesData, lowStock, orders] = await Promise.all([
                 db.dashboard.getStats(),
                 db.invoices.getRecent(5),
-                db.reports.getLowStockItems()
+                db.reports.getLowStockItems(),
+                db.orders.getAll(),
             ]);
 
             setStats(statsData);
             setRecentInvoices(recentInvoicesData);
             setLowStockDetails(lowStock);
+
+            const todayKey = new Date().toISOString().slice(0, 10);
+            const openTasks = orders
+                .filter(order => order.type === 'sale_order' && order.status !== 'cancelled')
+                .flatMap(order => getOrderWorkSummary(order).open.map(task => ({ order, task })));
+            // Dedupe by order before summing balances -- an order with both an
+            // open transport and installation task would otherwise count its
+            // balance due twice.
+            const ordersWithOpenWork = new Map(openTasks.map(({ order }) => [order.id, order]));
+            setOperationsSummary({
+                openTasks: openTasks.length,
+                dueToday: openTasks.filter(({ task }) => task.scheduledDate === todayKey).length,
+                overdue: openTasks.filter(({ task }) => task.scheduledDate && task.scheduledDate < todayKey).length,
+                pendingCollection: roundCurrency(Array.from(ordersWithOpenWork.values()).reduce((sum, order) => (
+                    sum + Math.max(0, roundCurrency(order.total - (order.paidAmount || 0)))
+                ), 0)),
+            });
         } catch (err: unknown) {
             console.error('Dashboard Error:', err);
             setError('Failed to load data. Please check your connection or database setup.');
@@ -235,6 +255,49 @@ export default function Dashboard() {
                     />
                 </div>
             </div>
+
+            {(operationsSummary.openTasks > 0 || operationsSummary.overdue > 0) && (
+                <div style={{ marginBottom: '2rem' }}>
+                    <h2 className="dashboard-section-title">
+                        <Route size={18} />
+                        Operations Snapshot
+                    </h2>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
+                        <StatCard
+                            title="Open Transport / Installation"
+                            value={operationsSummary.openTasks}
+                            icon={Route}
+                            color="#2563eb"
+                            subColor="#dbeafe"
+                            onClick={() => router.push('/operations')}
+                        />
+                        <StatCard
+                            title="Overdue"
+                            value={operationsSummary.overdue}
+                            icon={AlertTriangle}
+                            color="#b91c1c"
+                            subColor="#fee2e2"
+                            onClick={() => router.push('/operations')}
+                        />
+                        <StatCard
+                            title="Due Today"
+                            value={operationsSummary.dueToday}
+                            icon={CheckCircle}
+                            color="#0f766e"
+                            subColor="#ccfbf1"
+                            onClick={() => router.push('/operations')}
+                        />
+                        <StatCard
+                            title="Pending Collection"
+                            value={operationsSummary.pendingCollection}
+                            icon={IndianRupee}
+                            color="#7c3aed"
+                            subColor="#ede9fe"
+                            onClick={() => router.push('/operations')}
+                        />
+                    </div>
+                </div>
+            )}
 
             {/* Three Column Grid */}
             <div className="dashboard-content-grid">

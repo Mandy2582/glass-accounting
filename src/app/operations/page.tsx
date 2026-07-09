@@ -126,8 +126,12 @@ export default function OperationsPage() {
         const openTasks = allOperationTasks.filter(task => task.assignment.status !== 'completed' && task.assignment.status !== 'cancelled');
         const dueToday = openTasks.filter(task => task.assignment.scheduledDate === todayKey);
         const overdue = openTasks.filter(task => task.assignment.scheduledDate && task.assignment.scheduledDate < todayKey);
-        const pendingCollection = openTasks.reduce((sum, task) => (
-            sum + Math.max(0, roundCurrency(task.order.total - (task.order.paidAmount || 0)))
+        // Dedupe by order before summing balances -- an order with both an
+        // open transport and installation task would otherwise count its
+        // balance due twice.
+        const ordersWithOpenWork = new Map(openTasks.map(task => [task.order.id, task.order]));
+        const pendingCollection = Array.from(ordersWithOpenWork.values()).reduce((sum, order) => (
+            sum + Math.max(0, roundCurrency(order.total - (order.paidAmount || 0)))
         ), 0);
         const completedToday = allOperationTasks.filter(task => task.assignment.completedAt === todayKey);
 

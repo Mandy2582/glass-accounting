@@ -103,22 +103,38 @@ export default function ItemSearchSelect({
                     {filteredItems.length === 0 ? (
                         <div className="item-search-empty">No matching item found</div>
                     ) : (
-                        filteredItems.map(item => (
-                            <button
-                                key={item.id}
-                                type="button"
-                                className="item-search-option"
-                                onMouseDown={event => event.preventDefault()}
-                                onClick={() => {
-                                    onChange(item.id);
-                                    setOpen(false);
-                                    setQuery(itemLabel(item));
-                                }}
-                            >
-                                <strong>{item.name}</strong>
-                                <span>{itemLabel(item).replace(item.name, '').replace(/^\s*\(|\)\s*$/g, '') || item.unit}</span>
-                            </button>
-                        ))
+                        filteredItems.map(item => {
+                            const stock = Number(item.stock) || 0;
+                            const isLow = stock > 0 && stock <= (item.minStock || 10);
+                            const isOut = stock <= 0;
+                            return (
+                                <button
+                                    key={item.id}
+                                    type="button"
+                                    className="item-search-option"
+                                    onMouseDown={event => event.preventDefault()}
+                                    onClick={() => {
+                                        onChange(item.id);
+                                        setOpen(false);
+                                        setQuery(itemLabel(item));
+                                    }}
+                                >
+                                    <span className="item-search-option-main">
+                                        <strong>{item.name}</strong>
+                                        <span>{itemLabel(item).replace(item.name, '').replace(/^\s*\(|\)\s*$/g, '') || item.unit}</span>
+                                    </span>
+                                    <span
+                                        className="item-search-option-stock"
+                                        style={{
+                                            color: isOut ? '#b91c1c' : isLow ? '#b45309' : 'var(--color-text-muted)',
+                                            fontWeight: isOut || isLow ? 800 : 600,
+                                        }}
+                                    >
+                                        {isOut ? 'Out of stock' : `${stock} ${item.unit} in stock`}
+                                    </span>
+                                </button>
+                            );
+                        })
                     )}
                 </div>
             )}
