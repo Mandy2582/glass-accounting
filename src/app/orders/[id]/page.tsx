@@ -375,7 +375,11 @@ export default function OrderDetailPage() {
             }
         }
 
-        if (!confirm('Mark this order as completed?')) return;
+        const openWork = getOrderWorkSummary(order).open;
+        const confirmMessage = openWork.length > 0
+            ? `This order still has ${openWork.length} open transport/installation task(s) assigned. Mark it completed anyway?`
+            : 'Mark this order as completed?';
+        if (!confirm(confirmMessage)) return;
 
         try {
             let invoiceId = order.invoiceId;
@@ -409,19 +413,42 @@ export default function OrderDetailPage() {
 
     const handleAssignWork = async (assignment: Omit<OrderWorkAssignment, 'id' | 'createdAt' | 'status'>) => {
         if (!order) return;
-        const assignments = getOrderWorkSummary(order).assignments;
-        const newAssignment: OrderWorkAssignment = {
-            ...assignment,
-            id: crypto.randomUUID(),
-            status: 'pending',
-            createdAt: new Date().toISOString(),
-        };
-        await db.orders.update({
-            ...order,
-            notes: setOrderWorkAssignments(order.notes, [...assignments, newAssignment]),
-        });
-        setShowWorkModal(false);
-        loadOrder();
+        try {
+            const assignments = getOrderWorkSummary(order).assignments;
+            const newAssignment: OrderWorkAssignment = {
+                ...assignment,
+                id: crypto.randomUUID(),
+                status: 'pending',
+                createdAt: new Date().toISOString(),
+            };
+            await db.orders.update({
+                ...order,
+                notes: setOrderWorkAssignments(order.notes, [...assignments, newAssignment]),
+            });
+            setShowWorkModal(false);
+            loadOrder();
+        } catch (error) {
+            console.error('Failed to assign work:', error);
+            alert('Failed to assign this work. Please try again.');
+        }
+    };
+
+    const handleCancelWork = async (assignmentId: string) => {
+        if (!order) return;
+        if (!confirm('Cancel this work assignment? This cannot be undone.')) return;
+        try {
+            const assignments = getOrderWorkSummary(order).assignments.map(assignment => (
+                assignment.id === assignmentId ? { ...assignment, status: 'cancelled' as const } : assignment
+            ));
+            await db.orders.update({
+                ...order,
+                notes: setOrderWorkAssignments(order.notes, assignments),
+            });
+            loadOrder();
+        } catch (error) {
+            console.error('Failed to cancel work assignment:', error);
+            alert('Failed to cancel this work item. Please try again.');
+        }
     };
 
     const isEstimateSent = order?.notes?.includes('[ESTIMATE_SENT:true]') ?? false;
@@ -1149,7 +1176,6 @@ export default function OrderDetailPage() {
 
     const totalSqft = order.items.reduce((sum, item) => sum + item.sqft, 0);
     const balanceDue = Number((order.total - (order.paidAmount || 0)).toFixed(2));
-    const poRequired = order.notes?.includes('[PO_REQUIRED:true]') ?? false;
     const customerAttachments = getCustomerAttachments(order.notes);
     const paymentConfirmationText = getLatestPaymentConfirmation(order.notes);
     const shouldShowDesignSection = order.type === 'sale_order' && (
@@ -1375,6 +1401,15 @@ export default function OrderDetailPage() {
                                             <div style={{ marginTop: '0.75rem', color: '#047857', fontSize: '0.82rem', fontWeight: 700 }}>
                                                 Completed {new Date(task.completedAt).toLocaleDateString()}
                                             </div>
+                                        )}
+                                        {task.status !== 'completed' && task.status !== 'cancelled' && (
+                                            <button
+                                                onClick={() => handleCancelWork(task.id)}
+                                                className="btn"
+                                                style={{ marginTop: '0.75rem', fontSize: '0.78rem', padding: '0.3rem 0.6rem', color: '#dc2626' }}
+                                            >
+                                                Cancel Assignment
+                                            </button>
                                         )}
                                     </div>
                                 ))}

@@ -43,12 +43,19 @@ export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialDa
         glass: db.settings.getProductGroups().glass,
         hardware: db.settings.getProductGroups().hardware
     });
+    const [defaultUnits, setDefaultUnits] = useState<{ glass: Unit; hardware: Unit }>({ glass: 'sqft', hardware: 'nos' });
 
     // Update form data when initialData changes (for Edit mode)
     useEffect(() => {
         db.settings.getShopProductGroups()
             .then(setProductGroups)
             .catch(error => console.error('Failed to load product groups:', error));
+        db.businessConfig.get()
+            .then(config => setDefaultUnits({
+                glass: config.unitPreferences?.defaultGlassBillingUnit || 'sqft',
+                hardware: config.unitPreferences?.defaultCountUnit || 'nos',
+            }))
+            .catch(error => console.error('Failed to load unit preferences:', error));
     }, [isOpen]);
 
     // Update form data when initialData changes (for Edit mode)
@@ -142,7 +149,7 @@ export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialDa
                                 name="category"
                                 value="glass"
                                 checked={formData.category !== 'hardware'}
-                                onChange={() => setFormData({ ...formData, category: 'glass', type: productGroups.glass[0] || 'Toughened', productGroup: productGroups.glass[0] || 'Toughened', unit: 'sheets', rateUnit: 'sqft', purchaseRateUnit: 'sqft' })}
+                                onChange={() => setFormData({ ...formData, category: 'glass', type: productGroups.glass[0] || 'Toughened', productGroup: productGroups.glass[0] || 'Toughened', unit: 'sheets', rateUnit: defaultUnits.glass, purchaseRateUnit: defaultUnits.glass })}
                             />
                             Glass
                         </label>
@@ -152,7 +159,7 @@ export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialDa
                                 name="category"
                                 value="hardware"
                                 checked={formData.category === 'hardware'}
-                                onChange={() => setFormData({ ...formData, category: 'hardware', type: productGroups.hardware[0] || 'Handles', productGroup: productGroups.hardware[0] || 'Handles', unit: 'nos', rateUnit: 'nos', purchaseRateUnit: 'nos', width: 0, height: 0, thickness: 0 })}
+                                onChange={() => setFormData({ ...formData, category: 'hardware', type: productGroups.hardware[0] || 'Handles', productGroup: productGroups.hardware[0] || 'Handles', unit: defaultUnits.hardware, rateUnit: defaultUnits.hardware, purchaseRateUnit: defaultUnits.hardware, width: 0, height: 0, thickness: 0 })}
                             />
                             Hardware
                         </label>

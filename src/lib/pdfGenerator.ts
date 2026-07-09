@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { CustomDesign, Order } from '@/types';
 import { formatInchesToFraction } from '@/lib/utils';
+import { getVisibleNotes } from '@/lib/orderNotes';
 
 interface PDFOptions {
     companyName?: string;
@@ -1203,7 +1204,7 @@ export async function generateOrderPDF(
     }
 
     // Notes
-    const cleanNotes = order.notes ? order.notes.replace(/\[PO_REQUIRED:(true|false)\]/g, '').replace(/\[PREFERRED_SUPPLIER_ID:[a-zA-Z0-9-]*\]/g, '').trim() : '';
+    const cleanNotes = getVisibleNotes(order.notes);
     if (cleanNotes) {
         if (yPos > pageHeight - margin - 30) {
             pdf.addPage();

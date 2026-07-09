@@ -1826,8 +1826,6 @@ export const db = {
                 ],
                 installationChargePerSqft: 0,
                 unitPreferences: {
-                    defaultLengthUnit: 'inch',
-                    defaultAreaUnit: 'sqft',
                     defaultCountUnit: 'nos',
                     defaultGlassBillingUnit: 'sqft',
                     unknownUnitFallback: 'nos',

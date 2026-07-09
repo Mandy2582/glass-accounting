@@ -22,11 +22,14 @@ export async function evaluateNotifications(): Promise<AppNotification[]> {
         const customers = parties.filter(p => p.type === 'customer');
 
         // 1. Pending Orders Check
+        const todayKey = now.toISOString().slice(0, 10);
         orders.forEach(order => {
-            getOrderWorkSummary(order).open.forEach(task => {
+            const workSummary = getOrderWorkSummary(order);
+
+            workSummary.open.forEach(task => {
                 const scheduledDate = new Date(task.scheduledDate);
                 const daysLate = Math.floor((now.getTime() - scheduledDate.getTime()) / oneDayMs);
-                const isDueToday = scheduledDate.toISOString().slice(0, 10) === now.toISOString().slice(0, 10);
+                const isDueToday = scheduledDate.toISOString().slice(0, 10) === todayKey;
                 if (daysLate >= 1 || isDueToday) {
                     notifications.push({
                         id: `operation-${order.id}-${task.id}`,
@@ -49,7 +52,55 @@ export async function evaluateNotifications(): Promise<AppNotification[]> {
                             { label: 'Notes', value: task.notes || '-' },
                         ].filter(detail => detail.value && detail.value !== '-')
                     });
+                } else if (task.status === 'pending') {
+                    // Newly assigned work that isn't due/overdue yet -- a quiet
+                    // heads-up so staff see it was booked, not just when it's late.
+                    notifications.push({
+                        id: `work-assigned-${order.id}-${task.id}`,
+                        title: `${getWorkTypeLabel(task.type)} Assigned`,
+                        message: `${task.assignedToName} was assigned ${getWorkTypeLabel(task.type).toLowerCase()} for order #${order.number} (${order.partyName}), scheduled ${task.scheduledDate}.`,
+                        type: 'operation',
+                        severity: 'info',
+                        timestamp: task.createdAt,
+                        read: false,
+                        link: '/operations',
+                        actionLabel: 'Open Operations',
+                        secondaryLink: `/orders/${order.id}`,
+                        secondaryActionLabel: 'View Order',
+                        details: [
+                            { label: 'Work', value: getWorkTypeLabel(task.type) },
+                            { label: 'Assigned To', value: task.assignedToName },
+                            { label: 'Scheduled', value: task.scheduledDate },
+                            { label: 'Customer', value: order.partyName },
+                            { label: 'Order', value: order.generalNumber || order.number },
+                        ].filter(detail => detail.value && detail.value !== '-')
+                    });
                 }
+            });
+
+            workSummary.completed.forEach(task => {
+                if (task.completedAt !== todayKey) return;
+                notifications.push({
+                    id: `work-completed-${order.id}-${task.id}`,
+                    title: `${getWorkTypeLabel(task.type)} Completed`,
+                    message: `${task.assignedToName} completed ${getWorkTypeLabel(task.type).toLowerCase()} for order #${order.number} (${order.partyName}).${task.paymentRecordedAmount ? ` Collected ₹${Number(task.paymentRecordedAmount).toLocaleString('en-IN')}.` : ''}`,
+                    type: 'operation',
+                    severity: 'info',
+                    timestamp: task.completedAt,
+                    read: false,
+                    link: '/operations',
+                    actionLabel: 'Open Operations',
+                    secondaryLink: `/orders/${order.id}`,
+                    secondaryActionLabel: 'View Order',
+                    details: [
+                        { label: 'Work', value: getWorkTypeLabel(task.type) },
+                        { label: 'Completed By', value: task.assignedToName },
+                        { label: 'Customer', value: order.partyName },
+                        { label: 'Order', value: order.generalNumber || order.number },
+                        { label: 'Payment Collected', value: task.paymentRecordedAmount ? `₹${Number(task.paymentRecordedAmount).toLocaleString('en-IN')}` : '-' },
+                        { label: 'Notes', value: task.completionNotes || '-' },
+                    ].filter(detail => detail.value && detail.value !== '-')
+                });
             });
 
             const emailIntake = getEmailIntakeDetails(order);

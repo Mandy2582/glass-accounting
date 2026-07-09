@@ -94,6 +94,7 @@ export default function InvoiceForm({ initialData, onSave, onCancel }: InvoiceFo
                     rate: newItem.rate,
                     taxRate: gstRate,
                     conversionFactor: newItem.conversionFactor,
+                    unitFallback: businessConfig?.unitPreferences?.unknownUnitFallback,
                 });
                 return {
                     ...row,
@@ -128,6 +129,7 @@ export default function InvoiceForm({ initialData, onSave, onCancel }: InvoiceFo
                 rate: item.rate,
                 taxRate: gstRate,
                 conversionFactor: catalogItem?.conversionFactor,
+                unitFallback: businessConfig?.unitPreferences?.unknownUnitFallback,
             });
             return {
                 ...item,
@@ -136,7 +138,7 @@ export default function InvoiceForm({ initialData, onSave, onCancel }: InvoiceFo
                 lineTotal: calculated.lineTotal
             };
         }));
-    }, [gstRate, items]);
+    }, [gstRate, items, businessConfig]);
 
     const addItem = () => {
         setInvoiceItems([
@@ -206,6 +208,7 @@ export default function InvoiceForm({ initialData, onSave, onCancel }: InvoiceFo
                 rate,
                 taxRate: gstRate,
                 conversionFactor: catalogItem?.conversionFactor,
+                unitFallback: businessConfig?.unitPreferences?.unknownUnitFallback,
             });
             item.sqft = calculated.sqft;
             item.amount = calculated.amount;

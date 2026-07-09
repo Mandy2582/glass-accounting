@@ -522,30 +522,6 @@ export default function SettingsPage() {
                                 <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem', color: 'var(--color-primary)' }}>Unit Handling</h3>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
                                     <div>
-                                        <label style={{ display: 'block', marginBottom: '0.375rem', fontWeight: 500, fontSize: '0.875rem' }}>Default Length Unit</label>
-                                        <select
-                                            className="input"
-                                            value={businessConfig.unitPreferences?.defaultLengthUnit || 'inch'}
-                                            onChange={(e) => updateUnitPreference('defaultLengthUnit', e.target.value as Unit)}
-                                        >
-                                            {UNIT_DEFINITIONS.filter(unit => unit.category === 'length').map(unit => (
-                                                <option key={unit.value} value={unit.value}>{unit.label}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label style={{ display: 'block', marginBottom: '0.375rem', fontWeight: 500, fontSize: '0.875rem' }}>Default Area Unit</label>
-                                        <select
-                                            className="input"
-                                            value={businessConfig.unitPreferences?.defaultAreaUnit || 'sqft'}
-                                            onChange={(e) => updateUnitPreference('defaultAreaUnit', e.target.value as Unit)}
-                                        >
-                                            {UNIT_DEFINITIONS.filter(unit => unit.category === 'area').map(unit => (
-                                                <option key={unit.value} value={unit.value}>{unit.label}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                    <div>
                                         <label style={{ display: 'block', marginBottom: '0.375rem', fontWeight: 500, fontSize: '0.875rem' }}>Default Count Unit</label>
                                         <select
                                             className="input"
@@ -583,6 +559,8 @@ export default function SettingsPage() {
                                     </div>
                                 </div>
                                 <p style={{ marginTop: '0.75rem', color: 'var(--color-text-muted)', fontSize: '0.8rem' }}>
+                                    Default Count Unit and Glass Billing Unit pre-fill new hardware/glass items in inventory.
+                                    Unknown Unit Fallback is used when an order line's unit can't be recognized (e.g. from email/WhatsApp intake).
                                     The app also accepts common aliases such as sq ft, feet, inches, pcs, pieces, sheet, metre, meter, mm and cm.
                                 </p>
                             </div>

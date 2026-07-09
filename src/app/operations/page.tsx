@@ -5,7 +5,7 @@ import type React from 'react';
 import Link from 'next/link';
 import { AlertTriangle, CheckCircle, CreditCard, IndianRupee, PackageCheck, RefreshCw, Route, Search } from 'lucide-react';
 import { db } from '@/lib/storage';
-import { BankAccount, Employee, Order, OrderDelivery } from '@/types';
+import { BankAccount, Employee, InvoiceItem, Order, OrderDelivery } from '@/types';
 import {
     getOrderWorkSummary,
     getWorkStatusColor,
@@ -96,15 +96,30 @@ export default function OperationsPage() {
         return orders
             .filter(order => (
                 order.type === 'sale_order'
-                && !['completed', 'cancelled'].includes(order.status)
+                // Exclude still-pending quotes -- nothing to dispatch until the
+                // order is priced/confirmed. Online-shop checkouts skip 'pending'
+                // and land on 'approved' immediately, so they show up right away.
+                && !['pending', 'completed', 'cancelled'].includes(order.status)
                 && (order.items || []).length > 0
             ))
             .map(order => {
                 const summary = getOrderWorkSummary(order);
+                // Once an order is already delivered/completed, stop asking for
+                // transport/installation even if no assignment was ever recorded --
+                // otherwise an order delivered outside Operations (e.g. via the
+                // order page's own delivery modal) stays "Unassigned" forever.
+                const alreadyHandled = ['customer_delivered', 'completed'].includes(order.status);
+                // A completed transport task no longer guarantees full delivery --
+                // partial trips leave some quantity outstanding, so check actual
+                // remaining quantity/sqft rather than "a completed task exists".
+                const hasRemainingToDeliver = order.items.some(item => {
+                    const remaining = getRemainingCustomerDelivery(order, item);
+                    return remaining.remainingQuantity > 0 || remaining.remainingSqft > 0;
+                });
                 return {
                     order,
-                    needsTransport: !summary.hasOpenTransport && !summary.completed.some(task => task.type === 'transport'),
-                    needsInstallation: !summary.hasOpenInstallation && shouldSuggestInstallation(order),
+                    needsTransport: !alreadyHandled && !summary.hasOpenTransport && hasRemainingToDeliver,
+                    needsInstallation: !alreadyHandled && !summary.hasOpenInstallation && shouldSuggestInstallation(order),
                 };
             })
             .filter(entry => entry.needsTransport || entry.needsInstallation)
@@ -146,15 +161,25 @@ export default function OperationsPage() {
     }, [allOperationTasks, unassignedOrders.length]);
 
     async function updateAssignment(order: Order, assignmentId: string, patch: Partial<OrderWorkAssignment>) {
-        const assignments = getOrderWorkSummary(order).assignments.map(assignment => (
-            assignment.id === assignmentId ? { ...assignment, ...patch } : assignment
-        ));
-        const updatedOrder = {
-            ...order,
-            notes: setOrderWorkAssignments(order.notes, assignments),
-        };
-        await db.orders.update(updatedOrder);
-        await loadData();
+        try {
+            const assignments = getOrderWorkSummary(order).assignments.map(assignment => (
+                assignment.id === assignmentId ? { ...assignment, ...patch } : assignment
+            ));
+            const updatedOrder = {
+                ...order,
+                notes: setOrderWorkAssignments(order.notes, assignments),
+            };
+            await db.orders.update(updatedOrder);
+            await loadData();
+        } catch (error) {
+            console.error('Failed to update assignment:', error);
+            alert('Failed to update this work item. Please try again.');
+        }
+    }
+
+    async function cancelAssignment(order: Order, assignmentId: string) {
+        if (!confirm('Cancel this work assignment? This cannot be undone.')) return;
+        await updateAssignment(order, assignmentId, { status: 'cancelled' });
     }
 
     async function assignWork(input: {
@@ -170,24 +195,29 @@ export default function OperationsPage() {
             return;
         }
 
-        const assignments = getOrderWorkSummary(input.order).assignments;
-        const assignment: OrderWorkAssignment = {
-            id: crypto.randomUUID(),
-            type: input.type,
-            assignedToId: employee.id,
-            assignedToName: employee.name,
-            scheduledDate: input.scheduledDate,
-            status: 'pending',
-            notes: input.notes,
-            createdAt: new Date().toISOString(),
-        };
+        try {
+            const assignments = getOrderWorkSummary(input.order).assignments;
+            const assignment: OrderWorkAssignment = {
+                id: crypto.randomUUID(),
+                type: input.type,
+                assignedToId: employee.id,
+                assignedToName: employee.name,
+                scheduledDate: input.scheduledDate,
+                status: 'pending',
+                notes: input.notes,
+                createdAt: new Date().toISOString(),
+            };
 
-        await db.orders.update({
-            ...input.order,
-            notes: setOrderWorkAssignments(input.order.notes, [...assignments, assignment]),
-        });
-        setAssignTarget(null);
-        await loadData();
+            await db.orders.update({
+                ...input.order,
+                notes: setOrderWorkAssignments(input.order.notes, [...assignments, assignment]),
+            });
+            setAssignTarget(null);
+            await loadData();
+        } catch (error) {
+            console.error('Failed to assign work:', error);
+            alert('Failed to assign this work. Please try again.');
+        }
     }
 
     async function completeTask(input: {
@@ -196,46 +226,52 @@ export default function OperationsPage() {
         paymentAmount: number;
         paymentMode: 'cash' | 'bank';
         bankAccountId?: string;
+        deliveryQuantities?: Record<string, number>;
     }) {
         const { task } = input;
         let updatedOrder = task.order;
 
-        if (task.assignment.type === 'transport') {
-            updatedOrder = buildDeliveredOrder(task.order, input.notes);
-            await db.orders.update(updatedOrder);
-        }
+        try {
+            if (task.assignment.type === 'transport') {
+                updatedOrder = buildDeliveredOrder(task.order, input.notes, input.deliveryQuantities);
+                await db.orders.update(updatedOrder);
+            }
 
-        const paymentAmount = roundCurrency(input.paymentAmount);
-        if (paymentAmount > 0) {
-            await db.orders.recordPayment(task.order.id, {
-                amount: paymentAmount,
-                mode: input.paymentMode,
-                bankAccountId: input.paymentMode === 'bank' ? input.bankAccountId : undefined,
-                date: today(),
-                notes: `${getWorkTypeLabel(task.assignment.type)} completion by ${task.assignment.assignedToName}. ${input.notes}`.trim(),
+            const paymentAmount = roundCurrency(input.paymentAmount);
+            if (paymentAmount > 0) {
+                await db.orders.recordPayment(task.order.id, {
+                    amount: paymentAmount,
+                    mode: input.paymentMode,
+                    bankAccountId: input.paymentMode === 'bank' ? input.bankAccountId : undefined,
+                    date: today(),
+                    notes: `${getWorkTypeLabel(task.assignment.type)} completion by ${task.assignment.assignedToName}. ${input.notes}`.trim(),
+                });
+            }
+
+            const assignments = getOrderWorkSummary(updatedOrder).assignments.map(assignment => (
+                assignment.id === task.assignment.id
+                    ? {
+                        ...assignment,
+                        status: 'completed' as const,
+                        completedAt: today(),
+                        completionNotes: input.notes,
+                        paymentRecordedAmount: paymentAmount || assignment.paymentRecordedAmount,
+                        paymentMode: paymentAmount > 0 ? input.paymentMode : assignment.paymentMode,
+                    }
+                    : assignment
+            ));
+
+            await db.orders.update({
+                ...updatedOrder,
+                notes: setOrderWorkAssignments(updatedOrder.notes, assignments),
             });
+
+            setActiveTask(null);
+            await loadData();
+        } catch (error) {
+            console.error('Failed to complete work item:', error);
+            alert('Failed to save this completion. Please check and try again.');
         }
-
-        const assignments = getOrderWorkSummary(updatedOrder).assignments.map(assignment => (
-            assignment.id === task.assignment.id
-                ? {
-                    ...assignment,
-                    status: 'completed' as const,
-                    completedAt: today(),
-                    completionNotes: input.notes,
-                    paymentRecordedAmount: paymentAmount || assignment.paymentRecordedAmount,
-                    paymentMode: paymentAmount > 0 ? input.paymentMode : assignment.paymentMode,
-                }
-                : assignment
-        ));
-
-        await db.orders.update({
-            ...updatedOrder,
-            notes: setOrderWorkAssignments(updatedOrder.notes, assignments),
-        });
-
-        setActiveTask(null);
-        await loadData();
     }
 
     return (
@@ -434,8 +470,13 @@ export default function OperationsPage() {
                                                 </button>
                                             )}
                                             {task.assignment.status !== 'completed' && task.assignment.status !== 'cancelled' && (
-                                                <button className="btn btn-primary" onClick={() => setActiveTask(task)} style={{ padding: '0.35rem 0.65rem', fontSize: '0.78rem' }}>
+                                                <button className="btn btn-primary" onClick={() => setActiveTask(task)} style={{ padding: '0.35rem 0.65rem', fontSize: '0.78rem', marginRight: '0.35rem' }}>
                                                     Complete
+                                                </button>
+                                            )}
+                                            {task.assignment.status !== 'completed' && task.assignment.status !== 'cancelled' && (
+                                                <button className="btn" onClick={() => cancelAssignment(task.order, task.assignment.id)} style={{ padding: '0.35rem 0.65rem', fontSize: '0.78rem', color: '#dc2626' }}>
+                                                    Cancel
                                                 </button>
                                             )}
                                         </td>
@@ -594,24 +635,46 @@ function AssignOperationModal({
     );
 }
 
-function buildDeliveredOrder(order: Order, notes: string): Order {
+function getRemainingCustomerDelivery(order: Order, item: InvoiceItem) {
+    const orderItemId = item.id || item.designPieceId || item.itemId || item.itemName;
+    const alreadyDelivered = (order.deliveries || [])
+        .filter(delivery => delivery.type === 'customer')
+        .flatMap(delivery => delivery.items || [])
+        .filter(deliveredItem => (deliveredItem.orderItemId || deliveredItem.itemId || deliveredItem.itemName) === orderItemId)
+        .reduce((total, deliveredItem) => ({
+            quantity: total.quantity + (Number(deliveredItem.quantity) || 0),
+            sqft: total.sqft + (Number(deliveredItem.sqft) || 0),
+        }), { quantity: 0, sqft: 0 });
+
+    return {
+        orderItemId,
+        remainingQuantity: Math.max(0, (Number(item.quantity) || 0) - alreadyDelivered.quantity),
+        remainingSqft: Math.max(0, (Number(item.sqft) || 0) - alreadyDelivered.sqft),
+    };
+}
+
+// deliveryQuantities maps orderItemId -> fraction (0-1) of the remaining
+// quantity being delivered on this trip. Defaults to 1 (full remaining) for
+// any item not present in the map, preserving old full-delivery behavior.
+function buildDeliveredOrder(order: Order, notes: string, deliveryQuantities?: Record<string, number>): Order {
+    let allFullyDelivered = true;
+
     const deliveryItems = order.items.map(item => {
-        const orderItemId = item.id || item.designPieceId || item.itemId || item.itemName;
-        const alreadyDelivered = (order.deliveries || [])
-            .filter(delivery => delivery.type === 'customer')
-            .flatMap(delivery => delivery.items || [])
-            .filter(deliveredItem => (deliveredItem.orderItemId || deliveredItem.itemId || deliveredItem.itemName) === orderItemId)
-            .reduce((total, deliveredItem) => ({
-                quantity: total.quantity + (Number(deliveredItem.quantity) || 0),
-                sqft: total.sqft + (Number(deliveredItem.sqft) || 0),
-            }), { quantity: 0, sqft: 0 });
+        const { orderItemId, remainingQuantity, remainingSqft } = getRemainingCustomerDelivery(order, item);
+        const fraction = deliveryQuantities && orderItemId in deliveryQuantities
+            ? Math.min(1, Math.max(0, deliveryQuantities[orderItemId]))
+            : 1;
+
+        if (fraction < 1 && (remainingQuantity > 0 || remainingSqft > 0)) {
+            allFullyDelivered = false;
+        }
 
         return {
             orderItemId,
             itemId: item.itemId,
             itemName: item.description || item.itemName,
-            quantity: Math.max(0, (Number(item.quantity) || 0) - alreadyDelivered.quantity),
-            sqft: Math.max(0, (Number(item.sqft) || 0) - alreadyDelivered.sqft),
+            quantity: roundCurrency(remainingQuantity * fraction),
+            sqft: roundCurrency(remainingSqft * fraction),
         };
     }).filter(item => item.quantity > 0 || item.sqft > 0);
 
@@ -631,7 +694,10 @@ function buildDeliveredOrder(order: Order, notes: string): Order {
         deliveries: [...(order.deliveries || []), delivery],
         deliveredToCustomer,
         customerDeliveryDate: delivery.date,
-        status: 'customer_delivered',
+        // Only flip to fully delivered once every item's remaining quantity has
+        // actually gone out -- a partial trip keeps the order eligible for
+        // another transport assignment for what's left.
+        status: allFullyDelivered ? 'customer_delivered' : order.status,
     };
 }
 
@@ -644,13 +710,24 @@ function CompleteWorkModal({
     task: OperationTask;
     bankAccounts: BankAccount[];
     onClose: () => void;
-    onSubmit: (input: { task: OperationTask; notes: string; paymentAmount: number; paymentMode: 'cash' | 'bank'; bankAccountId?: string }) => void;
+    onSubmit: (input: { task: OperationTask; notes: string; paymentAmount: number; paymentMode: 'cash' | 'bank'; bankAccountId?: string; deliveryQuantities?: Record<string, number> }) => void;
 }) {
     const balanceDue = Math.max(0, roundCurrency(task.order.total - (task.order.paidAmount || 0)));
     const [notes, setNotes] = useState('');
     const [paymentAmount, setPaymentAmount] = useState(0);
     const [paymentMode, setPaymentMode] = useState<'cash' | 'bank'>('cash');
     const [bankAccountId, setBankAccountId] = useState('');
+
+    const remainingItems = useMemo(() => {
+        if (task.assignment.type !== 'transport') return [];
+        return task.order.items
+            .map(item => ({ item, ...getRemainingCustomerDelivery(task.order, item) }))
+            .filter(entry => entry.remainingQuantity > 0 || entry.remainingSqft > 0);
+    }, [task]);
+
+    const [quantities, setQuantities] = useState<Record<string, number>>(() => (
+        Object.fromEntries(remainingItems.map(entry => [entry.orderItemId, entry.remainingQuantity]))
+    ));
 
     const submit = () => {
         if (paymentAmount > balanceDue) {
@@ -661,7 +738,14 @@ function CompleteWorkModal({
             alert('Select bank account for bank payment.');
             return;
         }
-        onSubmit({ task, notes, paymentAmount: roundCurrency(paymentAmount), paymentMode, bankAccountId });
+        const deliveryQuantities = remainingItems.length > 0
+            ? Object.fromEntries(remainingItems.map(entry => {
+                const enteredQty = Math.max(0, Math.min(entry.remainingQuantity, Number(quantities[entry.orderItemId] ?? entry.remainingQuantity)));
+                const fraction = entry.remainingQuantity > 0 ? enteredQty / entry.remainingQuantity : 1;
+                return [entry.orderItemId, fraction];
+            }))
+            : undefined;
+        onSubmit({ task, notes, paymentAmount: roundCurrency(paymentAmount), paymentMode, bankAccountId, deliveryQuantities });
     };
 
     return (
@@ -676,6 +760,29 @@ function CompleteWorkModal({
                         <div style={{ fontWeight: 700 }}>{task.order.partyName}</div>
                         <div style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>Order {task.order.generalNumber || task.order.number} • Assigned to {task.assignment.assignedToName}</div>
                     </div>
+                    {remainingItems.length > 0 && (
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Quantity Delivered This Trip</label>
+                            <div style={{ display: 'grid', gap: '0.5rem' }}>
+                                {remainingItems.map(entry => (
+                                    <div key={entry.orderItemId} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                        <span style={{ flex: 1, fontSize: '0.82rem' }}>{entry.item.description || entry.item.itemName}</span>
+                                        <input
+                                            className="input"
+                                            type="number"
+                                            min="0"
+                                            max={entry.remainingQuantity}
+                                            step="0.01"
+                                            value={quantities[entry.orderItemId] ?? entry.remainingQuantity}
+                                            onChange={event => setQuantities(prev => ({ ...prev, [entry.orderItemId]: Number(event.target.value) }))}
+                                            style={{ width: '110px' }}
+                                        />
+                                        <span style={{ color: 'var(--color-text-muted)', fontSize: '0.78rem' }}>of {entry.remainingQuantity} left</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                     <div>
                         <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Completion Notes</label>
                         <textarea className="input" rows={3} value={notes} onChange={event => setNotes(event.target.value)} placeholder="Delivery/installation remarks" />

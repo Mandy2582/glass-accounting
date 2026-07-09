@@ -12,6 +12,7 @@ import PartyModal from '@/components/parties/PartyModal';
 import ItemModal from '@/components/inventory/ItemModal';
 import { generateUUID, roundCurrency } from '@/lib/utils';
 import { calculateLineAmounts, convertRateForItemUnit, UNIT_OPTIONS_BY_GROUP } from '@/lib/units';
+import { splitInternalNotes } from '@/lib/orderNotes';
 
 export default function EditOrderPage() {
     const router = useRouter();
@@ -24,6 +25,7 @@ export default function EditOrderPage() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [purchaseOrderRequired, setPurchaseOrderRequired] = useState(false);
+    const [preservedMarkers, setPreservedMarkers] = useState('');
     const [showNewPartyModal, setShowNewPartyModal] = useState(false);
     const [showNewItemModal, setShowNewItemModal] = useState(false);
     const [pendingItemRowIndex, setPendingItemRowIndex] = useState<number | null>(null);
@@ -84,17 +86,23 @@ export default function EditOrderPage() {
             setItems(itemsData);
 
             const rawNotes = currentOrder.notes || '';
-            const poRequired = rawNotes.includes('[PO_REQUIRED:true]');
-            const cleanNotes = rawNotes.replace(/\[PO_REQUIRED:(true|false)\]/g, '').trim();
+            const { visible, internalBlock } = splitInternalNotes(rawNotes);
+            const poRequired = internalBlock.includes('[PO_REQUIRED:true]');
+            // Everything except PO_REQUIRED is preserved verbatim on save since it's
+            // not editable from this form (estimate/approval flags, work assignments,
+            // customer attachments, etc.) -- only the PO_REQUIRED line gets regenerated
+            // from the checkbox below.
+            const otherMarkers = internalBlock.replace(/\[PO_REQUIRED:(true|false)\]/g, '').trim();
 
             setFormData({
                 partyId: currentOrder.partyId,
                 date: currentOrder.date,
                 deliveryDate: currentOrder.deliveryDate || '',
                 taxRate: currentOrder.taxRate,
-                notes: cleanNotes
+                notes: visible
             });
             setPurchaseOrderRequired(poRequired);
+            setPreservedMarkers(otherMarkers);
 
             // Map order items to editable structure, preserving empty string values if they were deleted/cleared
             setOrderItems(currentOrder.items.map(item => ({
@@ -335,7 +343,7 @@ export default function EditOrderPage() {
                 taxRate: formData.taxRate,
                 taxAmount,
                 total,
-                notes: `${formData.notes}\n[PO_REQUIRED:${purchaseOrderRequired}]`.trim()
+                notes: [formData.notes, preservedMarkers, `[PO_REQUIRED:${purchaseOrderRequired}]`].filter(Boolean).join('\n').trim()
             };
 
             await db.orders.update(updatedOrder);

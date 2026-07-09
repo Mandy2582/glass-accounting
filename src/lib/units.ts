@@ -308,13 +308,14 @@ export function calculateLineMeasurement(input: {
     quantity?: number;
     unit?: string;
     conversionFactor?: number;
+    unitFallback?: Unit;
 }): {
     sqft: number;
     billingQuantity: number;
     billingUnit: Unit;
     billingLabel: string;
 } {
-    const unit = normalizeUnit(input.unit);
+    const unit = normalizeUnit(input.unit, input.unitFallback);
     const definition = getUnitDefinition(unit);
     const qty = Number(input.quantity) || 0;
     const dimensionSqft = calculateDimensionAreaSqft(Number(input.width) || 0, Number(input.height) || 0, qty);
@@ -349,6 +350,7 @@ export function calculateLineAmounts(input: {
     rate?: number;
     taxRate?: number;
     conversionFactor?: number;
+    unitFallback?: Unit;
 }): {
     sqft: number;
     billingQuantity: number;

@@ -18,17 +18,25 @@ export interface OrderWorkAssignment {
     paymentMode?: 'cash' | 'bank';
 }
 
-const markerStart = '[ORDER_WORK_ASSIGNMENTS:';
-const markerRegex = /\n?\[ORDER_WORK_ASSIGNMENTS:([\s\S]*?)\]/;
+const markerStart = '[ORDER_WORK_ASSIGNMENTS_B64:';
+const markerRegex = /\n?\[ORDER_WORK_ASSIGNMENTS_B64:([A-Za-z0-9+/=]*)\]/;
+
+function encodeAssignments(assignments: OrderWorkAssignment[]): string {
+    return Buffer.from(JSON.stringify(assignments), 'utf-8').toString('base64');
+}
+
+function decodeAssignments(encoded: string): OrderWorkAssignment[] {
+    const parsed = JSON.parse(Buffer.from(encoded, 'base64').toString('utf-8'));
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isValidAssignment);
+}
 
 export function parseOrderWorkAssignments(notes?: string): OrderWorkAssignment[] {
     const match = notes?.match(markerRegex);
     if (!match?.[1]) return [];
 
     try {
-        const parsed = JSON.parse(match[1]);
-        if (!Array.isArray(parsed)) return [];
-        return parsed.filter(isValidAssignment);
+        return decodeAssignments(match[1]);
     } catch {
         return [];
     }
@@ -36,7 +44,7 @@ export function parseOrderWorkAssignments(notes?: string): OrderWorkAssignment[]
 
 export function setOrderWorkAssignments(notes: string | undefined, assignments: OrderWorkAssignment[]): string {
     const cleanNotes = (notes || '').replace(markerRegex, '').trim();
-    const marker = `${markerStart}${JSON.stringify(assignments)}]`;
+    const marker = `${markerStart}${encodeAssignments(assignments)}]`;
     return [cleanNotes, marker].filter(Boolean).join('\n');
 }
 

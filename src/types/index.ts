@@ -380,8 +380,6 @@ export interface BusinessConfig {
 }
 
 export interface UnitPreferences {
-    defaultLengthUnit: Unit;
-    defaultAreaUnit: Unit;
     defaultCountUnit: Unit;
     defaultGlassBillingUnit: Unit;
     unknownUnitFallback: Unit;
