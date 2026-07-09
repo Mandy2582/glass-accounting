@@ -162,6 +162,78 @@ export async function analyzeWhatsAppImage(input: {
     }
 }
 
+// GlassDesigner.tsx's canvas (react-konva) uses 10 canvas units per inch --
+// e.g. its own createRectShape() does `width: widthIn * 10`. This isn't
+// exported from that (client-only, 'use client') component, so it's
+// duplicated here deliberately; keep in sync if that scale ever changes.
+const CANVAS_UNITS_PER_INCH = 10;
+const DEFAULT_HOLE_RADIUS_UNITS = 30; // matches GlassDesigner's manual "Add Hole" default
+const DEFAULT_CUT_SIZE_UNITS = 50; // matches GlassDesigner's manual "Add Cut" default
+
+type GeneratedShape = {
+    id: string;
+    type: 'glass_rect' | 'hole' | 'cut';
+    x: number;
+    y: number;
+    width?: number;
+    height?: number;
+    radius?: number;
+    parentId?: string;
+};
+
+// Builds an actual rectangle (plus placeholder holes/cuts) in the exact
+// format GlassDesigner's canvas reads back (GlassPiece.shapes: KonvaShape[]),
+// so a drawing extracted from a photo shows up as a real, editable drawing
+// instead of an empty canvas -- or worse, silently rendering as a circle
+// (see below). Returns [] when there's no width/height to draw from, in
+// which case the piece falls back to today's blank-canvas behavior.
+function buildPieceShapes(piece: { width?: number; height?: number; holes?: number; cuts?: number }): GeneratedShape[] {
+    const widthIn = Number(piece.width) || 0;
+    const heightIn = Number(piece.height) || 0;
+    if (widthIn <= 0 || heightIn <= 0) return [];
+
+    const rectId = generateUUID();
+    const rectX = 50;
+    const rectY = 50;
+    const rectWidth = widthIn * CANVAS_UNITS_PER_INCH;
+    const rectHeight = heightIn * CANVAS_UNITS_PER_INCH;
+    const shapes: GeneratedShape[] = [
+        { id: rectId, type: 'glass_rect', x: rectX, y: rectY, width: rectWidth, height: rectHeight },
+    ];
+
+    // Vision analysis only gives hole/cut counts, not positions -- space them
+    // evenly as a reasonable starting point. Staff still need to drag these
+    // to the actual hardware positions before production.
+    const holeCount = Math.max(0, Math.round(Number(piece.holes) || 0));
+    for (let i = 0; i < holeCount; i++) {
+        const fraction = (i + 1) / (holeCount + 1);
+        shapes.push({
+            id: generateUUID(),
+            type: 'hole',
+            x: rectX + rectWidth * fraction,
+            y: rectY + rectHeight / 2,
+            radius: DEFAULT_HOLE_RADIUS_UNITS,
+            parentId: rectId,
+        });
+    }
+
+    const cutCount = Math.max(0, Math.round(Number(piece.cuts) || 0));
+    for (let i = 0; i < cutCount; i++) {
+        const fraction = (i + 1) / (cutCount + 1);
+        shapes.push({
+            id: generateUUID(),
+            type: 'cut',
+            x: rectX + rectWidth * fraction - DEFAULT_CUT_SIZE_UNITS / 2,
+            y: rectY + rectHeight - DEFAULT_CUT_SIZE_UNITS,
+            width: DEFAULT_CUT_SIZE_UNITS,
+            height: DEFAULT_CUT_SIZE_UNITS,
+            parentId: rectId,
+        });
+    }
+
+    return shapes;
+}
+
 export function buildDesignDataFromImageAnalysis(analysis: WhatsAppImageAnalysis): {
     drawingData: DesignData;
     totalArea: number;
@@ -200,7 +272,15 @@ export function buildDesignDataFromImageAnalysis(analysis: WhatsAppImageAnalysis
             shapes: [],
             area,
             cost: 0,
-        };
+            // Not part of the strict DesignItem type, but the design editor's
+            // cost breakdown reads these extra fields (it treats items as
+            // `any[]`) -- without them a reopened draft shows 0 holes/cuts
+            // and quantity 1 regardless of what was actually extracted.
+            netArea: area,
+            holes: Number(piece.holes) || 0,
+            cuts: Number(piece.cuts) || 0,
+            quantity,
+        } as DesignItem;
     });
 
     const totalArea = roundCurrency(items.reduce((sum, item) => sum + item.area, 0));
@@ -237,6 +317,9 @@ export function buildDesignDataFromImageAnalysis(analysis: WhatsAppImageAnalysis
             cuts: Number(piece.cuts) || 0,
             hardwareNotes: piece.hardwareNotes || '',
             source: 'whatsapp-image',
+            // Real, editable canvas geometry -- empty array when there's no
+            // width/height to draw from, same as before in that case.
+            shapes: buildPieceShapes(piece),
         })),
     };
 
