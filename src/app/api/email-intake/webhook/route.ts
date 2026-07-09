@@ -146,7 +146,13 @@ async function createDraftFromEmailImage(
         fromPhone: email.fromAddress,
     });
 
-    if (analysis.classification === 'text_order' || (analysis.classification === 'mixed' && analysis.orderLines.length > 0)) {
+    // Only a clean text_order classification is trusted for catalogue
+    // matching. 'mixed' images (a drawing with scattered dimension/hardware
+    // annotations) previously matched here too -- but those annotation
+    // fragments ("hole for handle", "cut corner for hinge") fuzzy-match
+    // against unrelated hardware names and produce a wrong, priced order.
+    // Anything with real drawing content always goes to design review instead.
+    if (analysis.classification === 'text_order') {
         const orderText = [
             caption,
             analysis.extractedText,
