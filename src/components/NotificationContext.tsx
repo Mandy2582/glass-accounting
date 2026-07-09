@@ -49,14 +49,15 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             } catch {}
         }
 
-        // Apply read status from stored IDs
-        const processed = rawAlerts.map(alert => ({
-            ...alert,
-            read: currentReadIds.includes(alert.id)
-        }));
+        // Once read, a notification is dismissed from the panel entirely
+        // rather than left behind grayed-out -- the underlying situation
+        // (e.g. an order still awaiting approval) stays visible through its
+        // own page (Orders list, order detail banner), so nothing is
+        // actually lost by clearing it out of this transient feed.
+        const processed = rawAlerts.filter(alert => !currentReadIds.includes(alert.id));
 
         // Determine new alerts that should trigger toast notifications
-        // We only toast unread alerts that are warnings or errors and haven't been shown in the current session
+        // We only toast alerts that are warnings or errors and haven't been shown in the current session
         const prevSessionToasts = sessionStorage.getItem('agh_shown_toasts');
         let shownToasts: string[] = [];
         if (prevSessionToasts) {
@@ -67,7 +68,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
         const newToasts: AppNotification[] = [];
         processed.forEach(alert => {
-            if (!alert.read && !shownToasts.includes(alert.id) && (alert.severity === 'error' || alert.severity === 'warning')) {
+            if (!shownToasts.includes(alert.id) && (alert.severity === 'error' || alert.severity === 'warning')) {
                 if (newToasts.length < 3) newToasts.push(alert);
                 shownToasts.push(alert.id);
             }
@@ -115,17 +116,17 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             localStorage.setItem('agh_read_notifications', JSON.stringify(updatedRead));
         }
 
-        setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+        setNotifications(prev => prev.filter(n => n.id !== id));
     };
 
     const markAllAsRead = () => {
-        const allIds = notifications.map(n => n.id);
+        const allIds = Array.from(new Set([...readIds, ...notifications.map(n => n.id)]));
         setReadIds(allIds);
         localStorage.setItem('agh_read_notifications', JSON.stringify(allIds));
-        setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+        setNotifications([]);
     };
 
-    const unreadCount = notifications.filter(n => !n.read).length;
+    const unreadCount = notifications.length;
 
     return (
         <NotificationContext.Provider value={{
