@@ -8,7 +8,7 @@ import AutoLogout from '@/components/AutoLogout';
 import TallyBackgroundSync from '@/components/TallyBackgroundSync';
 import styles from '@/components/Layout.module.css';
 import { supabase } from '@/lib/supabase';
-import { AppRole, ROLE_LABELS, canAccessPath, getUserRole } from '@/lib/roles';
+import { AppRole, MODULE_LABELS, ROLE_LABELS, UserPermissions, canAccessPath, getUserPermissions, getUserRole, isAdminOnlyPath, moduleForPath } from '@/lib/roles';
 import { ShieldAlert } from 'lucide-react';
 
 import { NotificationProvider } from '@/components/NotificationContext';
@@ -22,7 +22,8 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     // Start with the sidebar collapsed so modules have full viewport width initially
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
     const [isCheckingSession, setIsCheckingSession] = useState(true);
-    const [role, setRole] = useState<AppRole>('normal');
+    const [role, setRole] = useState<AppRole>('manager');
+    const [permissions, setPermissions] = useState<UserPermissions>({});
 
     useEffect(() => {
         if (isPublicPage) {
@@ -41,6 +42,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             }
 
             setRole(getUserRole(session.user));
+            setPermissions(getUserPermissions(session.user));
             setIsCheckingSession(false);
         };
 
@@ -51,6 +53,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
                 router.replace('/login');
             } else {
                 setRole(getUserRole(session.user));
+                setPermissions(getUserPermissions(session.user));
                 setIsCheckingSession(false);
             }
         });
@@ -78,14 +81,16 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         );
     }
 
-    const hasPageAccess = canAccessPath(role, pathname);
+    const hasPageAccess = canAccessPath(role, permissions, pathname);
+    const blockedModule = moduleForPath(pathname);
+    const isSettingsPath = isAdminOnlyPath(pathname);
 
     return (
         <NotificationProvider>
             <div className={styles.layout}>
                 <AutoLogout />
                 {role === 'admin' && <TallyBackgroundSync />}
-                <Sidebar isCollapsed={isSidebarCollapsed} toggleSidebar={toggleSidebar} role={role} />
+                <Sidebar isCollapsed={isSidebarCollapsed} toggleSidebar={toggleSidebar} role={role} permissions={permissions} />
                 <div className={`${styles.mainContent} ${isSidebarCollapsed ? styles.mainContentCollapsed : ''}`}>
                     <Header toggleSidebar={toggleSidebar} isSidebarCollapsed={isSidebarCollapsed} role={role} />
                     <main className={styles.pageContent}>
@@ -96,9 +101,12 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
                                 </div>
                                 <div>
                                     <p className={styles.accessDeniedEyebrow}>Restricted Area</p>
-                                    <h1>Admin access required</h1>
+                                    <h1>{isSettingsPath ? 'Admin access required' : 'Access restricted'}</h1>
                                     <p>
-                                        Your current role is <strong>{ROLE_LABELS[role]}</strong>. This module contains sensitive accounting, employee, purchase, reporting, or system settings data, so it is available only to admin users.
+                                        Your current role is <strong>{ROLE_LABELS[role]}</strong>.{' '}
+                                        {isSettingsPath
+                                            ? 'System settings and user management are available only to admin users.'
+                                            : `Your role doesn't include access to ${blockedModule ? MODULE_LABELS[blockedModule] : 'this module'}. Ask an admin to grant it from Settings → Users & Roles if you need it.`}
                                     </p>
                                     <button className="btn btn-primary" onClick={() => router.replace('/dashboard')}>
                                         Go to Dashboard

@@ -30,7 +30,7 @@ import { useState } from 'react';
 import styles from './Layout.module.css';
 import { supabase } from '@/lib/supabase';
 import Image from 'next/image';
-import { AppRole, canAccessPath } from '@/lib/roles';
+import { AppRole, UserPermissions, canAccessPath } from '@/lib/roles';
 
 type NavItem = {
     label: string;
@@ -106,6 +106,7 @@ const sections: NavSection[] = [
         items: [
             { label: 'Tally Integration', href: '/tally-sync', icon: RefreshCw },
             { label: 'Settings', href: '/settings', icon: Settings },
+            { label: 'Users & Roles', href: '/settings/users', icon: Users },
         ],
     },
 ];
@@ -114,9 +115,10 @@ interface SidebarProps {
     isCollapsed: boolean;
     toggleSidebar: () => void;
     role: AppRole;
+    permissions: UserPermissions;
 }
 
-export default function Sidebar({ isCollapsed, toggleSidebar, role }: SidebarProps) {
+export default function Sidebar({ isCollapsed, toggleSidebar, role, permissions }: SidebarProps) {
     const pathname = usePathname();
     const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(() => {
         const initial: Record<string, boolean> = {};
@@ -146,7 +148,7 @@ export default function Sidebar({ isCollapsed, toggleSidebar, role }: SidebarPro
     const visibleSections = sections
         .map(section => ({
             ...section,
-            items: section.items.filter(item => canAccessPath(role, item.href)),
+            items: section.items.filter(item => canAccessPath(role, permissions, item.href)),
         }))
         .filter(section => section.items.length > 0);
 
