@@ -10,8 +10,9 @@ import {
 import { analyzeWhatsAppImage, buildDesignDataFromImageAnalysis, WhatsAppImageAnalysis } from '@/lib/whatsappVision';
 import { generateUUID } from '@/lib/utils';
 import { hasSufficientAvailableStock, withAvailableStock } from '@/lib/stockReservations';
-import { resolveImageOrderIntent, resolveOrderIntent } from '@/lib/orderIntent';
-import { withNeedsApproval, withOrderSource } from '@/lib/orderNotes';
+import { isAffirmativeReply, resolveImageOrderIntent, resolveOrderIntent } from '@/lib/orderIntent';
+import { findPendingConfirmationOrder, withNeedsApproval, withOrderSource } from '@/lib/orderNotes';
+import { approveAndInvoiceOrder } from '@/lib/orderQuotation';
 import type { CustomDesign, Order, Party } from '@/types';
 
 export const runtime = 'nodejs';
@@ -78,6 +79,24 @@ async function createOrderFromEmail(email: IncomingEmail) {
     }
 
     const body = email.text.trim();
+
+    // A quotation was already sent for a pending order from this address --
+    // if this message is just a short go-ahead, approve and invoice that
+    // order now instead of treating this reply as a new/separate order.
+    if (isAffirmativeReply(body)) {
+        const orders = await db.orders.getAll();
+        const pendingOrder = findPendingConfirmationOrder(orders, 'email', email.fromAddress);
+        if (pendingOrder) {
+            const { invoiceId } = await approveAndInvoiceOrder(pendingOrder);
+            return {
+                status: 'auto_approved_from_reply',
+                orderId: pendingOrder.id,
+                orderNumber: pendingOrder.number,
+                invoiceId,
+            };
+        }
+    }
+
     const firstImage = email.attachments.find(attachment => attachment.mimeType.startsWith('image/'));
 
     if (firstImage) {

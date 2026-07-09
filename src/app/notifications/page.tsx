@@ -4,8 +4,9 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useNotifications } from '@/components/NotificationContext';
 import { db } from '@/lib/storage';
-import { withApprovalCleared } from '@/lib/orderNotes';
-import { ArrowLeft, Bell, AlertCircle, AlertTriangle, Lightbulb, Package, Check, X, ArrowRight, Mail, Truck } from 'lucide-react';
+import { estimateSent } from '@/lib/orderNotes';
+import { approveAndInvoiceOrder, sendQuotationForOrder } from '@/lib/orderQuotation';
+import { ArrowLeft, Bell, AlertCircle, AlertTriangle, Lightbulb, Package, Check, X, Send, ArrowRight, Mail, Truck } from 'lucide-react';
 import Link from 'next/link';
 
 export default function NotificationsHubPage() {
@@ -23,6 +24,31 @@ export default function NotificationsHubPage() {
         setFilteredNotifications(result);
     }, [notifications, activeFilter]);
 
+    const sendQuotation = async (notificationId: string, orderId: string) => {
+        setActioningId(notificationId);
+        try {
+            const orders = await db.orders.getAll();
+            const order = orders.find(o => o.id === orderId);
+            if (!order) {
+                alert('This order could not be found -- it may have already been approved or rejected.');
+                await refresh();
+                return;
+            }
+            const result = await sendQuotationForOrder(order);
+            if (!result.ok) {
+                alert(result.reason);
+                return;
+            }
+            await refresh();
+            alert('Quotation sent. This order will auto-approve if the customer replies "OK", or you can approve/reject it manually here.');
+        } catch (error) {
+            console.error('Failed to send quotation:', error);
+            alert('Failed to send the quotation. Please try again.');
+        } finally {
+            setActioningId(null);
+        }
+    };
+
     const approveOrder = async (notificationId: string, orderId: string) => {
         setActioningId(notificationId);
         try {
@@ -33,7 +59,7 @@ export default function NotificationsHubPage() {
                 await refresh();
                 return;
             }
-            await db.orders.update({ ...order, notes: withApprovalCleared(order.notes) });
+            await approveAndInvoiceOrder(order);
             markAsRead(notificationId);
             await refresh();
             router.push(`/orders/${orderId}`);
@@ -240,18 +266,33 @@ export default function NotificationsHubPage() {
                                 )}
                                 {n.type === 'order_approval' && n.orderId ? (
                                     <>
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                void approveOrder(n.id, n.orderId);
-                                            }}
-                                            disabled={actioningId === n.id}
-                                            className="btn btn-primary"
-                                            style={{ padding: '0.45rem 0.75rem', fontSize: '0.75rem', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
-                                        >
-                                            <Check size={14} />
-                                            Approve
-                                        </button>
+                                        {n.estimateSent ? (
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    void approveOrder(n.id, n.orderId);
+                                                }}
+                                                disabled={actioningId === n.id}
+                                                className="btn btn-primary"
+                                                style={{ padding: '0.45rem 0.75rem', fontSize: '0.75rem', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                                            >
+                                                <Check size={14} />
+                                                Approve Now
+                                            </button>
+                                        ) : (
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    void sendQuotation(n.id, n.orderId);
+                                                }}
+                                                disabled={actioningId === n.id}
+                                                className="btn btn-primary"
+                                                style={{ padding: '0.45rem 0.75rem', fontSize: '0.75rem', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                                            >
+                                                <Send size={14} />
+                                                Send Quotation
+                                            </button>
+                                        )}
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();

@@ -52,6 +52,36 @@ export function withApprovalCleared(notes: string | undefined): string {
     return (notes || '').replace(/\n?\[NEEDS_APPROVAL:(true|false)\]/g, '').trim();
 }
 
+export function estimateSent(notes: string | undefined): boolean {
+    return (notes || '').includes('[ESTIMATE_SENT:true]');
+}
+
+export function withEstimateApproved(notes: string): string {
+    return notes.includes('[ESTIMATE_APPROVED:true]') ? notes : [notes, '[ESTIMATE_APPROVED:true]'].filter(Boolean).join('\n');
+}
+
+// WhatsApp/email orders now require a quotation to be sent (and, in
+// practice, a clear customer go-ahead) before they can be approved. Finds
+// the most recent order still awaiting that confirmation from a given
+// sender, matched via the raw "WhatsApp From:"/"Email From:" line already
+// present in every intake-created order's notes -- avoids a separate party
+// lookup and naturally scopes to the right conversation thread.
+export function findPendingConfirmationOrder<T extends { notes?: string; date: string }>(
+    orders: T[],
+    source: OrderSource,
+    senderIdentifierText: string
+): T | undefined {
+    if (!senderIdentifierText) return undefined;
+    const candidates = orders.filter(order => {
+        const notes = order.notes || '';
+        return getOrderSource(notes) === source
+            && needsApproval(notes)
+            && estimateSent(notes)
+            && notes.includes(senderIdentifierText);
+    });
+    return candidates.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+}
+
 // Markers are always appended after free-text notes, never interleaved, so the
 // first marker's start position marks the boundary. We split there instead of
 // stripping each marker with its own regex, since several carry embedded JSON/

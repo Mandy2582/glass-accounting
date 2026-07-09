@@ -18,7 +18,8 @@ import {
     OrderWorkType,
     setOrderWorkAssignments,
 } from '@/lib/orderWork';
-import { getOrderSource, needsApproval, withApprovalCleared } from '@/lib/orderNotes';
+import { estimateSent, getOrderSource, needsApproval } from '@/lib/orderNotes';
+import { approveAndInvoiceOrder, sendQuotationForOrder } from '@/lib/orderQuotation';
 
 const isCustomDesignOrderItem = (item: InvoiceItem): boolean => {
     return item.sourceType === 'design' || !!item.designId || !!item.designPieceId;
@@ -113,6 +114,7 @@ export default function OrderDetailPage() {
     const [linkedDesigns, setLinkedDesigns] = useState<CustomDesign[]>([]);
     const [orderParty, setOrderParty] = useState<Party | null>(null);
     const [loading, setLoading] = useState(true);
+    const [sendingQuotation, setSendingQuotation] = useState(false);
 
     // Modals
     const [showPOModal, setShowPOModal] = useState(false);
@@ -365,10 +367,29 @@ export default function OrderDetailPage() {
         alert('Delivery recorded successfully!');
     };
 
+    const handleSendQuotation = async () => {
+        if (!order) return;
+        setSendingQuotation(true);
+        try {
+            const result = await sendQuotationForOrder(order);
+            if (!result.ok) {
+                alert(result.reason);
+                return;
+            }
+            loadOrder();
+            alert('Quotation sent. This order will auto-approve if the customer replies "OK", or you can approve/reject it manually here.');
+        } catch (error) {
+            console.error('Failed to send quotation:', error);
+            alert('Failed to send the quotation. Please try again.');
+        } finally {
+            setSendingQuotation(false);
+        }
+    };
+
     const handleApproveOrder = async () => {
         if (!order) return;
         try {
-            await db.orders.update({ ...order, notes: withApprovalCleared(order.notes) });
+            await approveAndInvoiceOrder(order);
             loadOrder();
         } catch (error) {
             console.error('Failed to approve order:', error);
@@ -1023,7 +1044,11 @@ export default function OrderDetailPage() {
                         ? 'Quotation estimate sent to customer.'
                         : needsManualReview ? 'Provide the quotation/estimate details to the customer for pricing approval.' : 'Review order details before dispatch.',
                     status: isEstimateSent || !needsManualReview ? 'completed' : 'current',
-                    action: !isEstimateSent && needsManualReview && (
+                    // While this order is still gated behind the WhatsApp/email
+                    // approval banner above, that banner (and its own Send
+                    // Quotation action) is authoritative -- don't also show
+                    // this wizard's duplicate quotation step.
+                    action: !isEstimateSent && needsManualReview && !needsApproval(order.notes) && (
                         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                             <button onClick={() => handleWhatsAppShare(false)} className="btn" style={{ fontSize: '0.875rem', padding: '0.5rem 1rem', background: '#25D366', border: 'none', color: 'white', cursor: 'pointer' }}>
                                 Share WhatsApp
@@ -1041,7 +1066,7 @@ export default function OrderDetailPage() {
                     title: '2. Approve Order (Stock)',
                     description: isApproved ? 'Order approved to fulfill from existing inventory.' : 'Approve order details to fulfill from inventory catalog.',
                     status: isApproved ? 'completed' : ((isEstimateSent || !needsManualReview) ? 'current' : 'upcoming'),
-                    action: !isApproved && (isEstimateSent || !needsManualReview) && (
+                    action: !isApproved && (isEstimateSent || !needsManualReview) && !needsApproval(order.notes) && (
                         <div style={{ display: 'flex', gap: '0.5rem' }}>
                             <button
                                 onClick={async () => {
@@ -1254,17 +1279,27 @@ export default function OrderDetailPage() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
                         <div>
                             <div style={{ fontWeight: 700, color: '#92400e' }}>
-                                Awaiting Approval -- {getOrderSource(order.notes) === 'whatsapp' ? 'WhatsApp' : 'Email'} order
+                                {estimateSent(order.notes) ? 'Awaiting Customer Confirmation -- ' : 'Awaiting Approval -- '}
+                                {getOrderSource(order.notes) === 'whatsapp' ? 'WhatsApp' : 'Email'} order
                             </div>
                             <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
-                                This order was auto-created and is hidden from the Orders list until you approve it. Review the items below, then approve to make it a real order, or reject to discard it entirely.
+                                {estimateSent(order.notes)
+                                    ? 'Quotation sent. It will auto-approve (and convert to invoice) if the customer replies "OK", or you can approve/reject it manually below.'
+                                    : 'This order was auto-created and is hidden from the Orders list until approved. Review the items below, then send a quotation before it can be approved.'}
                             </div>
                         </div>
                         <div style={{ display: 'flex', gap: '0.75rem' }}>
-                            <button onClick={handleApproveOrder} className="btn btn-primary" style={{ background: '#10b981', border: 'none' }}>
-                                <CheckCircle size={16} style={{ marginRight: '0.25rem' }} />
-                                Approve
-                            </button>
+                            {estimateSent(order.notes) ? (
+                                <button onClick={handleApproveOrder} className="btn btn-primary" style={{ background: '#10b981', border: 'none' }}>
+                                    <CheckCircle size={16} style={{ marginRight: '0.25rem' }} />
+                                    Approve Now
+                                </button>
+                            ) : (
+                                <button onClick={handleSendQuotation} disabled={sendingQuotation} className="btn btn-primary" style={{ background: '#2563eb', border: 'none' }}>
+                                    <CreditCard size={16} style={{ marginRight: '0.25rem' }} />
+                                    {sendingQuotation ? 'Sending...' : 'Send Quotation'}
+                                </button>
+                            )}
                             <button onClick={handleRejectOrder} className="btn" style={{ background: 'white', border: '1px solid #dc2626', color: '#dc2626' }}>
                                 Reject & Delete
                             </button>

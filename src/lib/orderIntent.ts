@@ -178,3 +178,16 @@ export function resolveImageOrderIntent(input: {
 
     return { isOrderRelated: false, reason: 'Vision model could not classify the image as order-related.' };
 }
+
+// Deliberately conservative: auto-approving an order also converts it to an
+// invoice (real stock deduction, real billing document), so this only fires
+// for a message that IS essentially just a short go-ahead -- not "yes but
+// change the quantity" or a longer reply that happens to contain "ok"
+// somewhere. Anything else falls through to normal staff review.
+const AFFIRMATIVE_REPLY_PATTERN = /^(ok(ay)?|yes|yeah|yep|sure|confirm(ed)?|approved?|go\s*ahead|sounds?\s*good|proceed|please\s*proceed|fine|done|good|great|perfect|alright)[\s!.,]*$/i;
+
+export function isAffirmativeReply(text: string): boolean {
+    const trimmed = (text || '').trim();
+    if (!trimmed || trimmed.length > 40) return false;
+    return AFFIRMATIVE_REPLY_PATTERN.test(trimmed);
+}

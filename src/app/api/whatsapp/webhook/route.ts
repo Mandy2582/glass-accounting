@@ -10,8 +10,9 @@ import {
 import { analyzeWhatsAppImage, buildDesignDataFromImageAnalysis, WhatsAppImageAnalysis } from '@/lib/whatsappVision';
 import { generateUUID } from '@/lib/utils';
 import { hasSufficientAvailableStock, withAvailableStock } from '@/lib/stockReservations';
-import { resolveImageOrderIntent, resolveOrderIntent } from '@/lib/orderIntent';
-import { withNeedsApproval, withOrderSource } from '@/lib/orderNotes';
+import { isAffirmativeReply, resolveImageOrderIntent, resolveOrderIntent } from '@/lib/orderIntent';
+import { findPendingConfirmationOrder, withNeedsApproval, withOrderSource } from '@/lib/orderNotes';
+import { approveAndInvoiceOrder } from '@/lib/orderQuotation';
 import type { CustomDesign, Order, Party } from '@/types';
 
 export const runtime = 'nodejs';
@@ -148,6 +149,24 @@ async function createOrderFromWhatsAppEvent(event: WhatsAppMessageEvent) {
             orderId: duplicate.id,
             orderNumber: duplicate.number,
         };
+    }
+
+    // A quotation was already sent for a pending order from this number --
+    // if this message is just a short go-ahead, approve and invoice that
+    // order now instead of treating this reply as a new/separate order.
+    if (isAffirmativeReply(body)) {
+        const orders = await db.orders.getAll();
+        const pendingOrder = findPendingConfirmationOrder(orders, 'whatsapp', event.message.from);
+        if (pendingOrder) {
+            const { invoiceId } = await approveAndInvoiceOrder(pendingOrder);
+            return {
+                messageId,
+                status: 'auto_approved_from_reply',
+                orderId: pendingOrder.id,
+                orderNumber: pendingOrder.number,
+                invoiceId,
+            };
+        }
     }
 
     if (event.message.type === 'image') {

@@ -410,6 +410,10 @@ export interface AppNotification {
     // Set when type === 'order_approval' -- the Notifications page renders
     // Approve/Reject buttons targeting this order instead of plain nav links.
     orderId?: string;
+    // Whether a quotation has already been sent for this order -- determines
+    // whether the Notifications page shows "Send Quotation" (required first)
+    // or "Approve Now" (which also converts the order to an invoice).
+    estimateSent?: boolean;
     details?: {
         label: string;
         value: string;

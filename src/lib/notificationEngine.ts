@@ -1,7 +1,7 @@
 import { db, designsDb } from './storage';
 import { AppNotification, CustomDesign, Invoice, Order, Party, Voucher } from '@/types';
 import { getOrderWorkSummary, getWorkTypeLabel } from './orderWork';
-import { getOrderSource, needsApproval } from './orderNotes';
+import { estimateSent, getOrderSource, needsApproval } from './orderNotes';
 
 /**
  * Evaluate all business rules and generate actionable alerts & insights
@@ -108,17 +108,23 @@ export async function evaluateNotifications(): Promise<AppNotification[]> {
             if (orderNeedsApproval) {
                 const intake = getOrderApprovalDetails(order);
                 const sourceLabel = intake.source === 'whatsapp' ? 'WhatsApp' : intake.source === 'email' ? 'Email' : 'Online';
+                const alreadySent = estimateSent(order.notes);
                 notifications.push({
                     id: `order-approval-${order.id}`,
-                    title: intake.hasItems ? `New ${sourceLabel} Order Ready to Review` : `New ${sourceLabel} Order Needs Item Review`,
-                    message: intake.hasItems
-                        ? `${intake.from || order.partyName} sent an order via ${sourceLabel}. ${order.items.length} item${order.items.length === 1 ? '' : 's'} were filled automatically. Approve to add it to Orders, or reject to discard.`
-                        : `${intake.from || order.partyName} sent an order via ${sourceLabel}, but items need staff review. Approve to add it to Orders, or reject to discard.`,
+                    title: alreadySent
+                        ? `${sourceLabel} Order Awaiting Customer Confirmation`
+                        : intake.hasItems ? `New ${sourceLabel} Order Ready to Review` : `New ${sourceLabel} Order Needs Item Review`,
+                    message: alreadySent
+                        ? `Quotation sent to ${intake.from || order.partyName} for order ${order.number}. It will auto-approve (and convert to invoice) if they reply "OK", or approve/reject it here yourself.`
+                        : intake.hasItems
+                            ? `${intake.from || order.partyName} sent an order via ${sourceLabel}. ${order.items.length} item${order.items.length === 1 ? '' : 's'} were filled automatically. Send a quotation before this can be approved.`
+                            : `${intake.from || order.partyName} sent an order via ${sourceLabel}, but items need staff review. Fill in the items, then send a quotation before this can be approved.`,
                     type: 'order_approval',
                     severity: intake.hasItems ? 'warning' : 'error',
                     timestamp: order.date,
                     read: false,
                     orderId: order.id,
+                    estimateSent: alreadySent,
                     link: '/notifications',
                     secondaryLink: `/orders/${order.id}/edit`,
                     secondaryActionLabel: 'Review & Edit First',
