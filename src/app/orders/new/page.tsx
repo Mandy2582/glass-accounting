@@ -18,6 +18,7 @@ import { calculateComplexity } from '@/lib/designCalculations';
 import { generateUUID, roundCurrency } from '@/lib/utils';
 import { createOrderItemsFromDesign } from '@/lib/orderDesignItems';
 import { calculateLineAmounts, convertRateForItemUnit, getUnitOptionsForItem } from '@/lib/units';
+import { withOrderSource } from '@/lib/orderNotes';
 
 export default function NewOrderPage() {
     const router = useRouter();
@@ -562,7 +563,7 @@ export default function NewOrderPage() {
             const soNumber = await db.orders.generateNextOrderNumber('sale_order');
             const saleOrderId = crypto.randomUUID();
 
-            let notesWithSupplier = formData.notes.trim();
+            let notesWithSupplier = withOrderSource(formData.notes.trim(), 'manual');
             if (finalRequiresDesign && selectedSupplierId) {
                 notesWithSupplier += `\n[PREFERRED_SUPPLIER_ID:${selectedSupplierId}]`;
             }

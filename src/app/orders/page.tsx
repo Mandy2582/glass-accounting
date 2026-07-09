@@ -5,6 +5,7 @@ import { Plus, Package, Truck, CheckCircle, XCircle, ArrowRight, Search } from '
 import { db } from '@/lib/storage';
 import { Order, Party } from '@/types';
 import Link from 'next/link';
+import { getOrderSource, needsApproval } from '@/lib/orderNotes';
 
 type ViewMode = 'tabs' | 'grouped';
 type TabType = 'sale_order' | 'purchase_order' | 'all';
@@ -59,10 +60,9 @@ export default function OrdersPage() {
         return line ? line.slice(line.indexOf(':') + 1).trim() : '';
     };
 
-    const getOrderSource = (order: Order | null | undefined) => {
-        const source = getOrderNoteValue(order, 'Source');
-        if (source) return source;
-        return order?.notes?.toLowerCase().includes('online') ? 'Online' : 'Staff';
+    const getOrderSourceLabel = (order: Order | null | undefined) => {
+        const labels: Record<string, string> = { online: 'Online', whatsapp: 'WhatsApp', email: 'Email', manual: 'Staff' };
+        return labels[getOrderSource(order?.notes)] || 'Staff';
     };
 
     const hasPaymentConfirmation = (order: Order | null | undefined) => {
@@ -134,13 +134,22 @@ export default function OrdersPage() {
         // Apply filters & search
         return list.filter(item => {
             const orderForSignals = item.saleOrder || item.purchaseOrder;
+            const awaitingApproval = needsApproval(orderForSignals?.notes);
+
+            // WhatsApp/email intake orders are auto-parsed guesses -- keep them
+            // out of the default view (and every other status filter) until a
+            // human approves them via the Notifications page. They're only
+            // visible when "Awaiting Approval" is explicitly selected.
+            if (filterStatus === 'awaiting_approval') return awaitingApproval;
+            if (awaitingApproval) return false;
+
             const matchesStatus = filterStatus === 'all'
                 || (filterStatus === 'payment_confirmation' ? hasPaymentConfirmation(orderForSignals) : item.status === filterStatus);
-            const matchesSearch = search === '' || 
-                (item.generalNumber || '').toLowerCase().includes(search.toLowerCase()) || 
-                (item.soNumber || '').toLowerCase().includes(search.toLowerCase()) || 
-                (item.poNumber || '').toLowerCase().includes(search.toLowerCase()) || 
-                (item.customerName || '').toLowerCase().includes(search.toLowerCase()) || 
+            const matchesSearch = search === '' ||
+                (item.generalNumber || '').toLowerCase().includes(search.toLowerCase()) ||
+                (item.soNumber || '').toLowerCase().includes(search.toLowerCase()) ||
+                (item.poNumber || '').toLowerCase().includes(search.toLowerCase()) ||
+                (item.customerName || '').toLowerCase().includes(search.toLowerCase()) ||
                 (item.supplierName || '').toLowerCase().includes(search.toLowerCase());
             return matchesStatus && matchesSearch;
         }).sort((a, b) => {
@@ -149,6 +158,8 @@ export default function OrdersPage() {
             return timeB - timeA;
         });
     })();
+
+    const pendingApprovalCount = orders.filter(o => o.type === 'sale_order' && needsApproval(o.notes)).length;
 
     const renderStatusDots = (status: string) => {
         const progress = getStatusProgress(status);
@@ -203,6 +214,7 @@ export default function OrdersPage() {
                     style={{ width: 'auto' }}
                 >
                     <option value="all">All Statuses</option>
+                    <option value="awaiting_approval">Awaiting Approval{pendingApprovalCount > 0 ? ` (${pendingApprovalCount})` : ''}</option>
                     <option value="payment_confirmation">Payment Confirmations</option>
                     <option value="pending">Pending</option>
                     <option value="supplier_ordered">Supplier Ordered</option>
@@ -211,6 +223,15 @@ export default function OrdersPage() {
                     <option value="completed">Completed</option>
                     <option value="cancelled">Cancelled</option>
                 </select>
+                {pendingApprovalCount > 0 && filterStatus !== 'awaiting_approval' && (
+                    <button
+                        className="btn"
+                        onClick={() => setFilterStatus('awaiting_approval')}
+                        style={{ background: '#fef3c7', border: '1px solid #f59e0b', color: '#92400e', fontSize: '0.8rem', fontWeight: 700 }}
+                    >
+                        {pendingApprovalCount} order{pendingApprovalCount === 1 ? '' : 's'} awaiting approval
+                    </button>
+                )}
             </div>
 
             {loading ? (
@@ -242,16 +263,21 @@ export default function OrdersPage() {
                                     <td style={{ fontWeight: 600, color: 'var(--color-primary)' }}>{item.soNumber || '-'}</td>
                                     <td style={{ fontWeight: 600, color: '#e0465e' }}>{item.poNumber || '-'}</td>
                                     <td>
-                                        <span style={{
-                                            padding: '0.25rem 0.5rem',
-                                            borderRadius: '999px',
-                                            fontSize: '0.72rem',
-                                            fontWeight: 700,
-                                            background: getOrderSource(item.saleOrder || item.purchaseOrder).toLowerCase().includes('online') ? 'rgba(14, 165, 233, 0.14)' : 'rgba(148, 163, 184, 0.14)',
-                                            color: getOrderSource(item.saleOrder || item.purchaseOrder).toLowerCase().includes('online') ? '#0284c7' : 'var(--color-text-muted)'
-                                        }}>
-                                            {getOrderSource(item.saleOrder || item.purchaseOrder)}
-                                        </span>
+                                        {(() => {
+                                            const sourceColors: Record<string, { bg: string; color: string }> = {
+                                                Online: { bg: 'rgba(14, 165, 233, 0.14)', color: '#0284c7' },
+                                                WhatsApp: { bg: 'rgba(37, 211, 102, 0.16)', color: '#0f8a3f' },
+                                                Email: { bg: 'rgba(99, 102, 241, 0.14)', color: '#4338ca' },
+                                                Staff: { bg: 'rgba(148, 163, 184, 0.14)', color: 'var(--color-text-muted)' },
+                                            };
+                                            const label = getOrderSourceLabel(item.saleOrder || item.purchaseOrder);
+                                            const { bg, color } = sourceColors[label] || sourceColors.Staff;
+                                            return (
+                                                <span style={{ padding: '0.25rem 0.5rem', borderRadius: '999px', fontSize: '0.72rem', fontWeight: 700, background: bg, color }}>
+                                                    {label}
+                                                </span>
+                                            );
+                                        })()}
                                     </td>
                                     <td>{item.customerName || '-'}</td>
                                     <td>{item.supplierName || '-'}</td>

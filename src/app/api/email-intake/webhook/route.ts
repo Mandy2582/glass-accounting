@@ -11,6 +11,7 @@ import { analyzeWhatsAppImage, buildDesignDataFromImageAnalysis, WhatsAppImageAn
 import { generateUUID } from '@/lib/utils';
 import { hasSufficientAvailableStock, withAvailableStock } from '@/lib/stockReservations';
 import { resolveImageOrderIntent, resolveOrderIntent } from '@/lib/orderIntent';
+import { withNeedsApproval, withOrderSource } from '@/lib/orderNotes';
 import type { CustomDesign, Order, Party } from '@/types';
 
 export const runtime = 'nodejs';
@@ -249,7 +250,7 @@ async function saveEmailOrder(input: {
         taxAmount: totals.taxAmount,
         total: totals.total,
         status: 'pending',
-        notes: [
+        notes: withNeedsApproval(withOrderSource([
             `Created automatically from ${input.source}.`,
             `Email Message ID: ${input.email.messageId}`,
             `Email From: ${input.email.fromName ? `${input.email.fromName} <${input.email.fromAddress}>` : input.email.fromAddress}`,
@@ -260,7 +261,7 @@ async function saveEmailOrder(input: {
             '',
             'Parsed rows:',
             summarizeParsedWhatsAppLines(input.parsedLines),
-        ].filter(Boolean).join('\n'),
+        ].filter(Boolean).join('\n'), 'email')),
         paidAmount: 0,
         paymentStatus: 'unpaid',
     };
@@ -300,7 +301,7 @@ async function createReviewOrderForEmailText(
         taxAmount: 0,
         total: 0,
         status: 'pending',
-        notes: [
+        notes: withNeedsApproval(withOrderSource([
             'Created from emailed order text for staff review.',
             `Email Message ID: ${email.messageId}`,
             `Email From: ${email.fromName ? `${email.fromName} <${email.fromAddress}>` : email.fromAddress}`,
@@ -312,7 +313,7 @@ async function createReviewOrderForEmailText(
             'Parsed rows:',
             summarizeParsedWhatsAppLines(parsedLines),
             stockNote,
-        ].filter(Boolean).join('\n'),
+        ].filter(Boolean).join('\n'), 'email')),
         paidAmount: 0,
         paymentStatus: 'unpaid',
     };
@@ -345,7 +346,7 @@ async function createReviewOrderForEmailImage(
         taxAmount: 0,
         total: 0,
         status: 'pending',
-        notes: [
+        notes: withNeedsApproval(withOrderSource([
             'Created from emailed image/drawing for manual design review.',
             `Email Message ID: ${email.messageId}`,
             `Email From: ${email.fromName ? `${email.fromName} <${email.fromAddress}>` : email.fromAddress}`,
@@ -355,7 +356,7 @@ async function createReviewOrderForEmailImage(
             caption ? `Caption:\n${caption}` : '',
             analysis.extractedText ? `Extracted text:\n${analysis.extractedText}` : '',
             analysis.drawing.notes ? `Drawing notes:\n${analysis.drawing.notes}` : '',
-        ].filter(Boolean).join('\n\n'),
+        ].filter(Boolean).join('\n\n'), 'email')),
         paidAmount: 0,
         paymentStatus: 'unpaid',
     };

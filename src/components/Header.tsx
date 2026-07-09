@@ -22,7 +22,7 @@ export default function Header({ toggleSidebar, isSidebarCollapsed, role }: Head
         const style = { marginRight: '0.5rem', flexShrink: 0 };
         if (type === 'low_stock') return <Package size={16} style={{ ...style, color: severity === 'error' ? '#ef4444' : '#eab308' }} />;
         if (type === 'overdue_payment') return <AlertCircle size={16} style={{ ...style, color: severity === 'error' ? '#ef4444' : '#eab308' }} />;
-        if (type === 'email_order') return <Mail size={16} style={{ ...style, color: severity === 'error' ? '#ef4444' : '#2563eb' }} />;
+        if (type === 'order_approval') return <Mail size={16} style={{ ...style, color: severity === 'error' ? '#ef4444' : '#2563eb' }} />;
         if (type === 'operation') return <Truck size={16} style={{ ...style, color: severity === 'error' ? '#ef4444' : '#0f766e' }} />;
         if (type === 'pending_order') return <AlertTriangle size={16} style={{ ...style, color: '#eab308' }} />;
         return <Lightbulb size={16} style={{ ...style, color: '#3b82f6' }} />;

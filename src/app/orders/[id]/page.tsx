@@ -18,6 +18,7 @@ import {
     OrderWorkType,
     setOrderWorkAssignments,
 } from '@/lib/orderWork';
+import { getOrderSource, needsApproval, withApprovalCleared } from '@/lib/orderNotes';
 
 const isCustomDesignOrderItem = (item: InvoiceItem): boolean => {
     return item.sourceType === 'design' || !!item.designId || !!item.designPieceId;
@@ -362,6 +363,29 @@ export default function OrderDetailPage() {
         setShowDeliveryModal(false);
         loadOrder();
         alert('Delivery recorded successfully!');
+    };
+
+    const handleApproveOrder = async () => {
+        if (!order) return;
+        try {
+            await db.orders.update({ ...order, notes: withApprovalCleared(order.notes) });
+            loadOrder();
+        } catch (error) {
+            console.error('Failed to approve order:', error);
+            alert('Failed to approve this order. Please try again.');
+        }
+    };
+
+    const handleRejectOrder = async () => {
+        if (!order) return;
+        if (!confirm('Reject and delete this order? This cannot be undone.')) return;
+        try {
+            await db.orders.delete(order.id);
+            router.push('/orders');
+        } catch (error) {
+            console.error('Failed to reject order:', error);
+            alert('Failed to reject this order. Please try again.');
+        }
     };
 
     const handleCompleteOrder = async () => {
@@ -1224,6 +1248,30 @@ export default function OrderDetailPage() {
                     </div>
                 </div>
             </div>
+
+            {needsApproval(order.notes) && (
+                <div className="card" style={{ marginBottom: '1.5rem', padding: '1.25rem', border: '1px solid #f59e0b', background: 'rgba(254, 243, 199, 0.5)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                        <div>
+                            <div style={{ fontWeight: 700, color: '#92400e' }}>
+                                Awaiting Approval -- {getOrderSource(order.notes) === 'whatsapp' ? 'WhatsApp' : 'Email'} order
+                            </div>
+                            <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
+                                This order was auto-created and is hidden from the Orders list until you approve it. Review the items below, then approve to make it a real order, or reject to discard it entirely.
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.75rem' }}>
+                            <button onClick={handleApproveOrder} className="btn btn-primary" style={{ background: '#10b981', border: 'none' }}>
+                                <CheckCircle size={16} style={{ marginRight: '0.25rem' }} />
+                                Approve
+                            </button>
+                            <button onClick={handleRejectOrder} className="btn" style={{ background: 'white', border: '1px solid #dc2626', color: '#dc2626' }}>
+                                Reject & Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Timeline */}
             <div className="card" style={{ marginBottom: '1.5rem' }}>

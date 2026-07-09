@@ -10,7 +10,47 @@ export const INTERNAL_NOTE_MARKERS = [
     '[PREFERRED_SUPPLIER_ID:',
     '[CUSTOMER_ATTACHMENTS:',
     '[ORDER_WORK_ASSIGNMENTS_B64:',
+    '[ORDER_SOURCE:',
+    '[NEEDS_APPROVAL:',
 ] as const;
+
+export type OrderSource = 'online' | 'whatsapp' | 'email' | 'manual';
+
+// Where an order originated. Manual/online orders are trusted at creation
+// time (a staff member typed it, or a customer paid through checkout);
+// WhatsApp/email orders are auto-parsed guesses and get gated behind
+// needsApproval() below until a human confirms them.
+export function getOrderSource(notes: string | undefined): OrderSource {
+    const match = (notes || '').match(/\[ORDER_SOURCE:(online|whatsapp|email|manual)\]/);
+    if (match) return match[1] as OrderSource;
+
+    // Fallback for orders created before this marker existed. Check the most
+    // distinctive signals first -- a manual/online order can incidentally
+    // contain the word "email" (e.g. a customer's email address in checkout
+    // notes), so a bare includes('email') is not safe on its own.
+    const text = (notes || '').toLowerCase();
+    if (text.includes('whatsapp message id') || text.includes('whatsapp business webhook') || text.includes('whatsapp order text') || text.includes('whatsapp image')) return 'whatsapp';
+    if (text.includes('email message id') || text.includes('email intake') || text.includes('emailed order') || text.includes('emailed image')) return 'email';
+    if (text.includes('online')) return 'online';
+    return 'manual';
+}
+
+export function withOrderSource(notes: string, source: OrderSource): string {
+    return [notes, `[ORDER_SOURCE:${source}]`].filter(Boolean).join('\n');
+}
+
+export function needsApproval(notes: string | undefined): boolean {
+    return (notes || '').includes('[NEEDS_APPROVAL:true]');
+}
+
+export function withNeedsApproval(notes: string): string {
+    return [notes, '[NEEDS_APPROVAL:true]'].filter(Boolean).join('\n');
+}
+
+// Clears the approval gate (called when staff approves the order).
+export function withApprovalCleared(notes: string | undefined): string {
+    return (notes || '').replace(/\n?\[NEEDS_APPROVAL:(true|false)\]/g, '').trim();
+}
 
 // Markers are always appended after free-text notes, never interleaved, so the
 // first marker's start position marks the boundary. We split there instead of

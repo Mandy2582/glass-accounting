@@ -1,15 +1,19 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useNotifications } from '@/components/NotificationContext';
 import { db } from '@/lib/storage';
-import { ArrowLeft, Bell, AlertCircle, AlertTriangle, Lightbulb, Package, Check, ArrowRight, Mail, Truck } from 'lucide-react';
+import { withApprovalCleared } from '@/lib/orderNotes';
+import { ArrowLeft, Bell, AlertCircle, AlertTriangle, Lightbulb, Package, Check, X, ArrowRight, Mail, Truck } from 'lucide-react';
 import Link from 'next/link';
 
 export default function NotificationsHubPage() {
+    const router = useRouter();
     const { notifications, unreadCount, markAsRead, markAllAsRead, refresh } = useNotifications();
-    const [activeFilter, setActiveFilter] = useState<'all' | 'email_order' | 'operation' | 'pending_order' | 'overdue_payment' | 'low_stock' | 'insight'>('all');
+    const [activeFilter, setActiveFilter] = useState<'all' | 'order_approval' | 'operation' | 'pending_order' | 'overdue_payment' | 'low_stock' | 'insight'>('all');
     const [filteredNotifications, setFilteredNotifications] = useState<any[]>([]);
+    const [actioningId, setActioningId] = useState<string | null>(null);
 
     useEffect(() => {
         let result = [...notifications];
@@ -19,11 +23,48 @@ export default function NotificationsHubPage() {
         setFilteredNotifications(result);
     }, [notifications, activeFilter]);
 
+    const approveOrder = async (notificationId: string, orderId: string) => {
+        setActioningId(notificationId);
+        try {
+            const orders = await db.orders.getAll();
+            const order = orders.find(o => o.id === orderId);
+            if (!order) {
+                alert('This order could not be found -- it may have already been approved or rejected.');
+                await refresh();
+                return;
+            }
+            await db.orders.update({ ...order, notes: withApprovalCleared(order.notes) });
+            markAsRead(notificationId);
+            await refresh();
+            router.push(`/orders/${orderId}`);
+        } catch (error) {
+            console.error('Failed to approve order:', error);
+            alert('Failed to approve this order. Please try again.');
+        } finally {
+            setActioningId(null);
+        }
+    };
+
+    const rejectOrder = async (notificationId: string, orderId: string) => {
+        if (!confirm('Reject and delete this order? This cannot be undone.')) return;
+        setActioningId(notificationId);
+        try {
+            await db.orders.delete(orderId);
+            markAsRead(notificationId);
+            await refresh();
+        } catch (error) {
+            console.error('Failed to reject order:', error);
+            alert('Failed to reject this order. Please try again.');
+        } finally {
+            setActioningId(null);
+        }
+    };
+
     const getIcon = (type: string, severity: string) => {
         const style = { marginRight: '0.75rem', flexShrink: 0 };
         if (type === 'low_stock') return <Package size={22} style={{ ...style, color: severity === 'error' ? '#ef4444' : '#eab308' }} />;
         if (type === 'overdue_payment') return <AlertCircle size={22} style={{ ...style, color: severity === 'error' ? '#ef4444' : '#eab308' }} />;
-        if (type === 'email_order') return <Mail size={22} style={{ ...style, color: severity === 'error' ? '#ef4444' : '#2563eb' }} />;
+        if (type === 'order_approval') return <Mail size={22} style={{ ...style, color: severity === 'error' ? '#ef4444' : '#2563eb' }} />;
         if (type === 'operation') return <Truck size={22} style={{ ...style, color: severity === 'error' ? '#ef4444' : '#0f766e' }} />;
         if (type === 'pending_order') return <AlertTriangle size={22} style={{ ...style, color: '#eab308' }} />;
         return <Lightbulb size={22} style={{ ...style, color: '#3b82f6' }} />;
@@ -96,7 +137,7 @@ export default function NotificationsHubPage() {
                     style={{ width: '220px' }}
                 >
                     <option value="all">All notifications</option>
-                    <option value="email_order">Email orders</option>
+                    <option value="order_approval">New orders (needs approval)</option>
                     <option value="operation">Operations</option>
                     <option value="pending_order">Pending orders</option>
                     <option value="overdue_payment">Overdue payments</option>
@@ -197,7 +238,34 @@ export default function NotificationsHubPage() {
                                         Mark Read
                                     </button>
                                 )}
-                                {n.link && (
+                                {n.type === 'order_approval' && n.orderId ? (
+                                    <>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                void approveOrder(n.id, n.orderId);
+                                            }}
+                                            disabled={actioningId === n.id}
+                                            className="btn btn-primary"
+                                            style={{ padding: '0.45rem 0.75rem', fontSize: '0.75rem', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                                        >
+                                            <Check size={14} />
+                                            Approve
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                void rejectOrder(n.id, n.orderId);
+                                            }}
+                                            disabled={actioningId === n.id}
+                                            className="btn"
+                                            style={{ padding: '0.45rem 0.75rem', fontSize: '0.75rem', whiteSpace: 'nowrap', background: 'white', border: '1px solid #fca5a5', color: '#dc2626', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                                        >
+                                            <X size={14} />
+                                            Reject
+                                        </button>
+                                    </>
+                                ) : n.link && (
                                     <Link
                                         href={n.link}
                                         onClick={(event) => {

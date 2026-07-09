@@ -399,7 +399,7 @@ export interface AppNotification {
     id: string;
     title: string;
     message: string;
-    type: 'insight' | 'pending_order' | 'email_order' | 'operation' | 'overdue_payment' | 'low_stock';
+    type: 'insight' | 'pending_order' | 'order_approval' | 'operation' | 'overdue_payment' | 'low_stock';
     severity: 'info' | 'warning' | 'error';
     timestamp: string;
     read: boolean;
@@ -407,6 +407,9 @@ export interface AppNotification {
     actionLabel?: string;
     secondaryLink?: string;
     secondaryActionLabel?: string;
+    // Set when type === 'order_approval' -- the Notifications page renders
+    // Approve/Reject buttons targeting this order instead of plain nav links.
+    orderId?: string;
     details?: {
         label: string;
         value: string;

@@ -1,6 +1,7 @@
 import { db, designsDb } from './storage';
 import { AppNotification, CustomDesign, Invoice, Order, Party, Voucher } from '@/types';
 import { getOrderWorkSummary, getWorkTypeLabel } from './orderWork';
+import { getOrderSource, needsApproval } from './orderNotes';
 
 /**
  * Evaluate all business rules and generate actionable alerts & insights
@@ -103,32 +104,35 @@ export async function evaluateNotifications(): Promise<AppNotification[]> {
                 });
             });
 
-            const emailIntake = getEmailIntakeDetails(order);
-            if (emailIntake) {
+            const orderNeedsApproval = needsApproval(order.notes);
+            if (orderNeedsApproval) {
+                const intake = getOrderApprovalDetails(order);
+                const sourceLabel = intake.source === 'whatsapp' ? 'WhatsApp' : intake.source === 'email' ? 'Email' : 'Online';
                 notifications.push({
-                    id: `email-order-${order.id}`,
-                    title: emailIntake.hasItems ? 'Email Order Ready to Review' : 'Email Order Needs Item Review',
-                    message: emailIntake.hasItems
-                        ? `${emailIntake.from || order.partyName} emailed an order. ${order.items.length} item${order.items.length === 1 ? '' : 's'} were filled automatically.`
-                        : `${emailIntake.from || order.partyName} emailed an order, but items need staff review before conversion.`,
-                    type: 'email_order',
-                    severity: emailIntake.hasItems ? 'warning' : 'error',
+                    id: `order-approval-${order.id}`,
+                    title: intake.hasItems ? `New ${sourceLabel} Order Ready to Review` : `New ${sourceLabel} Order Needs Item Review`,
+                    message: intake.hasItems
+                        ? `${intake.from || order.partyName} sent an order via ${sourceLabel}. ${order.items.length} item${order.items.length === 1 ? '' : 's'} were filled automatically. Approve to add it to Orders, or reject to discard.`
+                        : `${intake.from || order.partyName} sent an order via ${sourceLabel}, but items need staff review. Approve to add it to Orders, or reject to discard.`,
+                    type: 'order_approval',
+                    severity: intake.hasItems ? 'warning' : 'error',
                     timestamp: order.date,
                     read: false,
-                    link: `/orders/${order.id}/edit`,
-                    actionLabel: emailIntake.hasItems ? 'Review Order' : 'Fill Order',
-                    secondaryLink: `/orders/${order.id}`,
-                    secondaryActionLabel: 'View Details',
+                    orderId: order.id,
+                    link: '/notifications',
+                    secondaryLink: `/orders/${order.id}/edit`,
+                    secondaryActionLabel: 'Review & Edit First',
                     details: [
                         { label: 'Customer', value: order.partyName },
                         { label: 'Order', value: order.number },
                         { label: 'General No.', value: String(order.generalNumber || '-') },
-                        { label: 'From', value: emailIntake.from || '-' },
-                        { label: 'Subject', value: emailIntake.subject || '-' },
+                        { label: 'Source', value: sourceLabel },
+                        { label: 'From', value: intake.from || '-' },
+                        { label: 'Subject', value: intake.subject || '-' },
                         { label: 'Items Filled', value: `${order.items.length}` },
                         { label: 'Total', value: `₹${Number(order.total || 0).toLocaleString('en-IN')}` },
-                        { label: 'Email Message', value: emailIntake.originalMessage || '-' },
-                        { label: 'Parsed Rows', value: emailIntake.parsedRows || '-' },
+                        { label: 'Message', value: intake.originalMessage || '-' },
+                        { label: 'Parsed Rows', value: intake.parsedRows || '-' },
                     ].filter(detail => detail.value && detail.value !== '-')
                 });
             }
@@ -146,7 +150,9 @@ export async function evaluateNotifications(): Promise<AppNotification[]> {
                     || orderNotes.includes('Online site measurement request');
 
                 // Any order that is not completed or cancelled is pending
-                if (daysPending >= 0 && !emailIntake) {
+                // (orders still awaiting approval get their own notification
+                // above instead, and are hidden from Orders until approved).
+                if (daysPending >= 0 && !orderNeedsApproval) {
                     const roundedDays = Math.round(daysPending);
                     notifications.push({
                         id: `pending-order-${order.id}`,
@@ -347,18 +353,20 @@ export async function evaluateNotifications(): Promise<AppNotification[]> {
     return notifications;
 }
 
-function getEmailIntakeDetails(order: Order): {
+function getOrderApprovalDetails(order: Order): {
+    source: 'whatsapp' | 'email' | 'online' | 'manual';
     from: string;
     subject: string;
     originalMessage: string;
     parsedRows: string;
     hasItems: boolean;
-} | null {
+} {
     const notes = order.notes || '';
-    if (!notes.includes('Email Message ID:')) return null;
+    const source = getOrderSource(notes);
 
     return {
-        from: getNoteLine(notes, 'Email From'),
+        source,
+        from: getNoteLine(notes, source === 'whatsapp' ? 'WhatsApp From' : 'Email From'),
         subject: getNoteLine(notes, 'Subject'),
         originalMessage: getNoteBlock(notes, 'Original message:', 'Parsed rows:') || getNoteBlock(notes, 'Caption:', 'Extracted text:') || getNoteBlock(notes, 'Extracted text:', 'Drawing notes:'),
         parsedRows: getNoteBlock(notes, 'Parsed rows:'),
