@@ -10,6 +10,7 @@ import {
 import { analyzeWhatsAppImage, buildDesignDataFromImageAnalysis, WhatsAppImageAnalysis } from '@/lib/whatsappVision';
 import { generateUUID } from '@/lib/utils';
 import { hasSufficientAvailableStock, withAvailableStock } from '@/lib/stockReservations';
+import { resolveImageOrderIntent, resolveOrderIntent } from '@/lib/orderIntent';
 import type { CustomDesign, Order, Party } from '@/types';
 
 export const runtime = 'nodejs';
@@ -75,18 +76,30 @@ async function createOrderFromEmail(email: IncomingEmail) {
         return { status: 'duplicate', orderId: duplicate.id, orderNumber: duplicate.number };
     }
 
-    const parties = await db.parties.getAll();
-    const customer = await getOrCreateCustomer(email, parties);
     const body = email.text.trim();
     const firstImage = email.attachments.find(attachment => attachment.mimeType.startsWith('image/'));
 
     if (firstImage) {
-        return await createDraftFromEmailImage(email, customer, firstImage, body);
+        return await createDraftFromEmailImage(email, firstImage, body);
     }
 
     const items = await withAvailableStock(await db.items.getAll());
     const parsedLines = parseWhatsAppOrderText(body, items);
     const matchedLines = parsedLines.filter(line => line.item);
+
+    // No catalogue line matched at all -- before creating a customer + blank
+    // review order for what might just be ordinary business mail, check
+    // whether this even looks like an order.
+    if (!matchedLines.length) {
+        const intent = await resolveOrderIntent(body, email.subject);
+        if (!intent.isOrderRelated) {
+            console.log(`[email-intake] Ignoring non-order email from ${email.fromAddress}: ${intent.reason}`);
+            return { status: 'ignored_not_order', reason: intent.reason };
+        }
+    }
+
+    const parties = await db.parties.getAll();
+    const customer = await getOrCreateCustomer(email, parties);
     const stockShortLines = matchedLines.filter(line => !hasSufficientAvailableStock(line.item!, line.quantity, line.unit));
 
     if (!matchedLines.length || stockShortLines.length > 0) {
@@ -123,7 +136,6 @@ async function createOrderFromEmail(email: IncomingEmail) {
 
 async function createDraftFromEmailImage(
     email: IncomingEmail,
-    customer: Party,
     image: IncomingEmailAttachment,
     caption: string
 ) {
@@ -145,6 +157,8 @@ async function createDraftFromEmailImage(
         const stockShortLines = matchedLines.filter(line => !hasSufficientAvailableStock(line.item!, line.quantity, line.unit));
 
         if (matchedLines.length && stockShortLines.length === 0) {
+            const parties = await db.parties.getAll();
+            const customer = await getOrCreateCustomer(email, parties);
             const order = await saveEmailOrder({
                 customer,
                 email,
@@ -166,6 +180,8 @@ async function createDraftFromEmailImage(
         }
 
         if (matchedLines.length && stockShortLines.length > 0) {
+            const parties = await db.parties.getAll();
+            const customer = await getOrCreateCustomer(email, parties);
             const order = await createReviewOrderForEmailText(email, customer, orderText, parsedLines, stockShortLines);
             return {
                 status: 'stock_review_created',
@@ -178,6 +194,20 @@ async function createDraftFromEmailImage(
         }
     }
 
+    const intent = resolveImageOrderIntent({
+        classification: analysis.classification,
+        confidence: analysis.confidence,
+        caption,
+        extractedText: analysis.extractedText,
+    });
+
+    if (!intent.isOrderRelated) {
+        console.log(`[email-intake] Ignoring non-order image email from ${email.fromAddress}: ${intent.reason}`);
+        return { status: 'ignored_not_order', reason: intent.reason };
+    }
+
+    const parties = await db.parties.getAll();
+    const customer = await getOrCreateCustomer(email, parties);
     const order = await createReviewOrderForEmailImage(email, customer, analysis, caption);
     const design = await createDesignDraftForEmailImage(order, customer, analysis, email.messageId, caption);
 

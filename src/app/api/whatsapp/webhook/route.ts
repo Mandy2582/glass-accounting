@@ -10,6 +10,7 @@ import {
 import { analyzeWhatsAppImage, buildDesignDataFromImageAnalysis, WhatsAppImageAnalysis } from '@/lib/whatsappVision';
 import { generateUUID } from '@/lib/utils';
 import { hasSufficientAvailableStock, withAvailableStock } from '@/lib/stockReservations';
+import { resolveImageOrderIntent, resolveOrderIntent } from '@/lib/orderIntent';
 import type { CustomDesign, Order, Party } from '@/types';
 
 export const runtime = 'nodejs';
@@ -148,16 +149,27 @@ async function createOrderFromWhatsAppEvent(event: WhatsAppMessageEvent) {
         };
     }
 
-    const parties = await db.parties.getAll();
-    const customer = await getOrCreateCustomer(event, parties);
-
     if (event.message.type === 'image') {
-        return await createDraftFromWhatsAppImage(event, customer, body);
+        return await createDraftFromWhatsAppImage(event, body);
     }
 
     const items = await withAvailableStock(await db.items.getAll());
     const parsedLines = parseWhatsAppOrderText(body, items);
     const matchedLines = parsedLines.filter(line => line.item);
+
+    // No catalogue line matched at all -- before creating a customer + blank
+    // review order for what might just be a "hi"/"are you open" message,
+    // check whether this even looks like an order.
+    if (!matchedLines.length) {
+        const intent = await resolveOrderIntent(body);
+        if (!intent.isOrderRelated) {
+            console.log(`[whatsapp] Ignoring non-order message from ${event.message.from}: ${intent.reason}`);
+            return { messageId, status: 'ignored_not_order', reason: intent.reason };
+        }
+    }
+
+    const parties = await db.parties.getAll();
+    const customer = await getOrCreateCustomer(event, parties);
     const stockShortLines = matchedLines.filter(line => !hasSufficientAvailableStock(line.item!, line.quantity, line.unit));
 
     if (!matchedLines.length || stockShortLines.length > 0) {
@@ -195,7 +207,7 @@ async function createOrderFromWhatsAppEvent(event: WhatsAppMessageEvent) {
     };
 }
 
-async function createDraftFromWhatsAppImage(event: WhatsAppMessageEvent, customer: Party, caption: string) {
+async function createDraftFromWhatsAppImage(event: WhatsAppMessageEvent, caption: string) {
     const media = await downloadWhatsAppMedia(event.message.image?.id || '');
     const analysis = media
         ? await analyzeWhatsAppImage({
@@ -217,6 +229,8 @@ async function createDraftFromWhatsAppImage(event: WhatsAppMessageEvent, custome
         const stockShortLines = matchedLines.filter(line => !hasSufficientAvailableStock(line.item!, line.quantity, line.unit));
 
         if (matchedLines.length && stockShortLines.length > 0) {
+            const parties = await db.parties.getAll();
+            const customer = await getOrCreateCustomer(event, parties);
             const order = await createReviewOrderForWhatsAppText(event, customer, orderText, parsedLines, stockShortLines);
             return {
                 messageId: event.message.id,
@@ -230,6 +244,8 @@ async function createDraftFromWhatsAppImage(event: WhatsAppMessageEvent, custome
         }
 
         if (matchedLines.length) {
+            const parties = await db.parties.getAll();
+            const customer = await getOrCreateCustomer(event, parties);
             const order = await saveWhatsAppOrder({
                 customer,
                 messageId: event.message.id,
@@ -253,6 +269,20 @@ async function createDraftFromWhatsAppImage(event: WhatsAppMessageEvent, custome
         }
     }
 
+    const intent = resolveImageOrderIntent({
+        classification: analysis.classification,
+        confidence: analysis.confidence,
+        caption,
+        extractedText: analysis.extractedText,
+    });
+
+    if (!intent.isOrderRelated) {
+        console.log(`[whatsapp] Ignoring non-order image from ${event.message.from}: ${intent.reason}`);
+        return { messageId: event.message.id, status: 'ignored_not_order', reason: intent.reason };
+    }
+
+    const parties = await db.parties.getAll();
+    const customer = await getOrCreateCustomer(event, parties);
     const order = await createReviewOrderForImage(event, customer, analysis, caption);
     const design = await createDesignDraftForImage(order, customer, analysis, event.message.id, caption);
 
