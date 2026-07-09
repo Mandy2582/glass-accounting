@@ -167,8 +167,8 @@ export default function InventoryPage() {
     const totalItems = items.length;
     const lowStockCount = items.filter(item => {
         const stock = Number(item.stock) || 0;
-        const minStock = Number(item.minStock) || 10;
-        return stock < minStock;
+        const minStock = Number(item.minStock) || 0;
+        return minStock > 0 && stock < minStock;
     }).length;
 
     const hasActiveFilters = search !== '' ||
@@ -184,8 +184,8 @@ export default function InventoryPage() {
 
     const filteredLowStockCount = filteredItems.filter(item => {
         const stock = Number(item.stock) || 0;
-        const minStock = Number(item.minStock) || 10;
-        return stock < minStock;
+        const minStock = Number(item.minStock) || 0;
+        return minStock > 0 && stock < minStock;
     }).length;
 
     const [currentPage, setCurrentPage] = useState(1);
@@ -598,8 +598,8 @@ function renderStockDetails(item: GlassItem) {
                 <span style={{
                     padding: '0.25rem 0.5rem',
                     borderRadius: '999px',
-                    background: stock < (item.minStock || 10) ? '#fee2e2' : '#dcfce7',
-                    color: stock < (item.minStock || 10) ? '#ef4444' : '#166534',
+                    background: (item.minStock || 0) > 0 && stock < item.minStock! ? '#fee2e2' : '#dcfce7',
+                    color: (item.minStock || 0) > 0 && stock < item.minStock! ? '#ef4444' : '#166534',
                     fontSize: '0.75rem',
                     fontWeight: 600,
                     width: 'fit-content'
@@ -662,7 +662,7 @@ function renderStockDetails(item: GlassItem) {
     const sqm = totalSqft * 0.092903;
     const sqmm = totalSqft * 92903.04;
 
-    const isLow = stock < (item.minStock || 10);
+    const isLow = (item.minStock || 0) > 0 && stock < item.minStock!;
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', lineHeight: 1.3 }}>

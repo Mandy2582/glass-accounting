@@ -729,7 +729,7 @@ export const db = {
                 const totalPayables = purchaseInvoices.reduce((sum, inv) => sum + ((inv.total || 0) - (inv.paid_amount || 0)), 0);
 
                 const totalItems = items.length;
-                const lowStockItems = items.filter(item => (item.stock || 0) <= (item.min_stock || 0)).length;
+                const lowStockItems = items.filter(item => (item.min_stock || 0) > 0 && (item.stock || 0) <= item.min_stock).length;
 
                 return {
                     totalSales,
@@ -1579,7 +1579,10 @@ export const db = {
                     return [];
                 }
 
-                return items?.filter(item => item.stock <= (item.min_stock || 0)) || [];
+                // Only flag items with an actual configured threshold -- otherwise
+                // every brand-new item (stock 0, min_stock unset/0) would trip this
+                // the moment it's created, before anyone's had a chance to stock it.
+                return items?.filter(item => (item.min_stock || 0) > 0 && item.stock <= item.min_stock) || [];
             } catch (error) {
                 console.error('Error in getLowStockItems:', error);
                 return [];
