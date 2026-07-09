@@ -60,24 +60,33 @@ export async function sendQuotationForOrder(order: Order): Promise<SendQuotation
             return { ok: false, reason: data.error || 'Failed to send the quotation email. Please try again.' };
         }
     } else {
-        // WhatsApp has no outbound-sending API wired up (Meta requires a
-        // pre-approved message template plus business verification, which
-        // isn't set up) -- this downloads the PDF and opens a pre-filled
-        // WhatsApp chat, matching the existing "Share WhatsApp" pattern used
-        // elsewhere in the app. Staff attaches the just-downloaded PDF and
-        // sends it themselves; this is not fully automatic for this channel.
-        if (pricedDesign) {
-            await generateEstimatePDF(pricedDesign, null, {});
-        } else {
-            await generateOrderPDF(order, { excludePricing: false, designs: [] });
+        const phone = (party?.phone || '').replace(/[^0-9]/g, '');
+        if (!phone) {
+            return { ok: false, reason: 'No phone number on file for this customer -- add one to their party record first.' };
         }
 
-        const messageText = `Dear Customer, please find attached the estimate for your order ${order.number}. Reply "OK" to confirm and we will proceed.`;
-        const phone = (party?.phone || '').replace(/[^0-9]/g, '');
-        const waUrl = phone
-            ? `https://wa.me/${phone}?text=${encodeURIComponent(messageText)}`
-            : `https://wa.me/?text=${encodeURIComponent(messageText)}`;
-        window.open(waUrl, '_blank');
+        let dataUri: string;
+        let filename: string;
+        if (pricedDesign) {
+            dataUri = await generateEstimatePDF(pricedDesign, null, { outputType: 'datauristring' }) as string;
+            filename = `estimate_${order.number}.pdf`;
+        } else {
+            dataUri = await generateOrderPDF(order, { excludePricing: false, designs: [], outputType: 'datauristring' }) as string;
+            filename = `${order.number}_estimate.pdf`;
+        }
+
+        const caption = `Please find attached the estimate for your order ${order.number}. Reply "OK" to confirm and we will proceed.`;
+
+        const authHeaders = await getAuthHeaders();
+        const res = await fetch('/api/whatsapp/send-document', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders },
+            body: JSON.stringify({ to: phone, pdfBase64: dataUri, filename, caption }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) {
+            return { ok: false, reason: data.error || 'Failed to send the quotation via WhatsApp. Please try again.' };
+        }
     }
 
     const order2 = await db.orders.getAll().then(all => all.find(o => o.id === order.id));
