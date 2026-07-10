@@ -9,7 +9,7 @@ import PartyModal from '@/components/parties/PartyModal';
 import ItemModal from '@/components/inventory/ItemModal';
 import ItemSearchSelect from '@/components/ItemSearchSelect';
 import { formatInchesToFraction, generateUUID, roundCurrency } from '@/lib/utils';
-import { calculateLineAmounts, convertQuantityForItemUnit, convertRateForItemUnit, getUnitOptionsForItem } from '@/lib/units';
+import { calculateLineAmounts, convertQuantityForItemUnit, convertRateForItemUnit, defaultUnitsForItem, getUnitOptionsForItem } from '@/lib/units';
 
 interface InvoiceFormProps {
     initialData?: Invoice;
@@ -85,13 +85,14 @@ export default function InvoiceForm({ initialData, onSave, onCancel }: InvoiceFo
                 const width = newItem.width || 0;
                 const height = newItem.height || 0;
                 const qty = row.quantity || 1;
-                const unit = newItem.rateUnit || newItem.unit;
+                const { unit, rateUnit } = defaultUnitsForItem(newItem);
                 const calculated = calculateLineAmounts({
                     width,
                     height,
                     quantity: qty,
                     unit,
                     rate: newItem.rate,
+                    rateUnit,
                     taxRate: gstRate,
                     conversionFactor: newItem.conversionFactor,
                     unitFallback: businessConfig?.unitPreferences?.unknownUnitFallback,
@@ -107,6 +108,7 @@ export default function InvoiceForm({ initialData, onSave, onCancel }: InvoiceFo
                     width,
                     height,
                     rate: newItem.rate,
+                    rateUnit,
                     unit,
                     sqft: calculated.sqft,
                     amount: calculated.amount,
@@ -127,6 +129,7 @@ export default function InvoiceForm({ initialData, onSave, onCancel }: InvoiceFo
                 quantity: item.quantity,
                 unit: item.unit,
                 rate: item.rate,
+                rateUnit: item.rateUnit,
                 taxRate: gstRate,
                 conversionFactor: catalogItem?.conversionFactor,
                 unitFallback: businessConfig?.unitPreferences?.unknownUnitFallback,
@@ -152,6 +155,7 @@ export default function InvoiceForm({ initialData, onSave, onCancel }: InvoiceFo
                 unit: 'sqft',
                 sqft: 0,
                 rate: 0,
+                rateUnit: 'sqft',
                 amount: 0,
                 warehouse: 'Warehouse A'
             }
@@ -160,13 +164,14 @@ export default function InvoiceForm({ initialData, onSave, onCancel }: InvoiceFo
 
     const updateItem = (index: number, field: keyof InvoiceItem, value: any) => {
         const newItems = [...invoiceItems];
-        const previousUnit = newItems[index].unit || 'nos';
+        const previousRateUnit = newItems[index].rateUnit || newItems[index].unit || 'nos';
         const item = { ...newItems[index], [field]: value };
 
         // Auto-populate details if item selected
         if (field === 'itemId') {
             const selectedItem = items.find(i => i.id === value);
             if (selectedItem) {
+                const defaults = defaultUnitsForItem(selectedItem);
                 item.itemName = selectedItem.name;
                 item.make = selectedItem.make;
                 item.model = selectedItem.model;
@@ -175,15 +180,24 @@ export default function InvoiceForm({ initialData, onSave, onCancel }: InvoiceFo
                 item.width = selectedItem.width || 0;
                 item.height = selectedItem.height || 0;
                 item.rate = selectedItem.rate;
-                item.unit = selectedItem.rateUnit || selectedItem.unit;
+                item.unit = defaults.unit;
+                item.rateUnit = defaults.rateUnit;
             }
         }
 
-        if (field === 'unit') {
+        // Rate is tracked in its own unit (rateUnit), independent of the
+        // billing/quantity unit -- so changing the billing unit no longer
+        // needs to touch the rate at all (previously it did, on the
+        // assumption rate was always expressed in whatever unit quantity
+        // was billed in, which silently misread a rate typed in as, say,
+        // "per sqft" as "per sheet" whenever the line happened to bill in
+        // sheets). Only changing rateUnit itself converts the rate value,
+        // to preserve its real-world price when switching how it's quoted.
+        if (field === 'rateUnit') {
             const catalogItem = items.find(i => i.id === item.itemId);
             item.rate = convertRateForItemUnit({
                 rate: Number(item.rate) || 0,
-                fromUnit: previousUnit,
+                fromUnit: previousRateUnit,
                 toUnit: String(value),
                 width: item.width || catalogItem?.width,
                 height: item.height || catalogItem?.height,
@@ -192,12 +206,13 @@ export default function InvoiceForm({ initialData, onSave, onCancel }: InvoiceFo
         }
 
         // Calculate Sqft and Amount
-        if (['width', 'height', 'quantity', 'rate', 'itemId', 'unit'].includes(field)) {
+        if (['width', 'height', 'quantity', 'rate', 'rateUnit', 'itemId', 'unit'].includes(field)) {
             const width = field === 'width' ? Number(value) : item.width;
             const height = field === 'height' ? Number(value) : item.height;
             const qty = field === 'quantity' ? Number(value) : item.quantity;
             const rate = field === 'rate' ? Number(value) : item.rate;
             const unit = field === 'unit' ? value : item.unit;
+            const rateUnit = item.rateUnit || unit;
 
             const catalogItem = items.find(i => i.id === item.itemId);
             const calculated = calculateLineAmounts({
@@ -206,6 +221,7 @@ export default function InvoiceForm({ initialData, onSave, onCancel }: InvoiceFo
                 quantity: qty,
                 unit,
                 rate,
+                rateUnit,
                 taxRate: gstRate,
                 conversionFactor: catalogItem?.conversionFactor,
                 unitFallback: businessConfig?.unitPreferences?.unknownUnitFallback,
@@ -253,6 +269,13 @@ export default function InvoiceForm({ initialData, onSave, onCancel }: InvoiceFo
         const groups = getUnitGroups(item);
         const allowed = groups.flatMap(group => group.units.map(unit => unit.value));
         return allowed.includes(item.unit) ? item.unit : allowed[0] || item.unit || 'nos';
+    };
+
+    const getValidRateUnit = (item: InvoiceItem) => {
+        const groups = getUnitGroups(item);
+        const allowed = groups.flatMap(group => group.units.map(unit => unit.value));
+        const current = item.rateUnit || item.unit;
+        return allowed.includes(current) ? current : allowed[0] || current || 'nos';
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -442,13 +465,14 @@ export default function InvoiceForm({ initialData, onSave, onCancel }: InvoiceFo
                     <table className="table">
                         <thead>
                             <tr>
-                                <th style={{ width: '34%' }}>Item</th>
-                                <th style={{ width: '12%' }}>Warehouse</th>
-                                <th style={{ width: '9%' }}>Qty</th>
-                                <th style={{ width: '14%' }}>Unit</th>
-                                <th style={{ width: '11%' }}>Billing</th>
-                                <th style={{ width: '11%' }}>Rate</th>
-                                <th style={{ width: '12%' }}>Amount</th>
+                                <th style={{ width: '28%' }}>Item</th>
+                                <th style={{ width: '10%' }}>Warehouse</th>
+                                <th style={{ width: '8%' }}>Qty</th>
+                                <th style={{ width: '11%' }}>Unit</th>
+                                <th style={{ width: '10%' }}>Billing</th>
+                                <th style={{ width: '9%' }}>Rate</th>
+                                <th style={{ width: '10%' }}>Rate Unit</th>
+                                <th style={{ width: '10%' }}>Amount</th>
                                 <th style={{ width: '4%' }}></th>
                             </tr>
                         </thead>
@@ -514,6 +538,7 @@ export default function InvoiceForm({ initialData, onSave, onCancel }: InvoiceFo
                                                 quantity: item.quantity,
                                                 unit: item.unit,
                                                 rate: item.rate,
+                                                rateUnit: item.rateUnit,
                                                 taxRate: gstRate,
                                                 conversionFactor: getCatalogItem(item)?.conversionFactor,
                                             }).billingLabel}
@@ -528,6 +553,22 @@ export default function InvoiceForm({ initialData, onSave, onCancel }: InvoiceFo
                                             value={item.rate || ''}
                                             onChange={val => updateItem(index, 'rate', val)}
                                         />
+                                    </td>
+                                    <td>
+                                        <select
+                                            className="input"
+                                            value={getValidRateUnit(item)}
+                                            onChange={e => updateItem(index, 'rateUnit', e.target.value)}
+                                            title="The unit this rate is priced per -- can differ from the billing unit (e.g. rate per sqft while billing in sheets)"
+                                        >
+                                            {getUnitGroups(item).map(group => (
+                                                <optgroup key={group.label} label={group.label}>
+                                                    {group.units.map(unit => (
+                                                        <option key={unit.value} value={unit.value}>{unit.label}</option>
+                                                    ))}
+                                                </optgroup>
+                                            ))}
+                                        </select>
                                     </td>
                                     <td style={{ fontWeight: 600 }}>₹{item.amount.toFixed(2)}</td>
                                     <td>

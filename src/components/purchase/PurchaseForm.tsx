@@ -9,7 +9,7 @@ import PartyModal from '@/components/parties/PartyModal';
 import ItemModal from '@/components/inventory/ItemModal';
 import { generateUUID, roundCurrency } from '@/lib/utils';
 import FractionInput from '@/components/FractionInput';
-import { calculateLineAmounts, convertRateForItemUnit, UNIT_OPTIONS_BY_GROUP } from '@/lib/units';
+import { calculateLineAmounts, convertRateForItemUnit, defaultUnitsForItem, UNIT_OPTIONS_BY_GROUP } from '@/lib/units';
 
 interface PurchaseFormProps {
     onSave: () => void;
@@ -88,13 +88,17 @@ export default function PurchaseForm({ onSave, onCancel, initialData, viewOnly =
                 const width = newItem.width || 0;
                 const height = newItem.height || 0;
                 const qty = row.quantity || 1;
-                const unit = newItem.purchaseRateUnit || newItem.rateUnit || newItem.unit;
+                const { unit, rateUnit } = defaultUnitsForItem({
+                    ...newItem,
+                    rateUnit: newItem.purchaseRateUnit || newItem.rateUnit,
+                });
                 const calculated = calculateLineAmounts({
                     width,
                     height,
                     quantity: qty,
                     unit,
                     rate: newItem.rate,
+                    rateUnit,
                     taxRate: 18,
                     conversionFactor: newItem.conversionFactor,
                 });
@@ -109,6 +113,7 @@ export default function PurchaseForm({ onSave, onCancel, initialData, viewOnly =
                     width,
                     height,
                     rate: newItem.rate,
+                    rateUnit,
                     unit,
                     sqft: calculated.sqft,
                     amount: calculated.amount,
@@ -130,18 +135,23 @@ export default function PurchaseForm({ onSave, onCancel, initialData, viewOnly =
             unit: 'sqft',
             sqft: 0,
             rate: 0,
+            rateUnit: 'sqft',
             amount: 0
         }]);
     };
 
     const updateItem = (index: number, field: keyof InvoiceItem, value: any) => {
         const newItems = [...invoiceItems];
-        const previousUnit = newItems[index].unit || 'nos';
+        const previousRateUnit = newItems[index].rateUnit || newItems[index].unit || 'nos';
         const item = { ...newItems[index], [field]: value };
 
         if (field === 'itemId') {
             const selectedItem = items.find(i => i.id === value);
             if (selectedItem) {
+                const defaults = defaultUnitsForItem({
+                    ...selectedItem,
+                    rateUnit: selectedItem.purchaseRateUnit || selectedItem.rateUnit,
+                });
                 item.itemName = selectedItem.name;
                 item.make = selectedItem.make;
                 item.model = selectedItem.model;
@@ -150,15 +160,24 @@ export default function PurchaseForm({ onSave, onCancel, initialData, viewOnly =
                 item.width = selectedItem.width || 0;
                 item.height = selectedItem.height || 0;
                 item.rate = selectedItem.rate;
-                item.unit = selectedItem.purchaseRateUnit || selectedItem.rateUnit || selectedItem.unit;
+                item.unit = defaults.unit;
+                item.rateUnit = defaults.rateUnit;
             }
         }
 
-        if (field === 'unit') {
+        // Rate is tracked in its own unit (rateUnit), independent of the
+        // billing/quantity unit -- so changing the billing unit no longer
+        // needs to touch the rate at all (previously it did, on the
+        // assumption rate was always expressed in whatever unit quantity
+        // was billed in, which silently misread a rate typed in as, say,
+        // "per sqft" as "per sheet" whenever the line happened to bill in
+        // sheets). Only changing rateUnit itself converts the rate value,
+        // to preserve its real-world price when switching how it's quoted.
+        if (field === 'rateUnit') {
             const catalogItem = items.find(i => i.id === item.itemId);
             item.rate = convertRateForItemUnit({
                 rate: Number(item.rate) || 0,
-                fromUnit: previousUnit,
+                fromUnit: previousRateUnit,
                 toUnit: String(value),
                 width: item.width || catalogItem?.width,
                 height: item.height || catalogItem?.height,
@@ -167,12 +186,13 @@ export default function PurchaseForm({ onSave, onCancel, initialData, viewOnly =
         }
 
         // Calculate Sqft and Amount
-        if (['width', 'height', 'quantity', 'rate', 'itemId', 'unit'].includes(field)) {
+        if (['width', 'height', 'quantity', 'rate', 'rateUnit', 'itemId', 'unit'].includes(field)) {
             const width = field === 'width' ? Number(value) : item.width;
             const height = field === 'height' ? Number(value) : item.height;
             const qty = field === 'quantity' ? Number(value) : item.quantity;
             const rate = field === 'rate' ? Number(value) : item.rate;
             const unit = field === 'unit' ? value : item.unit;
+            const rateUnit = item.rateUnit || unit;
 
             const catalogItem = items.find(i => i.id === item.itemId);
             const calculated = calculateLineAmounts({
@@ -181,6 +201,7 @@ export default function PurchaseForm({ onSave, onCancel, initialData, viewOnly =
                 quantity: qty,
                 unit,
                 rate,
+                rateUnit,
                 taxRate: 18,
                 conversionFactor: catalogItem?.conversionFactor,
             });
@@ -328,17 +349,18 @@ export default function PurchaseForm({ onSave, onCancel, initialData, viewOnly =
                     <table className="table">
                         <thead>
                             <tr>
-                                <th style={{ width: '18%' }}>Item</th>
-                                <th style={{ width: '9%' }}>Make</th>
-                                <th style={{ width: '9%' }}>Type/Model</th>
-                                <th style={{ width: '9%' }}>Warehouse</th>
-                                <th style={{ width: '8%' }}>W (in)</th>
-                                <th style={{ width: '8%' }}>H (in)</th>
-                                <th style={{ width: '10%' }}>Qty</th>
+                                <th style={{ width: '16%' }}>Item</th>
+                                <th style={{ width: '8%' }}>Make</th>
+                                <th style={{ width: '8%' }}>Type/Model</th>
+                                <th style={{ width: '8%' }}>Warehouse</th>
+                                <th style={{ width: '7%' }}>W (in)</th>
+                                <th style={{ width: '7%' }}>H (in)</th>
+                                <th style={{ width: '8%' }}>Qty</th>
                                 <th style={{ width: '6%' }}>Unit</th>
-                                <th style={{ width: '8%' }}>Sq.ft</th>
-                                <th style={{ width: '12%' }}>Rate</th>
-                                <th style={{ width: '12%' }}>Amount</th>
+                                <th style={{ width: '7%' }}>Sq.ft</th>
+                                <th style={{ width: '9%' }}>Rate</th>
+                                <th style={{ width: '9%' }}>Rate Unit</th>
+                                <th style={{ width: '10%' }}>Amount</th>
                                 <th style={{ width: '5%' }}></th>
                             </tr>
                         </thead>
@@ -451,6 +473,24 @@ export default function PurchaseForm({ onSave, onCancel, initialData, viewOnly =
                                             onChange={e => updateItem(index, 'rate', Number(e.target.value))}
                                             disabled={viewOnly}
                                         />
+                                    </td>
+                                    <td>
+                                        <select
+                                            className="input"
+                                            value={item.rateUnit || item.unit || 'sqft'}
+                                            onChange={e => updateItem(index, 'rateUnit', e.target.value)}
+                                            style={{ padding: '0.25rem', width: '100%', fontSize: '0.875rem' }}
+                                            disabled={viewOnly}
+                                            title="The unit this rate is priced per -- can differ from the billing unit (e.g. rate per sqft while billing in sheets)"
+                                        >
+                                            {UNIT_OPTIONS_BY_GROUP.map(group => (
+                                                <optgroup key={group.label} label={group.label}>
+                                                    {group.units.map(unit => (
+                                                        <option key={unit.value} value={unit.value}>{unit.label}</option>
+                                                    ))}
+                                                </optgroup>
+                                            ))}
+                                        </select>
                                     </td>
                                     <td>{item.amount}</td>
                                     {!viewOnly && (
