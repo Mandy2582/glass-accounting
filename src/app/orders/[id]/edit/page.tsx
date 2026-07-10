@@ -11,7 +11,7 @@ import NumericInput from '@/components/NumericInput';
 import PartyModal from '@/components/parties/PartyModal';
 import ItemModal from '@/components/inventory/ItemModal';
 import { generateUUID, roundCurrency } from '@/lib/utils';
-import { calculateLineAmounts, convertRateForItemUnit, UNIT_OPTIONS_BY_GROUP } from '@/lib/units';
+import { calculateLineAmounts, convertRateForItemUnit, defaultUnitsForItem, UNIT_OPTIONS_BY_GROUP } from '@/lib/units';
 import { splitInternalNotes } from '@/lib/orderNotes';
 
 export default function EditOrderPage() {
@@ -161,8 +161,7 @@ export default function EditOrderPage() {
                 const width = newItem.width || 0;
                 const height = newItem.height || 0;
                 const qty = Number(row.quantity) || 1;
-                const unit = newItem.rateUnit || newItem.unit || (newItem.category === 'hardware' ? 'nos' : 'sqft');
-                const rateUnit = newItem.rateUnit || newItem.unit || unit;
+                const { unit, rateUnit } = defaultUnitsForItem(newItem);
                 const rate = Number(newItem.rate) || 0;
                 const calculated = calculateLineAmounts({
                     width,
@@ -233,10 +232,11 @@ export default function EditOrderPage() {
         if (field === 'itemId' && value) {
             const catalogItem = items.find(i => i.id === value);
             if (catalogItem) {
+                const defaults = defaultUnitsForItem(catalogItem);
                 item.itemName = catalogItem.name;
                 item.rate = catalogItem.rate;
-                item.unit = catalogItem.rateUnit || catalogItem.unit;
-                item.rateUnit = catalogItem.rateUnit || catalogItem.unit;
+                item.unit = defaults.unit;
+                item.rateUnit = defaults.rateUnit;
                 item.width = catalogItem.width || 0;
                 item.height = catalogItem.height || 0;
             }

@@ -162,6 +162,19 @@ export function getUnitOptionsForItem(item?: { category?: string; type?: string;
     return UNIT_OPTIONS_BY_GROUP;
 }
 
+// Sensible starting units when a catalogue item is first added to a line --
+// quantity and rate are independently changeable afterward, but glass is
+// conventionally ordered by sheet count while priced per square foot, so
+// defaulting both to whatever the catalogue's rate unit happens to be (often
+// sqft) made "quantity" default to sqft too, which reads oddly for something
+// customers actually order in sheets.
+export function defaultUnitsForItem(item: { category?: string; unit?: string; rateUnit?: string; width?: number; height?: number }): { unit: Unit; rateUnit: Unit } {
+    const rateUnit = normalizeUnit(item.rateUnit || item.unit, 'sqft');
+    const isSizedGlass = item.category === 'glass' && Number(item.width) > 0 && Number(item.height) > 0;
+    const unit = isSizedGlass ? ('sheets' as Unit) : rateUnit;
+    return { unit, rateUnit };
+}
+
 export function getUnitDefinition(unit?: string): UnitDefinition {
     const normalizedUnit = normalizeUnit(unit);
     return UNIT_DEFINITIONS.find(definition => definition.value === normalizedUnit) || {

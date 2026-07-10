@@ -17,7 +17,7 @@ const GlassDesigner = dynamic(() => import('@/components/GlassDesigner'), { ssr:
 import { calculateComplexity } from '@/lib/designCalculations';
 import { generateUUID, roundCurrency } from '@/lib/utils';
 import { createOrderItemsFromDesign } from '@/lib/orderDesignItems';
-import { calculateLineAmounts, convertRateForItemUnit, getUnitOptionsForItem } from '@/lib/units';
+import { calculateLineAmounts, convertRateForItemUnit, defaultUnitsForItem, getUnitOptionsForItem } from '@/lib/units';
 import { withOrderSource } from '@/lib/orderNotes';
 
 export default function NewOrderPage() {
@@ -76,6 +76,7 @@ export default function NewOrderPage() {
                 quantity: item.quantity,
                 unit: item.unit,
                 rate: item.rate,
+                rateUnit: item.rateUnit,
                 taxRate: formData.taxRate,
                 conversionFactor: catalogItem?.conversionFactor,
             });
@@ -144,7 +145,7 @@ export default function NewOrderPage() {
                 const width = newItem.width || 0;
                 const height = newItem.height || 0;
                 const qty = Number(row.quantity) || 1;
-                const unit = newItem.rateUnit || newItem.unit || (newItem.category === 'hardware' ? 'nos' : 'sqft');
+                const { unit, rateUnit } = defaultUnitsForItem(newItem);
                 const rate = Number(newItem.rate) || 0;
                 const calculated = calculateLineAmounts({
                     width,
@@ -152,6 +153,7 @@ export default function NewOrderPage() {
                     quantity: qty,
                     unit,
                     rate,
+                    rateUnit,
                     taxRate: formData.taxRate,
                     conversionFactor: newItem.conversionFactor,
                 });
@@ -172,6 +174,7 @@ export default function NewOrderPage() {
                     unit,
                     sqft: calculated.sqft,
                     rate,
+                    rateUnit,
                     amount: calculated.amount,
                     lineTotal: calculated.lineTotal,
                     sourceType: keepDesignSource ? 'design' : 'catalog',
@@ -197,6 +200,7 @@ export default function NewOrderPage() {
             unit: isHardware || isManual ? 'nos' as const : 'sqft' as const,
             sqft: 0,
             rate: 0,
+            rateUnit: isHardware || isManual ? 'nos' as const : 'sqft' as const,
             amount: 0,
             type: isHardware ? 'Hardware' : (isManual ? 'Manual' : 'Glass'),
             sourceType: 'text'
@@ -247,7 +251,7 @@ export default function NewOrderPage() {
 
     const updateItem = (index: number, field: string, value: any) => {
         const updated = [...orderItems];
-        const previousUnit = updated[index].unit || 'nos';
+        const previousRateUnit = updated[index].rateUnit || updated[index].unit || 'nos';
         const item = { ...updated[index], [field]: value };
 
         // Handle sourceType change
@@ -279,10 +283,12 @@ export default function NewOrderPage() {
             const catalogItem = items.find(i => i.id === value);
             if (catalogItem) {
                 const keepDesignSource = item.sourceType === 'design' || !!item.designId || !!item.designPieceId;
+                const defaults = defaultUnitsForItem(catalogItem);
                 item.sourceType = keepDesignSource ? 'design' : 'catalog';
                 item.itemName = catalogItem.name;
                 item.rate = catalogItem.rate;
-                item.unit = catalogItem.rateUnit || catalogItem.unit;
+                item.unit = defaults.unit;
+                item.rateUnit = defaults.rateUnit;
                 item.width = catalogItem.width || 0;
                 item.height = catalogItem.height || 0;
                 item.type = catalogItem.category === 'hardware' ? 'Hardware' : (catalogItem.type || 'Glass');
@@ -294,24 +300,35 @@ export default function NewOrderPage() {
             item.sourceType = 'text';
             if (value === 'Hardware') {
                 item.unit = 'nos';
+                item.rateUnit = 'nos';
                 item.width = 0;
                 item.height = 0;
                 item.sqft = 0;
             } else if (value === 'Manual' || value === 'Service' || value === 'Other') {
                 item.unit = 'nos';
+                item.rateUnit = 'nos';
                 item.width = 0;
                 item.height = 0;
                 item.sqft = 0;
             } else if (item.unit === 'nos') {
                 item.unit = 'sqft';
+                item.rateUnit = 'sqft';
             }
         }
 
-        if (field === 'unit') {
+        // Rate is tracked in its own unit (rateUnit), independent of the
+        // billing/quantity unit -- so changing the billing unit no longer
+        // needs to touch the rate at all (previously it did, on the
+        // assumption rate was always expressed in whatever unit quantity
+        // was billed in, which silently misread a rate typed in as, say,
+        // "per sqft" as "per sheet" whenever the line happened to bill in
+        // sheets). Only changing rateUnit itself converts the rate value,
+        // to preserve its real-world price when switching how it's quoted.
+        if (field === 'rateUnit') {
             const catalogItem = items.find(i => i.id === item.itemId);
             item.rate = convertRateForItemUnit({
                 rate: Number(item.rate) || 0,
-                fromUnit: previousUnit,
+                fromUnit: previousRateUnit,
                 toUnit: value,
                 width: item.width || catalogItem?.width,
                 height: item.height || catalogItem?.height,
@@ -320,12 +337,13 @@ export default function NewOrderPage() {
         }
 
         // Recalculate
-        if (['width', 'height', 'quantity', 'rate', 'itemId', 'unit', 'type'].includes(field)) {
+        if (['width', 'height', 'quantity', 'rate', 'rateUnit', 'itemId', 'unit', 'type'].includes(field)) {
             const rawWidth = field === 'width' ? value : item.width;
             const rawHeight = field === 'height' ? value : item.height;
             const rawQty = field === 'quantity' ? value : item.quantity;
             const rawRate = field === 'rate' ? value : item.rate;
             const unit = field === 'unit' ? value : (item.unit || 'sqft');
+            const rateUnit = item.rateUnit || unit;
 
             const width = rawWidth === '' ? 0 : Number(rawWidth);
             const height = rawHeight === '' ? 0 : Number(rawHeight);
@@ -339,6 +357,7 @@ export default function NewOrderPage() {
                 quantity: qty,
                 unit,
                 rate,
+                rateUnit,
                 taxRate: formData.taxRate,
                 conversionFactor: (catalogItem as any)?.conversionFactor,
             });
@@ -496,6 +515,7 @@ export default function NewOrderPage() {
                 quantity: item.quantity,
                 unit: item.unit,
                 rate: item.rate,
+                rateUnit: item.rateUnit,
                 taxRate: formData.taxRate,
                 conversionFactor: catalogItem?.conversionFactor,
             }).lineTotal;
@@ -710,6 +730,13 @@ export default function NewOrderPage() {
         const groups = getUnitGroups(item);
         const allowed = groups.flatMap(group => group.units.map(unit => unit.value));
         return allowed.includes(item.unit) ? item.unit : allowed[0] || item.unit || 'nos';
+    };
+
+    const getValidRateUnit = (item: InvoiceItem & { sourceType?: 'catalog' | 'text' | 'design' }) => {
+        const groups = getUnitGroups(item);
+        const allowed = groups.flatMap(group => group.units.map(unit => unit.value));
+        const current = item.rateUnit || item.unit;
+        return allowed.includes(current) ? current : allowed[0] || current || 'nos';
     };
 
     return (
@@ -1175,6 +1202,25 @@ export default function NewOrderPage() {
                                                 precision={2}
                                                 disabled={!canEditCommercials}
                                             />
+                                        </div>
+
+                                        <div className="order-field">
+                                            <label>Rate Unit</label>
+                                            <select
+                                                className="input"
+                                                value={getValidRateUnit(item)}
+                                                onChange={(e) => updateItem(index, 'rateUnit', e.target.value)}
+                                                disabled={!canEditCommercials}
+                                                title="The unit this rate is priced per -- can differ from the billing unit (e.g. rate per sqft while billing in sheets)"
+                                            >
+                                                {getUnitGroups(item).map(group => (
+                                                    <optgroup key={group.label} label={group.label}>
+                                                        {group.units.map(unit => (
+                                                            <option key={unit.value} value={unit.value}>{unit.label}</option>
+                                                        ))}
+                                                    </optgroup>
+                                                ))}
+                                            </select>
                                         </div>
 
                                         <div className="order-field">
