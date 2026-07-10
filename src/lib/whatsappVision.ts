@@ -4,12 +4,19 @@ import type { DesignData, DesignItem, KonvaShape } from '@/types';
 
 export type LengthUnit = 'inch' | 'mm';
 
-// A hole's position is normally dimensioned by hand from one or two nearby
-// edges (e.g. "20mm from left, 15mm from top"), or marked centered on an
-// axis. Only the edges actually dimensioned on the drawing should be filled
-// in -- everything else stays null rather than guessed.
-export type VisionHole = {
-    diameter?: number | null;
+// A hole's position is normally dimensioned by hand in one of three ways:
+//   1. Distance from one or two nearby edges (e.g. "20mm from left, 15mm
+//      from top"), or marked centered on an axis -- fromLeft/fromRight/
+//      fromTop/fromBottom/centeredX/centeredY.
+//   2. No number at all, but clearly drawn close to one edge of the panel by
+//      convention (e.g. a column of holes running near the left edge with no
+//      dimension marking the distance) -- nearEdge.
+//   3. A distance measured from ANOTHER hole/cut rather than from an edge
+//      (e.g. two holes with a single "200mm" pitch written between them) --
+//      pitchFromIndex/pitchDistance/pitchUnit/pitchAxis.
+// Only the fields actually shown on the drawing should be filled in --
+// everything else stays null rather than guessed.
+type PositionFields = {
     unit?: LengthUnit | null;
     fromLeft?: number | null;
     fromRight?: number | null;
@@ -17,20 +24,22 @@ export type VisionHole = {
     fromBottom?: number | null;
     centeredX?: boolean | null;
     centeredY?: boolean | null;
+    nearEdge?: 'left' | 'right' | 'top' | 'bottom' | null;
+    pitchFromIndex?: number | null;
+    pitchDistance?: number | null;
+    pitchUnit?: LengthUnit | null;
+    pitchAxis?: 'horizontal' | 'vertical' | null;
 };
 
-export type VisionCut = {
+export type VisionHole = PositionFields & {
+    diameter?: number | null;
+};
+
+export type VisionCut = PositionFields & {
     cutType?: 'corner_notch' | 'edge_notch' | 'through_cut' | null;
     corner?: 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right' | null;
     width?: number | null;
     height?: number | null;
-    unit?: LengthUnit | null;
-    fromLeft?: number | null;
-    fromRight?: number | null;
-    fromTop?: number | null;
-    fromBottom?: number | null;
-    centeredX?: boolean | null;
-    centeredY?: boolean | null;
 };
 
 export type WhatsAppImageAnalysis = {
@@ -110,10 +119,11 @@ export async function analyzeWhatsAppImage(input: {
                                 '',
                                 'MULTI-PIECE DRAWINGS: A single photo may show more than one separate glass panel (e.g. a fixed panel + a door + a ventilator, or several unrelated pieces sketched on one page). Treat each visually distinct panel/outline as its own entry in drawing.pieces, even if they share dimensions or touch each other in the sketch. Do not merge multiple panels into one piece, and do not drop a panel just because some of its details are unclear -- report every piece you can see, leaving fields null where you are unsure.',
                                 '',
-                                'HOLE AND CUT POSITIONS: These drawings are normally dimensioned by hand from one or two nearby edges (e.g. "20mm from left", "15mm from top"), or marked as centered on an axis (a centerline, or equal tick marks on both sides). For every hole and every cut you find:',
-                                '  - Record fromLeft/fromRight/fromTop/fromBottom as the distance from that edge of the panel to the CENTER of the hole/cut. Only fill in the edges that are actually dimensioned -- leave the rest null. Never invent or estimate a distance that is not marked on the drawing.',
-                                '  - If a hole/cut is marked as centered on an axis instead of given a numeric distance, set centeredX and/or centeredY to true for that axis rather than guessing a number.',
-                                '  - If a hole or cut has no readable position at all, still include it in the array (never drop it), but leave every position field null.',
+                                'HOLE AND CUT POSITIONS: These drawings dimension hole/cut positions in different ways depending on the sketch -- read each one as it is actually drawn, using whichever of the following applies:',
+                                '  - MOST COMMON: distance from one or two nearby edges (e.g. "20mm from left", "15mm from top"), or marked as centered on an axis (a centerline, or equal tick marks on both sides). Record fromLeft/fromRight/fromTop/fromBottom as the distance from that edge of the panel to the CENTER of the hole/cut -- only fill in the edges that are actually dimensioned, leave the rest null. If marked centered instead of a number, set centeredX and/or centeredY to true rather than guessing a number.',
+                                '  - NO NUMBER, BUT NEAR AN EDGE: many drawings place a row or column of holes/cuts close to one edge of the panel with no distance written at all (e.g. a column of holes running down near the left edge). When you can see it is clearly aligned along one specific edge but no number dimensions that distance, set nearEdge to that edge ("left"/"right"/"top"/"bottom") instead of leaving every field null -- this is a real observation (which edge it is near), not a guessed number.',
+                                '  - DIMENSIONED FROM ANOTHER HOLE/CUT, NOT AN EDGE: sometimes a single distance is written between two holes/cuts themselves (e.g. two holes stacked vertically with "200mm" written between them), rather than either one being dimensioned from a panel edge. For the second of the pair, set pitchFromIndex to the 0-based index of the other hole/cut in this same array (list the reference one first), set pitchDistance and pitchUnit to that written number, and set pitchAxis to "vertical" if they are stacked one above the other or "horizontal" if side by side.',
+                                '  - If a hole or cut has no readable position at all by any of the above (no edge dimension, no visible edge alignment, no pitch to another hole/cut), still include it in the array (never drop it), but leave every position field null.',
                                 '  - For a notch cut from a corner, set cutType to "corner_notch" and corner to which corner, plus its width/height. Otherwise use "edge_notch" for a notch cut into an edge (not a corner), or "through_cut" for an internal cutout.',
                                 '',
                                 'UNITS: Shops often mix units on one drawing -- panel width/height are usually inches, but hole diameters and hole/cut distances are frequently marked in mm. Report widthUnit/heightUnit for the panel, and a separate unit per hole/cut, using whatever unit is actually written next to that number. If no unit is marked, leave it null rather than guessing.',
@@ -204,7 +214,7 @@ export async function analyzeWhatsAppImage(input: {
                                                     items: {
                                                         type: 'object',
                                                         additionalProperties: false,
-                                                        required: ['diameter', 'unit', 'fromLeft', 'fromRight', 'fromTop', 'fromBottom', 'centeredX', 'centeredY'],
+                                                        required: ['diameter', 'unit', 'fromLeft', 'fromRight', 'fromTop', 'fromBottom', 'centeredX', 'centeredY', 'nearEdge', 'pitchFromIndex', 'pitchDistance', 'pitchUnit', 'pitchAxis'],
                                                         properties: {
                                                             diameter: { type: ['number', 'null'] },
                                                             unit: { type: ['string', 'null'], enum: ['inch', 'mm', null] },
@@ -214,6 +224,11 @@ export async function analyzeWhatsAppImage(input: {
                                                             fromBottom: { type: ['number', 'null'] },
                                                             centeredX: { type: ['boolean', 'null'] },
                                                             centeredY: { type: ['boolean', 'null'] },
+                                                            nearEdge: { type: ['string', 'null'], enum: ['left', 'right', 'top', 'bottom', null] },
+                                                            pitchFromIndex: { type: ['number', 'null'] },
+                                                            pitchDistance: { type: ['number', 'null'] },
+                                                            pitchUnit: { type: ['string', 'null'], enum: ['inch', 'mm', null] },
+                                                            pitchAxis: { type: ['string', 'null'], enum: ['horizontal', 'vertical', null] },
                                                         },
                                                     },
                                                 },
@@ -222,7 +237,7 @@ export async function analyzeWhatsAppImage(input: {
                                                     items: {
                                                         type: 'object',
                                                         additionalProperties: false,
-                                                        required: ['cutType', 'corner', 'width', 'height', 'unit', 'fromLeft', 'fromRight', 'fromTop', 'fromBottom', 'centeredX', 'centeredY'],
+                                                        required: ['cutType', 'corner', 'width', 'height', 'unit', 'fromLeft', 'fromRight', 'fromTop', 'fromBottom', 'centeredX', 'centeredY', 'nearEdge', 'pitchFromIndex', 'pitchDistance', 'pitchUnit', 'pitchAxis'],
                                                         properties: {
                                                             cutType: { type: ['string', 'null'], enum: ['corner_notch', 'edge_notch', 'through_cut', null] },
                                                             corner: { type: ['string', 'null'], enum: ['top_left', 'top_right', 'bottom_left', 'bottom_right', null] },
@@ -235,6 +250,11 @@ export async function analyzeWhatsAppImage(input: {
                                                             fromBottom: { type: ['number', 'null'] },
                                                             centeredX: { type: ['boolean', 'null'] },
                                                             centeredY: { type: ['boolean', 'null'] },
+                                                            nearEdge: { type: ['string', 'null'], enum: ['left', 'right', 'top', 'bottom', null] },
+                                                            pitchFromIndex: { type: ['number', 'null'] },
+                                                            pitchDistance: { type: ['number', 'null'] },
+                                                            pitchUnit: { type: ['string', 'null'], enum: ['inch', 'mm', null] },
+                                                            pitchAxis: { type: ['string', 'null'], enum: ['horizontal', 'vertical', null] },
                                                         },
                                                     },
                                                 },
@@ -295,11 +315,12 @@ function partition<T>(items: T[], predicate: (item: T) => boolean): [T[], T[]] {
     return [items.filter(predicate), items.filter(item => !predicate(item))];
 }
 
-// Resolves one axis (x or y) of a hole/cut's position from whatever the
-// drawing actually dimensioned: centered wins if marked, else distance from
-// the near edge, else distance from the far edge (computed backwards from
-// rectSize), else unresolved (null) -- never guessed.
-function placeOnAxis(
+const EDGE_INSET_UNITS = 20; // 2 inches -- matches GlassDesigner's manual "Align & Add Holes" edge offset default
+
+// Resolves one axis (x or y) of a position from an explicit edge distance or
+// centered marking only -- never a guess. Returns null when nothing was
+// dimensioned on this axis.
+function resolveExplicitAxis(
     fromNear: number | null | undefined,
     fromFar: number | null | undefined,
     centered: boolean | null | undefined,
@@ -313,30 +334,107 @@ function placeOnAxis(
     return null;
 }
 
-function placeHole(hole: VisionHole, rectX: number, rectY: number, rectW: number, rectH: number): { x: number | null; y: number | null; radius: number; extracted: boolean } {
-    const diameterUnits = hole.diameter != null ? toCanvasUnits(hole.diameter, hole.unit) : DEFAULT_HOLE_RADIUS_UNITS * 2;
-    const x = placeOnAxis(hole.fromLeft, hole.fromRight, hole.centeredX, hole.unit, rectX, rectW);
-    const y = placeOnAxis(hole.fromTop, hole.fromBottom, hole.centeredY, hole.unit, rectY, rectH);
-    return { x, y, radius: diameterUnits / 2, extracted: x != null && y != null };
-}
+type ResolvedAxis = { x: number | null; y: number | null; xConfirmed: boolean; yConfirmed: boolean };
 
-function placeCut(cut: VisionCut, rectX: number, rectY: number, rectW: number, rectH: number): { x: number | null; y: number | null; width: number; height: number; extracted: boolean } {
-    const width = cut.width != null ? toCanvasUnits(cut.width, cut.unit) : DEFAULT_CUT_SIZE_UNITS;
-    const height = cut.height != null ? toCanvasUnits(cut.height, cut.unit) : DEFAULT_CUT_SIZE_UNITS;
+// Resolves the CENTER position of every hole/cut in a piece. Confidence-wise
+// there are three kinds of result: (a) a real dimensioned fact (edge
+// distance/centered, or a pitch chained entirely off real facts), (b) a
+// qualitative-but-real observation with no exact number (nearEdge), and (c) a
+// pure guess (last-resort even-spacing). Only (a) counts as confirmed (no
+// review flag); (b) and (c) are flagged positionSource: 'estimated-fallback'
+// by the caller. The actual pass order is chosen so pitch-chain anchors
+// always have a position to chain off of before the chain is resolved:
+//   1. Explicit edge distance / centered marking.
+//   2. nearEdge grouping -- shapes with no number at all but a visually
+//      observed edge (e.g. a column of holes running near the left edge with
+//      no distance marked) are evenly spaced along that specific edge
+//      instead of the old generic center/bottom-edge guess, grouped
+//      separately per edge so e.g. a left-edge column and a bottom-edge row
+//      on the same piece don't get lumped into one line. Items that
+//      themselves chain off another via pitchFromIndex are skipped here.
+//   3. Last-resort even-spacing for any remaining "root" item (no pitch
+//      reference of its own) -- guarantees every potential pitch anchor has
+//      a real position before step 4 runs.
+//   4. Pitch chain -- a distance measured from another hole/cut in the same
+//      array rather than from an edge (e.g. "200mm" written between two
+//      holes), resolved now that every non-chained item has a position.
+//      Confidence is inherited from whichever axis of the reference shape it
+//      was chained from: only the *spacing* between the pair is a hard fact
+//      from the drawing, not the pair's absolute position on the panel, so a
+//      pitch chained off an unconfirmed anchor stays unconfirmed.
+//   5. Final safety net for a pitchFromIndex pointing out of range or at a
+//      cycle, so no shape is ever left without a position.
+function resolvePositions<T extends PositionFields>(
+    items: T[], rectX: number, rectY: number, rectW: number, rectH: number,
+): ResolvedAxis[] {
+    const resolved: ResolvedAxis[] = items.map(item => {
+        const x = resolveExplicitAxis(item.fromLeft, item.fromRight, item.centeredX, item.unit, rectX, rectW);
+        const y = resolveExplicitAxis(item.fromTop, item.fromBottom, item.centeredY, item.unit, rectY, rectH);
+        return { x, y, xConfirmed: x != null, yConfirmed: y != null };
+    });
 
-    if (cut.cutType === 'corner_notch' && cut.corner) {
-        const x = cut.corner.includes('left') ? rectX : rectX + rectW - width;
-        const y = cut.corner.startsWith('top') ? rectY : rectY + rectH - height;
-        return { x, y, width, height, extracted: true };
+    // Pass 2: nearEdge groups -- only for shapes still fully unresolved and
+    // not themselves a pitch-chain dependent (pitch is a more specific
+    // signal, resolved in pass 4 below once its anchor has a position).
+    (['left', 'right', 'top', 'bottom'] as const).forEach(edge => {
+        const group = items
+            .map((_, i) => i)
+            .filter(i => items[i].nearEdge === edge && items[i].pitchFromIndex == null && resolved[i].x == null && resolved[i].y == null);
+        group.forEach((i, orderInGroup) => {
+            const fraction = (orderInGroup + 1) / (group.length + 1);
+            if (edge === 'left') resolved[i] = { x: rectX + EDGE_INSET_UNITS, y: rectY + rectH * fraction, xConfirmed: false, yConfirmed: false };
+            else if (edge === 'right') resolved[i] = { x: rectX + rectW - EDGE_INSET_UNITS, y: rectY + rectH * fraction, xConfirmed: false, yConfirmed: false };
+            else if (edge === 'top') resolved[i] = { x: rectX + rectW * fraction, y: rectY + EDGE_INSET_UNITS, xConfirmed: false, yConfirmed: false };
+            else resolved[i] = { x: rectX + rectW * fraction, y: rectY + rectH - EDGE_INSET_UNITS, xConfirmed: false, yConfirmed: false };
+        });
+    });
+
+    // Pass 3: last-resort even-spacing, but ONLY for "root" items that have
+    // no pitch-chain reference of their own -- this guarantees every
+    // potential pitch anchor has a real position before pass 4 tries to
+    // chain off it. Items that themselves reference another via
+    // pitchFromIndex are deliberately excluded here; they wait for pass 4.
+    const rootUnresolved = items.map((_, i) => i).filter(i => (resolved[i].x == null || resolved[i].y == null) && items[i].pitchFromIndex == null);
+    rootUnresolved.forEach((i, orderInGroup) => {
+        const fraction = (orderInGroup + 1) / (rootUnresolved.length + 1);
+        resolved[i] = { x: rectX + rectW * fraction, y: rectY + rectH / 2, xConfirmed: false, yConfirmed: false };
+    });
+
+    // Pass 4: pitch chains. By this point every non-chained item has some
+    // position, so any valid pitchFromIndex reference now resolves. Iterate
+    // up to items.length times so chains of any length (a chains off b
+    // chains off c, ...) resolve regardless of array order.
+    for (let pass = 0; pass < items.length; pass++) {
+        let changed = false;
+        items.forEach((item, i) => {
+            if (resolved[i].x != null && resolved[i].y != null) return;
+            if (item.pitchFromIndex == null || item.pitchDistance == null) return;
+            const ref = resolved[item.pitchFromIndex];
+            if (!ref || ref.x == null || ref.y == null) return;
+            const dist = toCanvasUnits(item.pitchDistance, item.pitchUnit ?? item.unit);
+            const next = { ...resolved[i] };
+            if (item.pitchAxis === 'horizontal') {
+                if (next.x == null) { next.x = ref.x + dist; next.xConfirmed = ref.xConfirmed; changed = true; }
+                if (next.y == null) { next.y = ref.y; next.yConfirmed = false; changed = true; }
+            } else {
+                if (next.y == null) { next.y = ref.y + dist; next.yConfirmed = ref.yConfirmed; changed = true; }
+                if (next.x == null) { next.x = ref.x; next.xConfirmed = false; changed = true; }
+            }
+            resolved[i] = next;
+        });
+        if (!changed) break;
     }
 
-    // Top-left corner of the cut, so the axis math resolves the cut's center
-    // then offsets back by half its size.
-    const cx = placeOnAxis(cut.fromLeft, cut.fromRight, cut.centeredX, cut.unit, rectX, rectW);
-    const cy = placeOnAxis(cut.fromTop, cut.fromBottom, cut.centeredY, cut.unit, rectY, rectH);
-    const x = cx != null ? cx - width / 2 : null;
-    const y = cy != null ? cy - height / 2 : null;
-    return { x, y, width, height, extracted: x != null && y != null };
+    // Pass 5: final safety net -- a pitchFromIndex pointing out of range or
+    // at a cycle would otherwise leave a shape with no position at all
+    // (which would break rendering); fall back to plain even-spacing.
+    const stillUnresolved = items.map((_, i) => i).filter(i => resolved[i].x == null || resolved[i].y == null);
+    stillUnresolved.forEach((i, orderInGroup) => {
+        const fraction = (orderInGroup + 1) / (stillUnresolved.length + 1);
+        resolved[i] = { x: rectX + rectW * fraction, y: rectY + rectH / 2, xConfirmed: false, yConfirmed: false };
+    });
+
+    return resolved;
 }
 
 type VisionPieceLike = {
@@ -355,12 +453,11 @@ type VisionPieceLike = {
 // width/height to draw from, in which case the piece falls back to today's
 // blank-canvas behavior.
 //
-// Holes/cuts whose position was actually readable from the drawing (edge
-// distance or centered marking) are placed at that real position. Anything
-// that couldn't be read falls back to even-spacing -- but only spaced among
-// other unresolved shapes, never overlapping a slot already taken by a real
-// extracted position -- and is tagged positionSource: 'estimated-fallback'
-// so the review UI can flag exactly that subset instead of everything.
+// Holes/cuts go through resolvePositions() (edge distance/centered -> pitch
+// chain -> nearEdge grouping -> last-resort even-spacing, see that function's
+// comment). Anything not fully confirmed by a real dimensioned fact is
+// tagged positionSource: 'estimated-fallback' so the review UI can flag
+// exactly that subset instead of everything.
 function buildPieceShapes(piece: VisionPieceLike): KonvaShape[] {
     const widthIn = Number(piece.width) || 0;
     const heightIn = Number(piece.height) || 0;
@@ -375,40 +472,40 @@ function buildPieceShapes(piece: VisionPieceLike): KonvaShape[] {
         { id: rectId, type: 'glass_rect', x: rectX, y: rectY, width: rectWidth, height: rectHeight },
     ];
 
-    const holePlacements = (piece.holes || []).map(hole => ({ hole, placement: placeHole(hole, rectX, rectY, rectWidth, rectHeight) }));
-    const [extractedHoles, fallbackHoles] = partition(holePlacements, entry => entry.placement.extracted);
-    extractedHoles.forEach(({ placement }) => {
-        shapes.push({ id: generateUUID(), type: 'hole', x: placement.x!, y: placement.y!, radius: placement.radius, parentId: rectId });
-    });
-    fallbackHoles.forEach(({ placement }, i) => {
-        const fraction = (i + 1) / (fallbackHoles.length + 1);
+    const holes = piece.holes || [];
+    const holePositions = resolvePositions(holes, rectX, rectY, rectWidth, rectHeight);
+    holes.forEach((hole, i) => {
+        const pos = holePositions[i];
+        const diameterUnits = hole.diameter != null ? toCanvasUnits(hole.diameter, hole.unit) : DEFAULT_HOLE_RADIUS_UNITS * 2;
         shapes.push({
-            id: generateUUID(),
-            type: 'hole',
-            x: rectX + rectWidth * fraction,
-            y: rectY + rectHeight / 2,
-            radius: placement.radius,
-            parentId: rectId,
-            positionSource: 'estimated-fallback',
+            id: generateUUID(), type: 'hole', x: pos.x!, y: pos.y!, radius: diameterUnits / 2, parentId: rectId,
+            ...(pos.xConfirmed && pos.yConfirmed ? {} : { positionSource: 'estimated-fallback' as const }),
         });
     });
 
-    const cutPlacements = (piece.cuts || []).map(cut => ({ cut, placement: placeCut(cut, rectX, rectY, rectWidth, rectHeight) }));
-    const [extractedCuts, fallbackCuts] = partition(cutPlacements, entry => entry.placement.extracted);
-    extractedCuts.forEach(({ placement }) => {
-        shapes.push({ id: generateUUID(), type: 'cut', x: placement.x!, y: placement.y!, width: placement.width, height: placement.height, parentId: rectId });
+    // Corner-notch cuts are placed directly from the named corner (a
+    // high-confidence, non-numeric read) and never go through
+    // resolvePositions -- everything else (edge-distance/centered/pitch/
+    // nearEdge/fallback) is handled identically to holes, using the same
+    // CENTER semantics, then offset back to the rect's top-left corner.
+    const cuts = piece.cuts || [];
+    const [cornerNotchCuts, otherCuts] = partition(cuts, cut => cut.cutType === 'corner_notch' && !!cut.corner);
+    cornerNotchCuts.forEach(cut => {
+        const width = cut.width != null ? toCanvasUnits(cut.width, cut.unit) : DEFAULT_CUT_SIZE_UNITS;
+        const height = cut.height != null ? toCanvasUnits(cut.height, cut.unit) : DEFAULT_CUT_SIZE_UNITS;
+        const x = cut.corner!.includes('left') ? rectX : rectX + rectWidth - width;
+        const y = cut.corner!.startsWith('top') ? rectY : rectY + rectHeight - height;
+        shapes.push({ id: generateUUID(), type: 'cut', x, y, width, height, parentId: rectId });
     });
-    fallbackCuts.forEach(({ placement }, i) => {
-        const fraction = (i + 1) / (fallbackCuts.length + 1);
+
+    const cutPositions = resolvePositions(otherCuts, rectX, rectY, rectWidth, rectHeight);
+    otherCuts.forEach((cut, i) => {
+        const pos = cutPositions[i];
+        const width = cut.width != null ? toCanvasUnits(cut.width, cut.unit) : DEFAULT_CUT_SIZE_UNITS;
+        const height = cut.height != null ? toCanvasUnits(cut.height, cut.unit) : DEFAULT_CUT_SIZE_UNITS;
         shapes.push({
-            id: generateUUID(),
-            type: 'cut',
-            x: rectX + rectWidth * fraction - placement.width / 2,
-            y: rectY + rectHeight - placement.height,
-            width: placement.width,
-            height: placement.height,
-            parentId: rectId,
-            positionSource: 'estimated-fallback',
+            id: generateUUID(), type: 'cut', x: pos.x! - width / 2, y: pos.y! - height / 2, width, height, parentId: rectId,
+            ...(pos.xConfirmed && pos.yConfirmed ? {} : { positionSource: 'estimated-fallback' as const }),
         });
     });
 
