@@ -3011,9 +3011,10 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                 {piece.shapes.filter(s => s.type === 'glass_rect' || s.type === 'glass_circle' || s.type === 'glass_polygon' || s.type === 'glass_parallelogram').map((shape) => {
                                     const isPolygon = shape.type === 'glass_polygon';
                                     const isParallelogram = shape.type === 'glass_parallelogram';
+                                    const shapeNeedsReview = shape.positionSource === 'estimated-fallback';
                                     const props = {
                                         id: shape.id, x: shape.x, y: shape.y,
-                                        fill: 'rgba(59, 130, 246, 0.2)', stroke: '#3b82f6', strokeWidth: 1, draggable: false,
+                                        fill: shapeNeedsReview ? 'rgba(245, 158, 11, 0.2)' : 'rgba(59, 130, 246, 0.2)', stroke: shapeNeedsReview ? '#f59e0b' : '#3b82f6', strokeWidth: 1, draggable: false,
                                     };
                                      if (isPolygon) {
                                          const pts = shape.points || getPolygonPoints(shape.sides || 4, shape.width || 100, shape.height || 100);
@@ -3148,12 +3149,13 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                 const isPolygon = shape.type === 'glass_polygon';
                                 const isParallelogram = shape.type === 'glass_parallelogram';
 
+                                const shapeNeedsReview = shape.positionSource === 'estimated-fallback';
                                 const baseProps = {
                                     id: shape.id,
                                     x: shape.x,
                                     y: shape.y,
-                                    fill: 'rgba(59, 130, 246, 0.2)',
-                                    stroke: '#3b82f6',
+                                    fill: shapeNeedsReview ? 'rgba(245, 158, 11, 0.2)' : 'rgba(59, 130, 246, 0.2)',
+                                    stroke: shapeNeedsReview ? '#f59e0b' : '#3b82f6',
                                     strokeWidth: (isSelected ? 3 : 1) / drawingScale,
                                     draggable: true,
                                     onClick: (e: any) => handleShapeClick(shape.id, e),

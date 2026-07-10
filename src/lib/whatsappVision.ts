@@ -42,6 +42,21 @@ export type VisionCut = PositionFields & {
     height?: number | null;
 };
 
+// A panel isn't always a plain rectangle -- some drawings show one or more
+// corners cut off at an angle (a "taper", often labeled as such, common on
+// railing glass following a staircase rake). horizontalCut/verticalCut are
+// how far the diagonal cut runs in along each of that corner's two edges;
+// only fill these in when the drawing actually gives both measurements --
+// many drawings only label "Taper" with no numbers at all (the exact angle
+// is meant to be matched on site), in which case leave them null rather than
+// guessing a size.
+export type VisionCornerTaper = {
+    corner: 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right';
+    horizontalCut?: number | null;
+    verticalCut?: number | null;
+    unit?: LengthUnit | null;
+};
+
 export type WhatsAppImageAnalysis = {
     classification: 'text_order' | 'drawing' | 'mixed' | 'unknown';
     extractedText: string;
@@ -65,6 +80,7 @@ export type WhatsAppImageAnalysis = {
             quantity?: number | null;
             holes: VisionHole[];
             cuts: VisionCut[];
+            tapers: VisionCornerTaper[];
             hardwareNotes?: string | null;
         }>;
     };
@@ -125,6 +141,8 @@ export async function analyzeWhatsAppImage(input: {
                                 '  - DIMENSIONED FROM ANOTHER HOLE/CUT, NOT AN EDGE: sometimes a single distance is written between two holes/cuts themselves (e.g. two holes stacked vertically with "200mm" written between them), rather than either one being dimensioned from a panel edge. For the second of the pair, set pitchFromIndex to the 0-based index of the other hole/cut in this same array (list the reference one first), set pitchDistance and pitchUnit to that written number, and set pitchAxis to "vertical" if they are stacked one above the other or "horizontal" if side by side.',
                                 '  - If a hole or cut has no readable position at all by any of the above (no edge dimension, no visible edge alignment, no pitch to another hole/cut), still include it in the array (never drop it), but leave every position field null.',
                                 '  - For a notch cut from a corner, set cutType to "corner_notch" and corner to which corner, plus its width/height. Otherwise use "edge_notch" for a notch cut into an edge (not a corner), or "through_cut" for an internal cutout.',
+                                '',
+                                'PANEL SHAPE / TAPERED CORNERS: A panel is not always a plain rectangle. If one or more corners are drawn cut off at an angle instead of square (often labeled "Taper", common on railing glass following a staircase rake), add an entry to tapers for each such corner with corner set to which one. Many drawings only label this qualitatively with no measurement at all (the angle is matched on site, not on paper) -- in that case leave horizontalCut and verticalCut null, do not guess a size. Only fill in horizontalCut (how far the cut runs in along the horizontal edge from that corner) and verticalCut (how far it runs in along the vertical edge from that corner) when the drawing actually gives both of those two measurements for that corner.',
                                 '',
                                 'UNITS: Shops often mix units on one drawing -- panel width/height are usually inches, but hole diameters and hole/cut distances are frequently marked in mm. Report widthUnit/heightUnit for the panel, and a separate unit per hole/cut, using whatever unit is actually written next to that number. If no unit is marked, leave it null rather than guessing.',
                                 '',
@@ -199,7 +217,7 @@ export async function analyzeWhatsAppImage(input: {
                                         items: {
                                             type: 'object',
                                             additionalProperties: false,
-                                            required: ['name', 'type', 'width', 'height', 'widthUnit', 'heightUnit', 'thickness', 'quantity', 'holes', 'cuts', 'hardwareNotes'],
+                                            required: ['name', 'type', 'width', 'height', 'widthUnit', 'heightUnit', 'thickness', 'quantity', 'holes', 'cuts', 'tapers', 'hardwareNotes'],
                                             properties: {
                                                 name: { type: 'string' },
                                                 type: { type: 'string' },
@@ -255,6 +273,20 @@ export async function analyzeWhatsAppImage(input: {
                                                             pitchDistance: { type: ['number', 'null'] },
                                                             pitchUnit: { type: ['string', 'null'], enum: ['inch', 'mm', null] },
                                                             pitchAxis: { type: ['string', 'null'], enum: ['horizontal', 'vertical', null] },
+                                                        },
+                                                    },
+                                                },
+                                                tapers: {
+                                                    type: 'array',
+                                                    items: {
+                                                        type: 'object',
+                                                        additionalProperties: false,
+                                                        required: ['corner', 'horizontalCut', 'verticalCut', 'unit'],
+                                                        properties: {
+                                                            corner: { type: 'string', enum: ['top_left', 'top_right', 'bottom_left', 'bottom_right'] },
+                                                            horizontalCut: { type: ['number', 'null'] },
+                                                            verticalCut: { type: ['number', 'null'] },
+                                                            unit: { type: ['string', 'null'], enum: ['inch', 'mm', null] },
                                                         },
                                                     },
                                                 },
@@ -444,20 +476,70 @@ type VisionPieceLike = {
     heightUnit?: LengthUnit | null;
     holes?: VisionHole[] | null;
     cuts?: VisionCut[] | null;
+    tapers?: VisionCornerTaper[] | null;
 };
 
-// Builds an actual rectangle (plus real or best-effort holes/cuts) in the
-// exact format GlassDesigner's canvas reads back (GlassPiece.shapes:
-// KonvaShape[]), so a drawing extracted from a photo shows up as a real,
-// editable drawing instead of an empty canvas. Returns [] when there's no
-// width/height to draw from, in which case the piece falls back to today's
-// blank-canvas behavior.
+const CORNER_ORDER: Array<'top_left' | 'top_right' | 'bottom_right' | 'bottom_left'> = ['top_left', 'top_right', 'bottom_right', 'bottom_left'];
+
+// Builds the outline of a panel as a polygon point list (cycling top_left ->
+// top_right -> bottom_right -> bottom_left, relative to the shape's own x/y,
+// matching GlassDesigner's existing polygon convention) when at least one
+// corner has a fully measured taper (both horizontalCut and verticalCut
+// given). Returns null when there's nothing measurable to build from, in
+// which case the caller keeps a plain rectangle -- a taper that's only
+// qualitatively labeled (no numbers) can't be turned into real geometry
+// without inventing a size.
+function buildTaperedOutline(widthUnits: number, heightUnits: number, tapers: VisionCornerTaper[]): number[] | null {
+    const measured = new Map<string, VisionCornerTaper>();
+    tapers.forEach(taper => {
+        if (taper.corner && taper.horizontalCut != null && taper.verticalCut != null) {
+            measured.set(taper.corner, taper);
+        }
+    });
+    if (measured.size === 0) return null;
+
+    const W = widthUnits;
+    const H = heightUnits;
+    const points: number[] = [];
+    CORNER_ORDER.forEach(corner => {
+        const taper = measured.get(corner);
+        if (!taper) {
+            if (corner === 'top_left') points.push(0, 0);
+            else if (corner === 'top_right') points.push(W, 0);
+            else if (corner === 'bottom_right') points.push(W, H);
+            else points.push(0, H);
+            return;
+        }
+        const h = toCanvasUnits(taper.horizontalCut!, taper.unit);
+        const v = toCanvasUnits(taper.verticalCut!, taper.unit);
+        // Each corner is replaced by two points: the one on the edge shared
+        // with the previous corner in this cycle, then the one on the edge
+        // shared with the next -- so the resulting list still winds
+        // consistently around the shape with no crossed edges.
+        if (corner === 'top_left') points.push(0, v, h, 0);
+        else if (corner === 'top_right') points.push(W - h, 0, W, v);
+        else if (corner === 'bottom_right') points.push(W, H - v, W - h, H);
+        else points.push(h, H, 0, H - v);
+    });
+    return points;
+}
+
+// Builds an actual rectangle (or tapered-corner polygon) plus real or
+// best-effort holes/cuts in the exact format GlassDesigner's canvas reads
+// back (GlassPiece.shapes: KonvaShape[]), so a drawing extracted from a photo
+// shows up as a real, editable drawing instead of an empty canvas. Returns []
+// when there's no width/height to draw from, in which case the piece falls
+// back to today's blank-canvas behavior.
 //
 // Holes/cuts go through resolvePositions() (edge distance/centered -> pitch
 // chain -> nearEdge grouping -> last-resort even-spacing, see that function's
 // comment). Anything not fully confirmed by a real dimensioned fact is
 // tagged positionSource: 'estimated-fallback' so the review UI can flag
-// exactly that subset instead of everything.
+// exactly that subset instead of everything. The panel's own outline shape
+// gets the same flag when a taper was noted but couldn't be measured (no
+// numbers to build real geometry from), so "this piece's shape itself needs
+// a manual fix" surfaces through the identical tab-badge/amber-highlight
+// mechanism as an unresolved hole or cut.
 function buildPieceShapes(piece: VisionPieceLike): KonvaShape[] {
     const widthIn = Number(piece.width) || 0;
     const heightIn = Number(piece.height) || 0;
@@ -468,9 +550,18 @@ function buildPieceShapes(piece: VisionPieceLike): KonvaShape[] {
     const rectY = 50;
     const rectWidth = toCanvasUnits(widthIn, piece.widthUnit ?? 'inch');
     const rectHeight = toCanvasUnits(heightIn, piece.heightUnit ?? 'inch');
-    const shapes: KonvaShape[] = [
-        { id: rectId, type: 'glass_rect', x: rectX, y: rectY, width: rectWidth, height: rectHeight },
-    ];
+
+    const tapers = piece.tapers || [];
+    const outlinePoints = buildTaperedOutline(rectWidth, rectHeight, tapers);
+    const hasUnmeasurableTaper = tapers.some(taper => taper.corner && (taper.horizontalCut == null || taper.verticalCut == null));
+
+    const outlineShape: KonvaShape = outlinePoints
+        ? { id: rectId, type: 'glass_polygon', x: rectX, y: rectY, width: rectWidth, height: rectHeight, points: outlinePoints, sides: outlinePoints.length / 2 }
+        : {
+            id: rectId, type: 'glass_rect', x: rectX, y: rectY, width: rectWidth, height: rectHeight,
+            ...(hasUnmeasurableTaper ? { positionSource: 'estimated-fallback' as const } : {}),
+        };
+    const shapes: KonvaShape[] = [outlineShape];
 
     const holes = piece.holes || [];
     const holePositions = resolvePositions(holes, rectX, rectY, rectWidth, rectHeight);
@@ -531,6 +622,7 @@ export function buildDesignDataFromImageAnalysis(analysis: WhatsAppImageAnalysis
             quantity: 1,
             holes: [],
             cuts: [],
+            tapers: [],
             hardwareNotes: analysis.drawing.notes || analysis.extractedText,
         }];
 
