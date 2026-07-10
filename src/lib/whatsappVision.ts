@@ -84,10 +84,23 @@ export async function analyzeWhatsAppImage(input: {
                         {
                             type: 'input_image',
                             image_url: input.imageDataUrl,
+                            // WhatsApp photos are often full camera resolution;
+                            // 'high' detail tiles the whole image (more tokens,
+                            // sharper reading of small dimensions/handwriting).
+                            // 'low' is a flat ~85 tokens regardless of size --
+                            // much cheaper, but risks misreading fine print on
+                            // a busy drawing. Override via env if the accuracy
+                            // trade-off is worth it for your usage pattern.
+                            detail: (process.env.OPENAI_VISION_DETAIL as 'low' | 'high' | 'auto' | undefined) || 'auto',
                         },
                     ],
                 },
             ],
+            // Structured-output mode bounds the JSON *shape* but not the
+            // length of free-text fields (extractedText, notes) -- cap this
+            // as a guardrail against a single unusually busy image running up
+            // an outsized bill.
+            max_output_tokens: 2000,
             text: {
                 format: {
                     type: 'json_schema',
@@ -164,6 +177,9 @@ export async function analyzeWhatsAppImage(input: {
     }
 
     const data = await response.json();
+    if (data.usage) {
+        console.log(`OpenAI vision usage (${model}):`, data.usage);
+    }
     const outputText = data.output_text || data.output?.flatMap((item: any) => item.content || [])
         .find((content: any) => content.type === 'output_text')?.text;
 
