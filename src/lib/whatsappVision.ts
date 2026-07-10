@@ -125,6 +125,13 @@ export async function analyzeWhatsAppImage(input: {
     }
 
     const model = process.env.OPENAI_VISION_MODEL || 'gpt-4.1-mini';
+    // Reasoning models (gpt-5 family, o-series) think before answering --
+    // that markedly improves systematic counting/reading tasks like "find
+    // every small circle on this busy hand drawing", which non-reasoning
+    // models chronically under-report. Their reasoning tokens count against
+    // max_output_tokens, so the cap must be much higher than the JSON
+    // answer alone needs.
+    const isReasoningModel = /^(gpt-5|o\d)/.test(model);
     const response = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
         headers: {
@@ -146,7 +153,10 @@ export async function analyzeWhatsAppImage(input: {
                                 'MULTI-PIECE DRAWINGS: A single photo may show more than one separate glass panel (e.g. a fixed panel + a door + a ventilator, or several unrelated pieces sketched on one page, or several adjoining sections cut from one continuous sheet like a shopfront or railing run). Treat each visually distinct panel/outline as its own entry in drawing.pieces -- do not merge multiple panels into one piece, and do not drop a panel just because some of its details are unclear or repetitive-looking. CHECK EVERY SINGLE SECTION for holes and cuts individually, even ones that look plain or identical to a neighboring section -- it is a common mistake to carefully read the two end sections of a multi-section run (which often have extra hardware markings) and then skip the plainer middle sections entirely; every section that has holes or cuts marked on it must have them reported, not just the ones with the most detail.',
                                 '  - If adjoining sections are cut from one continuous sheet (sharing one unbroken top and bottom edge, divided only by vertical cut lines, with a single overall width dimension spanning all of them), set connectedToPrevious to true on every section after the first one in that run, so they get drawn together on one shared canvas instead of separate tabs. Leave it null/false for genuinely separate, independent pieces (e.g. a door drawn apart from a fixed sidelite).',
                                 '',
+                                'COUNT EVERY HOLE INDIVIDUALLY: each small circle ("o") drawn on the glass is one hole. Scan methodically -- along the top edge, bottom edge, left edge, right edge and interior of EVERY section -- and report one holes[] entry per circle. Never compress repeats: if five sections each show 2 circles at the top and 2 at the bottom, that is 20 separate entries, not 5. Under-counting holes is the single most common mistake on these drawings; recount the circles before finalizing and make sure the holes array length matches your count.',
+                                '',
                                 'HOLE AND CUT POSITIONS: These drawings dimension hole/cut positions in different ways depending on the sketch -- read each one as it is actually drawn, using whichever of the following applies:',
+                                '  - CUT SIZE vs CUT DISTANCE: a cut is usually drawn as a small shaded/hatched rectangle. Its SIZE is written against its own sides (width above or below it, height beside it -- e.g. "8" above and "8" beside it means an 8 x 8 cut). A number attached to an arrow running from a panel edge to the cut (e.g. 6" with an upward arrow from the bottom edge) is the cut\'s DISTANCE from that edge (fromBottom/fromLeft/etc.), NOT its width or height -- never use an edge-distance number as a cut dimension.',
                                 '  - MOST COMMON: distance from one or two nearby edges (e.g. "20mm from left", "15mm from top"), or marked as centered on an axis (a centerline, or equal tick marks on both sides). Record fromLeft/fromRight/fromTop/fromBottom as the distance from that edge of the panel to the CENTER of the hole/cut -- only fill in the edges that are actually dimensioned, leave the rest null. If marked centered instead of a number, set centeredX and/or centeredY to true rather than guessing a number.',
                                 '  - IMPORTANT -- determine fromTop vs fromBottom (and fromLeft vs fromRight) by which edge the dimension line actually starts from, NOT by which way its arrowhead points. A dimension line is very often drawn starting at the bottom edge with the arrow pointing upward toward the hole/cut -- that is still a distance FROM THE BOTTOM (fromBottom), even though the arrow points up. Trace the line back to the edge it touches to decide which field to fill in.',
                                 '  - NO NUMBER, BUT NEAR AN EDGE: many drawings place a row or column of holes/cuts close to one edge of the panel with no distance written at all (e.g. a column of holes running down near the left edge). When you can see it is clearly aligned along one specific edge but no number dimensions that distance, set nearEdge to that edge ("left"/"right"/"top"/"bottom") instead of leaving every field null -- this is a real observation (which edge it is near), not a guessed number.',
@@ -182,8 +192,11 @@ export async function analyzeWhatsAppImage(input: {
             // Structured-output mode bounds the JSON *shape* but not the
             // length of free-text fields (extractedText, notes) -- cap this
             // as a guardrail against a single unusually busy image running up
-            // an outsized bill.
-            max_output_tokens: 2000,
+            // an outsized bill. Reasoning models need far more headroom since
+            // their (invisible) reasoning tokens draw from the same budget;
+            // 2000 would starve the reasoning and truncate the JSON answer.
+            max_output_tokens: isReasoningModel ? 10000 : 2000,
+            ...(isReasoningModel ? { reasoning: { effort: 'medium' } } : {}),
             text: {
                 format: {
                     type: 'json_schema',
