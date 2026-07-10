@@ -6,7 +6,29 @@ import { generateUUID, formatInchesToFraction, parseFractionToInches } from '@/l
 import { roundToNextEvenInch } from '@/lib/designCalculations';
 import { Stage, Layer, Rect, Circle, Transformer, Group, Text, Line, Arrow } from 'react-konva';
 import { db } from '@/lib/storage';
-import { GlassItem } from '@/types';
+import { GlassItem, KonvaShape, GlassPiece } from '@/types';
+
+// Dimension-line rendering offsets (renderRectDimensions/getPolygonSideDimensions/
+// getVertexAngleInfo below all divide these by the current drawingScale). Named
+// here so getPieceBoundingBox (used by centerPieceShapes) can reserve exactly
+// the same margin those renderers actually draw into, instead of an
+// independently-guessed padding value that could drift out of sync.
+const RECT_DIM_OFFSET_PX = 44;
+const RECT_DIM_LABEL_HALF_W_PX = 43; // half of labelWidth=86
+const RECT_DIM_LABEL_HALF_H_PX = 12; // half of labelHeight=24
+const POLYGON_SIDE_DIM_OFFSET_PX = 70;
+const VERTEX_ANGLE_OFFSET_PX = 22;
+
+// Fixed Stage viewport (CSS pixels) -- there is no zoom/pan control today,
+// so these are constants, not state. Logical (world) size scales inversely
+// with drawingScale; centerPieceShapes uses this to center a piece
+// regardless of the current scale.
+const STAGE_VIEWPORT_WIDTH = 920;
+const STAGE_VIEWPORT_HEIGHT = 560;
+const getStageLogicalSize = (scale: number): { width: number; height: number } => ({
+    width: Math.ceil(STAGE_VIEWPORT_WIDTH / scale),
+    height: Math.ceil(STAGE_VIEWPORT_HEIGHT / scale),
+});
 
 // Snap a value in pixels (1 inch = 10 pixels) to the nearest 0.125 inches (1.25 pixels)
 const snapToOctalInch = (pixels: number): number => {
@@ -172,7 +194,7 @@ const getVertexAngleInfo = (pts: number[], index: number, shapeX: number, shapeY
         by = -by;
     }
     
-    const offset = 22 / drawingScale;
+    const offset = VERTEX_ANGLE_OFFSET_PX / drawingScale;
     const textX = shapeX + xc + bx * offset;
     const textY = shapeY + yc + by * offset;
     
@@ -237,7 +259,7 @@ const getPolygonSideDimensions = (shape: KonvaShape, drawingScale: number = 1): 
         const nx = dot1 > 0 ? n1x : n2x;
         const ny = dot1 > 0 ? n1y : n2y;
 
-        const offset = 70 / drawingScale; // 7 inches scaled – doubled for hole clearance
+        const offset = POLYGON_SIDE_DIM_OFFSET_PX / drawingScale; // 7 inches scaled – doubled for hole clearance
         const oxs_val = xs_abs + nx * offset;
         const oys_val = ys_abs + ny * offset;
         const oxe_val = xe_abs + nx * offset;
@@ -318,24 +340,24 @@ const renderRectDimensions = (shape: KonvaShape, scale: number = 1): React.React
     const width = shape.width || 0;
     const height = shape.height || 0;
     
-    const textGap = 44 / scale;
-    const arrowOffset = 44 / scale;
+    const textGap = RECT_DIM_OFFSET_PX / scale;
+    const arrowOffset = RECT_DIM_OFFSET_PX / scale;
     const dimensionColor = '#2563eb';
     const extensionColor = '#93c5fd';
-    
+
     // Horizontal dim line above the glass
     const cx = shape.x + width / 2;
     const cy = shape.y - arrowOffset;
     const hLineHalf = Math.max(width / 2, 30 / scale);
-    
+
     // Vertical dim line to the right of the glass
     const hcx = shape.x + width + arrowOffset;
     const hcy = shape.y + height / 2;
     const vLineHalf = Math.max(height / 2, 30 / scale);
-    
+
     const textFontSize = 14 / scale;
-    const labelWidth = 86 / scale;
-    const labelHeight = 24 / scale;
+    const labelWidth = (RECT_DIM_LABEL_HALF_W_PX * 2) / scale;
+    const labelHeight = (RECT_DIM_LABEL_HALF_H_PX * 2) / scale;
     const showWidthSplit = width > 110 / scale;
     const wText = `${formatInchesFraction(width)}"`;
     
@@ -678,37 +700,66 @@ const renderParallelogramDimensions = (w: number, h: number, sk: number, scale: 
 };
 
 
-interface KonvaShape {
-    id: string;
-    type: 'glass_rect' | 'glass_circle' | 'hole' | 'cut' | 'glass_polygon' | 'glass_parallelogram' | 'accessory';
-    x: number;
-    y: number;
-    width?: number;
-    height?: number;
-    radius?: number;
-    sides?: number;
-    points?: number[];
-    skewX?: number;
-    accessoryType?: 'lock' | 'connector' | 'hinge' | 'profile';
-    accessoryName?: string;
-    parentId?: string;
-    hardwareItemId?: string;
-    accessoryRate?: number;
-    accessoryHoleCount?: number;
-    accessoryCutCount?: number;
-    accessoryHoleRadiusIn?: number;
-    accessoryCutAreaSqIn?: number;
-    accessoryRequirementLabel?: string;
-}
+// Computes the true visual bounds of a piece: shape geometry plus the
+// dimension-line margins those shapes render into (see renderRectDimensions/
+// getPolygonSideDimensions/getVertexAngleInfo above), so a piece can be
+// positioned without any of its dimension lines/labels landing off-canvas.
+const getPieceBoundingBox = (shapes: KonvaShape[], scale: number): { minX: number; minY: number; maxX: number; maxY: number } => {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const expand = (x0: number, y0: number, x1: number, y1: number) => {
+        minX = Math.min(minX, x0, x1);
+        minY = Math.min(minY, y0, y1);
+        maxX = Math.max(maxX, x0, x1);
+        maxY = Math.max(maxY, y0, y1);
+    };
 
-interface GlassPiece {
-    id: string;
-    name: string;
-    type: string;
-    thickness: number;
-    quantity?: number;
-    shapes: KonvaShape[];
-}
+    shapes.forEach(s => {
+        if (s.type === 'glass_rect') {
+            const w = s.width || 0, h = s.height || 0;
+            // Own geometry, plus the width-dim margin above and height-dim margin to the right.
+            expand(
+                s.x, s.y - (RECT_DIM_OFFSET_PX + RECT_DIM_LABEL_HALF_H_PX) / scale,
+                s.x + w + (RECT_DIM_OFFSET_PX + RECT_DIM_LABEL_HALF_W_PX) / scale, s.y + h,
+            );
+        } else if (s.type === 'glass_circle') {
+            const r = s.radius || 0;
+            const pad = (RECT_DIM_OFFSET_PX + RECT_DIM_LABEL_HALF_W_PX) / scale; // renderCircleDimensions uses the same textGap
+            expand(s.x - r - pad, s.y - r - pad, s.x + r + pad, s.y + r + pad);
+        } else if (s.type === 'glass_polygon' || s.type === 'glass_parallelogram') {
+            const pts = s.points || getPolygonPoints(s.sides || 4, s.width || 100, s.height || 100);
+            const pad = (POLYGON_SIDE_DIM_OFFSET_PX + 20) / scale; // +20 logical-unit safety pad for label text, not modeled exactly
+            for (let i = 0; i < pts.length; i += 2) {
+                expand(s.x + pts[i] - pad, s.y + pts[i + 1] - pad, s.x + pts[i] + pad, s.y + pts[i + 1] + pad);
+            }
+        } else if (s.type === 'hole') {
+            const r = s.radius || 0;
+            expand(s.x - r, s.y - r, s.x + r, s.y + r);
+        } else if (s.type === 'cut' || s.type === 'accessory') {
+            const w = s.width || 0, h = s.height || 0;
+            expand(s.x, s.y, s.x + w, s.y + h);
+        }
+    });
+
+    if (!isFinite(minX)) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+    return { minX, minY, maxX, maxY };
+};
+
+// Translates every shape in a piece so its full bounding box (shape geometry
+// + dimension-line margins) sits centered in the fixed logical viewport --
+// fixes the previous top-left-anchored placement where dimension lines could
+// render at negative coordinates and get invisibly clipped by the Stage.
+// Only x/y are translated; polygon `points` are always stored relative to
+// shape.x/y in this codebase's convention, so a piece's internal layout
+// (rect + its holes/cuts/accessories) is preserved exactly.
+const centerPieceShapes = (shapes: KonvaShape[], stageLogicalWidth: number, stageLogicalHeight: number, scale: number): KonvaShape[] => {
+    if (shapes.length === 0) return shapes;
+    const bbox = getPieceBoundingBox(shapes, scale);
+    const bboxW = bbox.maxX - bbox.minX;
+    const bboxH = bbox.maxY - bbox.minY;
+    const dx = (stageLogicalWidth - bboxW) / 2 - bbox.minX;
+    const dy = (stageLogicalHeight - bboxH) / 2 - bbox.minY;
+    return shapes.map(s => ({ ...s, x: s.x + dx, y: s.y + dy }));
+};
 
 interface DesignPreset {
     id: string;
@@ -1233,13 +1284,20 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
 
     // Initialize data
     useEffect(() => {
+        const { width: logicalWidth, height: logicalHeight } = getStageLogicalSize(drawingScale);
+        const centerPiece = (piece: GlassPiece): GlassPiece => ({
+            ...piece,
+            shapes: centerPieceShapes(piece.shapes, logicalWidth, logicalHeight, drawingScale),
+        });
+
         let loaded = false;
         if (initialData && initialData.pieces && initialData.pieces.length > 0) {
             // Check if they are old format or new Konva format
             const hasShapes = initialData.pieces[0].shapes !== undefined;
             if (hasShapes) {
-                setPieces(initialData.pieces);
-                initialPiecesJsonRef.current = JSON.stringify(initialData.pieces);
+                const centered = (initialData.pieces as GlassPiece[]).map(centerPiece);
+                setPieces(centered);
+                initialPiecesJsonRef.current = JSON.stringify(centered);
             } else {
                 // Migrate from the SVG form-based format
                 const migrated = initialData.pieces.map((p: any) => {
@@ -1258,7 +1316,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                     if (p.cuts) {
                         p.cuts.forEach((c: any) => shapes.push({ id: generateUUID(), type: 'cut', x: c.x * 10, y: c.y * 10, width: c.width * 10, height: c.height * 10 }));
                     }
-                    return { ...p, shapes };
+                    return centerPiece({ ...p, shapes });
                 });
                 setPieces(migrated);
                 initialPiecesJsonRef.current = JSON.stringify(migrated);
@@ -1266,9 +1324,9 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
             setActivePieceId(initialData.pieces[0].id);
             loaded = true;
         }
-        
+
         if (!loaded) {
-            const defaultPiece: GlassPiece = {
+            const defaultPiece: GlassPiece = centerPiece({
                 id: generateUUID(),
                 name: 'Window 1',
                 type: 'Window',
@@ -1276,11 +1334,12 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                 shapes: [
                     { id: generateUUID(), type: 'glass_rect', x: 100, y: 100, width: 300, height: 200 }
                 ]
-            };
+            });
             setPieces([defaultPiece]);
             initialPiecesJsonRef.current = JSON.stringify([defaultPiece]);
             setActivePieceId(defaultPiece.id);
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [initialData]);
 
     // Handle transformer attachment
@@ -1477,7 +1536,17 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
 
     const updateShape = (shapeId: string, updates: Partial<KonvaShape>) => {
         if (!activePiece) return;
-        const newShapes = activePiece.shapes.map(s => s.id === shapeId ? { ...s, ...updates } : s);
+        const touchesGeometry = (['x', 'y', 'width', 'height', 'radius'] as const).some(key => key in updates);
+        const newShapes = activePiece.shapes.map(s => {
+            if (s.id !== shapeId) return s;
+            const merged = { ...s, ...updates };
+            // Staff has now positioned this hole/cut manually -- trust it
+            // going forward instead of still flagging it for review.
+            if (touchesGeometry && s.positionSource === 'estimated-fallback') {
+                merged.positionSource = undefined;
+            }
+            return merged;
+        });
         updateActivePiece({ shapes: newShapes });
     };
 
@@ -1756,14 +1825,16 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
 
     const addPiece = () => {
         saveHistory();
+        const { width: logicalWidth, height: logicalHeight } = getStageLogicalSize(drawingScale);
         const newPiece: GlassPiece = {
             id: generateUUID(),
             name: `Piece ${pieces.length + 1}`,
             type: 'Window',
             thickness: 6,
-            shapes: [
-                { id: generateUUID(), type: 'glass_rect', x: 100, y: 100, width: 300, height: 200 }
-            ]
+            shapes: centerPieceShapes(
+                [{ id: generateUUID(), type: 'glass_rect', x: 100, y: 100, width: 300, height: 200 }],
+                logicalWidth, logicalHeight, drawingScale,
+            )
         };
         setPieces([...pieces, newPiece]);
         setActivePieceId(newPiece.id);
@@ -1771,10 +1842,12 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
 
     const addPresetPiece = (preset: DesignPreset) => {
         saveHistory();
+        const { width: logicalWidth, height: logicalHeight } = getStageLogicalSize(drawingScale);
         const presetPieces = preset.createPieces ? preset.createPieces() : preset.createPiece ? [preset.createPiece()] : [];
         const newPieces: GlassPiece[] = presetPieces.map(piece => ({
             id: generateUUID(),
-            ...piece
+            ...piece,
+            shapes: centerPieceShapes(piece.shapes, logicalWidth, logicalHeight, drawingScale),
         }));
         if (newPieces.length === 0) return;
         setPieces([...pieces, ...newPieces]);
@@ -1833,13 +1906,14 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
         }
 
         saveHistory();
+        const { width: logicalWidth, height: logicalHeight } = getStageLogicalSize(drawingScale);
         const generatedPieces: GlassPiece[] = readyDrafts.map((draft, index) => ({
             id: generateUUID(),
             name: draft.pieceName || `Photo Piece ${index + 1}`,
             type: draft.type || 'Window',
             thickness: draft.thickness || 10,
             quantity: 1,
-            shapes: [createRectShape(draft.widthIn, draft.heightIn)]
+            shapes: centerPieceShapes([createRectShape(draft.widthIn, draft.heightIn)], logicalWidth, logicalHeight, drawingScale)
         }));
 
         setPieces([...pieces, ...generatedPieces]);
@@ -2298,10 +2372,9 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
 
     if (!activePiece) return <div>Loading designer...</div>;
 
-    const stageViewportWidth = 920;
-    const stageViewportHeight = 560;
-    const stageLogicalWidth = Math.ceil(stageViewportWidth / drawingScale);
-    const stageLogicalHeight = Math.ceil(stageViewportHeight / drawingScale);
+    const stageViewportWidth = STAGE_VIEWPORT_WIDTH;
+    const stageViewportHeight = STAGE_VIEWPORT_HEIGHT;
+    const { width: stageLogicalWidth, height: stageLogicalHeight } = getStageLogicalSize(drawingScale);
     const gridColumnCount = Math.ceil(stageLogicalWidth / 20) + 1;
     const gridRowCount = Math.ceil(stageLogicalHeight / 20) + 1;
 
@@ -2309,14 +2382,24 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
         <div className="designer-shell" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             {/* Tabs */}
             <div className="designer-piece-tabs" style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto', paddingBottom: '0.35rem', borderBottom: '1px solid var(--color-border)', alignItems: 'center' }}>
-                {pieces.map(piece => (
+                {pieces.map(piece => {
+                    const needsReviewCount = piece.shapes.filter(s => s.positionSource === 'estimated-fallback').length;
+                    return (
                     <div key={piece.id} style={{ display: 'flex', alignItems: 'center', background: activePieceId === piece.id ? 'var(--color-primary)' : 'var(--color-bg)', borderRadius: '4px', border: activePieceId === piece.id ? 'none' : '1px solid var(--color-border)' }}>
                         <button
                             className={`btn ${activePieceId === piece.id ? 'btn-primary' : 'btn-secondary'}`}
                             onClick={() => setActivePieceId(piece.id)}
-                            style={{ padding: '0.5rem 1rem', border: 'none', background: 'transparent', color: activePieceId === piece.id ? 'white' : 'inherit' }}
+                            style={{ padding: '0.5rem 1rem', border: 'none', background: 'transparent', color: activePieceId === piece.id ? 'white' : 'inherit', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
                         >
                             {piece.name}
+                            {needsReviewCount > 0 && (
+                                <span
+                                    title={`${needsReviewCount} hole/cut position${needsReviewCount === 1 ? '' : 's'} could not be read from the photo -- verify before production`}
+                                    style={{ background: '#f59e0b', color: 'white', borderRadius: '999px', fontSize: '0.7rem', lineHeight: 1, padding: '3px 6px', fontWeight: 600 }}
+                                >
+                                    {needsReviewCount}
+                                </span>
+                            )}
                         </button>
                         {pieces.length > 1 && (
                             <button
@@ -2328,7 +2411,8 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                             </button>
                         )}
                     </div>
-                ))}
+                    );
+                })}
                 <button className="btn btn-secondary" onClick={addPiece} title="Add New Piece" style={{ padding: '0.5rem' }}>
                     <Plus size={16} /> Add Piece
                 </button>
@@ -3006,16 +3090,18 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                 {/* Render holes and cuts */}
                                 {piece.shapes.filter(s => s.type === 'hole' || s.type === 'cut').map((shape) => {
                                     const isCut = shape.type === 'cut';
-                                    const props = { id: shape.id, x: shape.x, y: shape.y, fill: 'rgba(239, 68, 68, 0.35)', stroke: '#ef4444', strokeWidth: 2, dash: [5, 5], draggable: false };
+                                    const needsReview = shape.positionSource === 'estimated-fallback';
+                                    const flagColor = needsReview ? '#f59e0b' : '#ef4444';
+                                    const props = { id: shape.id, x: shape.x, y: shape.y, fill: needsReview ? 'rgba(245, 158, 11, 0.35)' : 'rgba(239, 68, 68, 0.35)', stroke: flagColor, strokeWidth: 2, dash: [5, 5], draggable: false };
                                     return isCut ? (
                                         <Group key={shape.id}>
                                             <Rect {...props} width={shape.width} height={shape.height} />
-                                            <Text x={shape.x + (shape.width || 0) / 2} y={shape.y + (shape.height || 0) / 2} text="C" fill="#ef4444" fontSize={10} fontStyle="bold" align="center" width={60} offsetX={30} offsetY={5} listening={false} />
+                                            <Text x={shape.x + (shape.width || 0) / 2} y={shape.y + (shape.height || 0) / 2} text="C" fill={flagColor} fontSize={10} fontStyle="bold" align="center" width={60} offsetX={30} offsetY={5} listening={false} />
                                         </Group>
                                     ) : (
                                         <Group key={shape.id}>
                                             <Circle {...props} radius={shape.radius} />
-                                            <Text x={shape.x} y={shape.y} text="H" fill="#ef4444" fontSize={10} fontStyle="bold" align="center" width={60} offsetX={30} offsetY={5} listening={false} />
+                                            <Text x={shape.x} y={shape.y} text="H" fill={flagColor} fontSize={10} fontStyle="bold" align="center" width={60} offsetX={30} offsetY={5} listening={false} />
                                         </Group>
                                     );
                                 })}
@@ -3324,9 +3410,10 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                             {activePiece.shapes.filter(s => s.type === 'hole' || s.type === 'cut').map((shape) => {
                                 const isSelected = selectedShapeIds.includes(shape.id);
                                 const isCut = shape.type === 'cut';
+                                const needsReview = shape.positionSource === 'estimated-fallback';
                                 const props = {
                                     id: shape.id, x: shape.x, y: shape.y,
-                                    fill: 'rgba(239, 68, 68, 0.35)', stroke: '#ef4444',
+                                    fill: needsReview ? 'rgba(245, 158, 11, 0.35)' : 'rgba(239, 68, 68, 0.35)', stroke: needsReview ? '#f59e0b' : '#ef4444',
                                     strokeWidth: (isSelected ? 3 : 2) / drawingScale,
                                     dash: [5 / drawingScale, 5 / drawingScale],
                                     draggable: true,
@@ -3354,12 +3441,12 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                 return isCut ? (
                                     <Group key={shape.id}>
                                         <Rect {...props} width={shape.width} height={shape.height} />
-                                        <Text x={shape.x + (shape.width || 0) / 2} y={shape.y + (shape.height || 0) / 2} text="C" fill="#ef4444" fontSize={10 / drawingScale} fontStyle="bold" align="center" width={60 / drawingScale} offsetX={30 / drawingScale} offsetY={5 / drawingScale} listening={false} />
+                                        <Text x={shape.x + (shape.width || 0) / 2} y={shape.y + (shape.height || 0) / 2} text="C" fill={needsReview ? '#f59e0b' : '#ef4444'} fontSize={10 / drawingScale} fontStyle="bold" align="center" width={60 / drawingScale} offsetX={30 / drawingScale} offsetY={5 / drawingScale} listening={false} />
                                     </Group>
                                 ) : (
                                     <Group key={shape.id}>
                                         <Circle {...props} radius={shape.radius} />
-                                        <Text x={shape.x} y={shape.y} text="H" fill="#ef4444" fontSize={10 / drawingScale} fontStyle="bold" align="center" width={60 / drawingScale} offsetX={30 / drawingScale} offsetY={5 / drawingScale} listening={false} />
+                                        <Text x={shape.x} y={shape.y} text="H" fill={needsReview ? '#f59e0b' : '#ef4444'} fontSize={10 / drawingScale} fontStyle="bold" align="center" width={60 / drawingScale} offsetX={30 / drawingScale} offsetY={5 / drawingScale} listening={false} />
                                     </Group>
                                 );
                             })}

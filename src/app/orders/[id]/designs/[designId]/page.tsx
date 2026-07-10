@@ -422,6 +422,12 @@ export default function NestedDesignDetailPage() {
                 </div>
             </div>
 
+            {(design.baseShape === 'whatsapp-image' || design.baseShape === 'email-image') && (design.drawingData.pieces?.length ?? 0) > 1 && (
+                <div className="card" style={{ padding: '0.75rem 1rem', marginBottom: '0.75rem', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', fontSize: '0.875rem' }}>
+                    {design.drawingData.pieces!.length} separate glass pieces detected from this photo -- use the tabs below to review each one. Any hole/cut position that could not be read from the photo is flagged with an amber badge on its piece tab.
+                </div>
+            )}
+
             {/* Drawing Canvas */}
             <GlassDesigner
                 onAreaChange={handleAreaChange}

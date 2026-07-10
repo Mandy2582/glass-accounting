@@ -1,6 +1,37 @@
 import { calculateDimensionAreaSqft } from '@/lib/units';
 import { generateUUID, roundCurrency } from '@/lib/utils';
-import type { DesignData, DesignItem } from '@/types';
+import type { DesignData, DesignItem, KonvaShape } from '@/types';
+
+export type LengthUnit = 'inch' | 'mm';
+
+// A hole's position is normally dimensioned by hand from one or two nearby
+// edges (e.g. "20mm from left, 15mm from top"), or marked centered on an
+// axis. Only the edges actually dimensioned on the drawing should be filled
+// in -- everything else stays null rather than guessed.
+export type VisionHole = {
+    diameter?: number | null;
+    unit?: LengthUnit | null;
+    fromLeft?: number | null;
+    fromRight?: number | null;
+    fromTop?: number | null;
+    fromBottom?: number | null;
+    centeredX?: boolean | null;
+    centeredY?: boolean | null;
+};
+
+export type VisionCut = {
+    cutType?: 'corner_notch' | 'edge_notch' | 'through_cut' | null;
+    corner?: 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right' | null;
+    width?: number | null;
+    height?: number | null;
+    unit?: LengthUnit | null;
+    fromLeft?: number | null;
+    fromRight?: number | null;
+    fromTop?: number | null;
+    fromBottom?: number | null;
+    centeredX?: boolean | null;
+    centeredY?: boolean | null;
+};
 
 export type WhatsAppImageAnalysis = {
     classification: 'text_order' | 'drawing' | 'mixed' | 'unknown';
@@ -19,10 +50,12 @@ export type WhatsAppImageAnalysis = {
             type: string;
             width?: number | null;
             height?: number | null;
+            widthUnit?: LengthUnit | null;
+            heightUnit?: LengthUnit | null;
             thickness?: number | null;
             quantity?: number | null;
-            holes?: number | null;
-            cuts?: number | null;
+            holes: VisionHole[];
+            cuts: VisionCut[];
             hardwareNotes?: string | null;
         }>;
     };
@@ -72,11 +105,21 @@ export async function analyzeWhatsAppImage(input: {
                         {
                             type: 'input_text',
                             text: [
-                                'Analyze this WhatsApp image sent to a glass shop.',
+                                'Analyze this photo of a hand-marked engineering/order drawing sent to a glass shop.',
                                 'Classify it as text_order, drawing, mixed, or unknown.',
-                                'Extract visible text, order lines, glass drawing dimensions, holes, cuts, thickness, hardware notes, and customer name if visible.',
-                                'Use inches for drawing width/height when dimensions appear to be in inches. If unsure, leave numeric fields empty and explain in notes.',
-                                'Do not invent dimensions or hardware.',
+                                '',
+                                'MULTI-PIECE DRAWINGS: A single photo may show more than one separate glass panel (e.g. a fixed panel + a door + a ventilator, or several unrelated pieces sketched on one page). Treat each visually distinct panel/outline as its own entry in drawing.pieces, even if they share dimensions or touch each other in the sketch. Do not merge multiple panels into one piece, and do not drop a panel just because some of its details are unclear -- report every piece you can see, leaving fields null where you are unsure.',
+                                '',
+                                'HOLE AND CUT POSITIONS: These drawings are normally dimensioned by hand from one or two nearby edges (e.g. "20mm from left", "15mm from top"), or marked as centered on an axis (a centerline, or equal tick marks on both sides). For every hole and every cut you find:',
+                                '  - Record fromLeft/fromRight/fromTop/fromBottom as the distance from that edge of the panel to the CENTER of the hole/cut. Only fill in the edges that are actually dimensioned -- leave the rest null. Never invent or estimate a distance that is not marked on the drawing.',
+                                '  - If a hole/cut is marked as centered on an axis instead of given a numeric distance, set centeredX and/or centeredY to true for that axis rather than guessing a number.',
+                                '  - If a hole or cut has no readable position at all, still include it in the array (never drop it), but leave every position field null.',
+                                '  - For a notch cut from a corner, set cutType to "corner_notch" and corner to which corner, plus its width/height. Otherwise use "edge_notch" for a notch cut into an edge (not a corner), or "through_cut" for an internal cutout.',
+                                '',
+                                'UNITS: Shops often mix units on one drawing -- panel width/height are usually inches, but hole diameters and hole/cut distances are frequently marked in mm. Report widthUnit/heightUnit for the panel, and a separate unit per hole/cut, using whatever unit is actually written next to that number. If no unit is marked, leave it null rather than guessing.',
+                                '',
+                                'Extract visible text, order lines, thickness, hardware notes, and customer name if visible.',
+                                'Do not invent dimensions, positions, or hardware that are not visibly marked.',
                                 `Sender phone: ${input.fromPhone}`,
                                 input.caption ? `Caption: ${input.caption}` : '',
                             ].filter(Boolean).join('\n'),
@@ -146,16 +189,55 @@ export async function analyzeWhatsAppImage(input: {
                                         items: {
                                             type: 'object',
                                             additionalProperties: false,
-                                            required: ['name', 'type', 'width', 'height', 'thickness', 'quantity', 'holes', 'cuts', 'hardwareNotes'],
+                                            required: ['name', 'type', 'width', 'height', 'widthUnit', 'heightUnit', 'thickness', 'quantity', 'holes', 'cuts', 'hardwareNotes'],
                                             properties: {
                                                 name: { type: 'string' },
                                                 type: { type: 'string' },
                                                 width: { type: ['number', 'null'] },
                                                 height: { type: ['number', 'null'] },
+                                                widthUnit: { type: ['string', 'null'], enum: ['inch', 'mm', null] },
+                                                heightUnit: { type: ['string', 'null'], enum: ['inch', 'mm', null] },
                                                 thickness: { type: ['number', 'null'] },
                                                 quantity: { type: ['number', 'null'] },
-                                                holes: { type: ['number', 'null'] },
-                                                cuts: { type: ['number', 'null'] },
+                                                holes: {
+                                                    type: 'array',
+                                                    items: {
+                                                        type: 'object',
+                                                        additionalProperties: false,
+                                                        required: ['diameter', 'unit', 'fromLeft', 'fromRight', 'fromTop', 'fromBottom', 'centeredX', 'centeredY'],
+                                                        properties: {
+                                                            diameter: { type: ['number', 'null'] },
+                                                            unit: { type: ['string', 'null'], enum: ['inch', 'mm', null] },
+                                                            fromLeft: { type: ['number', 'null'] },
+                                                            fromRight: { type: ['number', 'null'] },
+                                                            fromTop: { type: ['number', 'null'] },
+                                                            fromBottom: { type: ['number', 'null'] },
+                                                            centeredX: { type: ['boolean', 'null'] },
+                                                            centeredY: { type: ['boolean', 'null'] },
+                                                        },
+                                                    },
+                                                },
+                                                cuts: {
+                                                    type: 'array',
+                                                    items: {
+                                                        type: 'object',
+                                                        additionalProperties: false,
+                                                        required: ['cutType', 'corner', 'width', 'height', 'unit', 'fromLeft', 'fromRight', 'fromTop', 'fromBottom', 'centeredX', 'centeredY'],
+                                                        properties: {
+                                                            cutType: { type: ['string', 'null'], enum: ['corner_notch', 'edge_notch', 'through_cut', null] },
+                                                            corner: { type: ['string', 'null'], enum: ['top_left', 'top_right', 'bottom_left', 'bottom_right', null] },
+                                                            width: { type: ['number', 'null'] },
+                                                            height: { type: ['number', 'null'] },
+                                                            unit: { type: ['string', 'null'], enum: ['inch', 'mm', null] },
+                                                            fromLeft: { type: ['number', 'null'] },
+                                                            fromRight: { type: ['number', 'null'] },
+                                                            fromTop: { type: ['number', 'null'] },
+                                                            fromBottom: { type: ['number', 'null'] },
+                                                            centeredX: { type: ['boolean', 'null'] },
+                                                            centeredY: { type: ['boolean', 'null'] },
+                                                        },
+                                                    },
+                                                },
                                                 hardwareNotes: { type: ['string', 'null'] },
                                             },
                                         },
@@ -198,27 +280,88 @@ export async function analyzeWhatsAppImage(input: {
 // exported from that (client-only, 'use client') component, so it's
 // duplicated here deliberately; keep in sync if that scale ever changes.
 const CANVAS_UNITS_PER_INCH = 10;
+const MM_PER_INCH = 25.4;
 const DEFAULT_HOLE_RADIUS_UNITS = 30; // matches GlassDesigner's manual "Add Hole" default
 const DEFAULT_CUT_SIZE_UNITS = 50; // matches GlassDesigner's manual "Add Cut" default
 
-type GeneratedShape = {
-    id: string;
-    type: 'glass_rect' | 'hole' | 'cut';
-    x: number;
-    y: number;
-    width?: number;
-    height?: number;
-    radius?: number;
-    parentId?: string;
+function toCanvasUnits(value: number, unit: LengthUnit | null | undefined): number {
+    // No unit tagged -- assume inches, matching the existing panel-dimension
+    // convention. Never trust the model to do this conversion itself.
+    const inches = unit === 'mm' ? value / MM_PER_INCH : value;
+    return inches * CANVAS_UNITS_PER_INCH;
+}
+
+function partition<T>(items: T[], predicate: (item: T) => boolean): [T[], T[]] {
+    return [items.filter(predicate), items.filter(item => !predicate(item))];
+}
+
+// Resolves one axis (x or y) of a hole/cut's position from whatever the
+// drawing actually dimensioned: centered wins if marked, else distance from
+// the near edge, else distance from the far edge (computed backwards from
+// rectSize), else unresolved (null) -- never guessed.
+function placeOnAxis(
+    fromNear: number | null | undefined,
+    fromFar: number | null | undefined,
+    centered: boolean | null | undefined,
+    unit: LengthUnit | null | undefined,
+    rectNear: number,
+    rectSize: number,
+): number | null {
+    if (centered) return rectNear + rectSize / 2;
+    if (fromNear != null) return rectNear + toCanvasUnits(fromNear, unit);
+    if (fromFar != null) return rectNear + rectSize - toCanvasUnits(fromFar, unit);
+    return null;
+}
+
+function placeHole(hole: VisionHole, rectX: number, rectY: number, rectW: number, rectH: number): { x: number | null; y: number | null; radius: number; extracted: boolean } {
+    const diameterUnits = hole.diameter != null ? toCanvasUnits(hole.diameter, hole.unit) : DEFAULT_HOLE_RADIUS_UNITS * 2;
+    const x = placeOnAxis(hole.fromLeft, hole.fromRight, hole.centeredX, hole.unit, rectX, rectW);
+    const y = placeOnAxis(hole.fromTop, hole.fromBottom, hole.centeredY, hole.unit, rectY, rectH);
+    return { x, y, radius: diameterUnits / 2, extracted: x != null && y != null };
+}
+
+function placeCut(cut: VisionCut, rectX: number, rectY: number, rectW: number, rectH: number): { x: number | null; y: number | null; width: number; height: number; extracted: boolean } {
+    const width = cut.width != null ? toCanvasUnits(cut.width, cut.unit) : DEFAULT_CUT_SIZE_UNITS;
+    const height = cut.height != null ? toCanvasUnits(cut.height, cut.unit) : DEFAULT_CUT_SIZE_UNITS;
+
+    if (cut.cutType === 'corner_notch' && cut.corner) {
+        const x = cut.corner.includes('left') ? rectX : rectX + rectW - width;
+        const y = cut.corner.startsWith('top') ? rectY : rectY + rectH - height;
+        return { x, y, width, height, extracted: true };
+    }
+
+    // Top-left corner of the cut, so the axis math resolves the cut's center
+    // then offsets back by half its size.
+    const cx = placeOnAxis(cut.fromLeft, cut.fromRight, cut.centeredX, cut.unit, rectX, rectW);
+    const cy = placeOnAxis(cut.fromTop, cut.fromBottom, cut.centeredY, cut.unit, rectY, rectH);
+    const x = cx != null ? cx - width / 2 : null;
+    const y = cy != null ? cy - height / 2 : null;
+    return { x, y, width, height, extracted: x != null && y != null };
+}
+
+type VisionPieceLike = {
+    width?: number | null;
+    height?: number | null;
+    widthUnit?: LengthUnit | null;
+    heightUnit?: LengthUnit | null;
+    holes?: VisionHole[] | null;
+    cuts?: VisionCut[] | null;
 };
 
-// Builds an actual rectangle (plus placeholder holes/cuts) in the exact
-// format GlassDesigner's canvas reads back (GlassPiece.shapes: KonvaShape[]),
-// so a drawing extracted from a photo shows up as a real, editable drawing
-// instead of an empty canvas -- or worse, silently rendering as a circle
-// (see below). Returns [] when there's no width/height to draw from, in
-// which case the piece falls back to today's blank-canvas behavior.
-function buildPieceShapes(piece: { width?: number | null; height?: number | null; holes?: number | null; cuts?: number | null }): GeneratedShape[] {
+// Builds an actual rectangle (plus real or best-effort holes/cuts) in the
+// exact format GlassDesigner's canvas reads back (GlassPiece.shapes:
+// KonvaShape[]), so a drawing extracted from a photo shows up as a real,
+// editable drawing instead of an empty canvas. Returns [] when there's no
+// width/height to draw from, in which case the piece falls back to today's
+// blank-canvas behavior.
+//
+// Holes/cuts whose position was actually readable from the drawing (edge
+// distance or centered marking) are placed at that real position. Anything
+// that couldn't be read falls back to even-spacing -- but only spaced among
+// other unresolved shapes, never overlapping a slot already taken by a real
+// extracted position -- and is tagged positionSource: 'estimated-fallback'
+// so the review UI can flag exactly that subset instead of everything.
+function buildPieceShapes(piece: VisionPieceLike): KonvaShape[] {
     const widthIn = Number(piece.width) || 0;
     const heightIn = Number(piece.height) || 0;
     if (widthIn <= 0 || heightIn <= 0) return [];
@@ -226,41 +369,48 @@ function buildPieceShapes(piece: { width?: number | null; height?: number | null
     const rectId = generateUUID();
     const rectX = 50;
     const rectY = 50;
-    const rectWidth = widthIn * CANVAS_UNITS_PER_INCH;
-    const rectHeight = heightIn * CANVAS_UNITS_PER_INCH;
-    const shapes: GeneratedShape[] = [
+    const rectWidth = toCanvasUnits(widthIn, piece.widthUnit ?? 'inch');
+    const rectHeight = toCanvasUnits(heightIn, piece.heightUnit ?? 'inch');
+    const shapes: KonvaShape[] = [
         { id: rectId, type: 'glass_rect', x: rectX, y: rectY, width: rectWidth, height: rectHeight },
     ];
 
-    // Vision analysis only gives hole/cut counts, not positions -- space them
-    // evenly as a reasonable starting point. Staff still need to drag these
-    // to the actual hardware positions before production.
-    const holeCount = Math.max(0, Math.round(Number(piece.holes) || 0));
-    for (let i = 0; i < holeCount; i++) {
-        const fraction = (i + 1) / (holeCount + 1);
+    const holePlacements = (piece.holes || []).map(hole => ({ hole, placement: placeHole(hole, rectX, rectY, rectWidth, rectHeight) }));
+    const [extractedHoles, fallbackHoles] = partition(holePlacements, entry => entry.placement.extracted);
+    extractedHoles.forEach(({ placement }) => {
+        shapes.push({ id: generateUUID(), type: 'hole', x: placement.x!, y: placement.y!, radius: placement.radius, parentId: rectId });
+    });
+    fallbackHoles.forEach(({ placement }, i) => {
+        const fraction = (i + 1) / (fallbackHoles.length + 1);
         shapes.push({
             id: generateUUID(),
             type: 'hole',
             x: rectX + rectWidth * fraction,
             y: rectY + rectHeight / 2,
-            radius: DEFAULT_HOLE_RADIUS_UNITS,
+            radius: placement.radius,
             parentId: rectId,
+            positionSource: 'estimated-fallback',
         });
-    }
+    });
 
-    const cutCount = Math.max(0, Math.round(Number(piece.cuts) || 0));
-    for (let i = 0; i < cutCount; i++) {
-        const fraction = (i + 1) / (cutCount + 1);
+    const cutPlacements = (piece.cuts || []).map(cut => ({ cut, placement: placeCut(cut, rectX, rectY, rectWidth, rectHeight) }));
+    const [extractedCuts, fallbackCuts] = partition(cutPlacements, entry => entry.placement.extracted);
+    extractedCuts.forEach(({ placement }) => {
+        shapes.push({ id: generateUUID(), type: 'cut', x: placement.x!, y: placement.y!, width: placement.width, height: placement.height, parentId: rectId });
+    });
+    fallbackCuts.forEach(({ placement }, i) => {
+        const fraction = (i + 1) / (fallbackCuts.length + 1);
         shapes.push({
             id: generateUUID(),
             type: 'cut',
-            x: rectX + rectWidth * fraction - DEFAULT_CUT_SIZE_UNITS / 2,
-            y: rectY + rectHeight - DEFAULT_CUT_SIZE_UNITS,
-            width: DEFAULT_CUT_SIZE_UNITS,
-            height: DEFAULT_CUT_SIZE_UNITS,
+            x: rectX + rectWidth * fraction - placement.width / 2,
+            y: rectY + rectHeight - placement.height,
+            width: placement.width,
+            height: placement.height,
             parentId: rectId,
+            positionSource: 'estimated-fallback',
         });
-    }
+    });
 
     return shapes;
 }
@@ -282,8 +432,8 @@ export function buildDesignDataFromImageAnalysis(analysis: WhatsAppImageAnalysis
             height: undefined,
             thickness: undefined,
             quantity: 1,
-            holes: 0,
-            cuts: 0,
+            holes: [],
+            cuts: [],
             hardwareNotes: analysis.drawing.notes || analysis.extractedText,
         }];
 
@@ -308,15 +458,15 @@ export function buildDesignDataFromImageAnalysis(analysis: WhatsAppImageAnalysis
             // `any[]`) -- without them a reopened draft shows 0 holes/cuts
             // and quantity 1 regardless of what was actually extracted.
             netArea: area,
-            holes: Number(piece.holes) || 0,
-            cuts: Number(piece.cuts) || 0,
+            holes: (piece.holes || []).length,
+            cuts: (piece.cuts || []).length,
             quantity,
         } as DesignItem;
     });
 
     const totalArea = roundCurrency(items.reduce((sum, item) => sum + item.area, 0));
-    const holes = pieces.reduce((sum, piece) => sum + (Number(piece.holes) || 0), 0);
-    const cuts = pieces.reduce((sum, piece) => sum + (Number(piece.cuts) || 0), 0);
+    const holes = pieces.reduce((sum, piece) => sum + (piece.holes || []).length, 0);
+    const cuts = pieces.reduce((sum, piece) => sum + (piece.cuts || []).length, 0);
     const maxWidth = Math.max(...pieces.map(piece => Number(piece.width) || 0), 800);
     const maxHeight = Math.max(...pieces.map(piece => Number(piece.height) || 0), 600);
 
@@ -333,7 +483,7 @@ export function buildDesignDataFromImageAnalysis(analysis: WhatsAppImageAnalysis
             'Created from WhatsApp image/drawing.',
             analysis.drawing.notes,
             analysis.extractedText ? `Extracted text: ${analysis.extractedText}` : '',
-            'Review dimensions, hardware, holes and cuts before production.',
+            'Review dimensions, hardware, and any flagged (amber) holes/cuts before production.',
         ].filter(Boolean).join('\n'),
         items,
         pieces: pieces.map((piece, index) => ({
@@ -344,8 +494,8 @@ export function buildDesignDataFromImageAnalysis(analysis: WhatsAppImageAnalysis
             height: Number(piece.height) || 0,
             thickness: Number(piece.thickness) || 6,
             quantity: Number(piece.quantity) || 1,
-            holes: Number(piece.holes) || 0,
-            cuts: Number(piece.cuts) || 0,
+            holes: (piece.holes || []).length,
+            cuts: (piece.cuts || []).length,
             hardwareNotes: piece.hardwareNotes || '',
             source: 'whatsapp-image',
             // Real, editable canvas geometry -- empty array when there's no

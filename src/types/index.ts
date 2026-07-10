@@ -266,6 +266,49 @@ export interface DesignItem {
     cost?: number; // Calculated cost for this item
 }
 
+// Canvas geometry for the Konva-based glass designer (GlassDesigner.tsx).
+// Shared here so whatsappVision.ts (server-side, no client component imports)
+// can build against the exact same shape the canvas reads back, instead of
+// maintaining a hand-synced duplicate.
+export interface KonvaShape {
+    id: string;
+    type: 'glass_rect' | 'glass_circle' | 'hole' | 'cut' | 'glass_polygon' | 'glass_parallelogram' | 'accessory';
+    x: number;
+    y: number;
+    width?: number;
+    height?: number;
+    radius?: number;
+    sides?: number;
+    points?: number[];
+    skewX?: number;
+    accessoryType?: 'lock' | 'connector' | 'hinge' | 'profile';
+    accessoryName?: string;
+    parentId?: string;
+    hardwareItemId?: string;
+    accessoryRate?: number;
+    accessoryHoleCount?: number;
+    accessoryCutCount?: number;
+    accessoryHoleRadiusIn?: number;
+    accessoryCutAreaSqIn?: number;
+    accessoryRequirementLabel?: string;
+    // Set only on hole/cut shapes generated from a photo whose position could
+    // NOT be read off the drawing (fell back to even-spacing). Absent means
+    // "trust this position" -- either it was really extracted from the photo,
+    // it came from a manual preset, or a staff member has since repositioned
+    // it (GlassDesigner's updateShape clears the flag on the first manual
+    // geometry edit).
+    positionSource?: 'estimated-fallback';
+}
+
+export interface GlassPiece {
+    id: string;
+    name: string;
+    type: string;
+    thickness: number;
+    quantity?: number;
+    shapes: KonvaShape[];
+}
+
 export interface DesignData {
     items?: DesignItem[]; // Multi-item support
     shapes: DrawingShape[]; // Keep for backward compatibility
@@ -277,6 +320,12 @@ export interface DesignData {
     holes: DrawingShape[];
     cuts: DrawingShape[];
     notes: string;
+    // Deliberately kept as `any[]` rather than `GlassPiece[]`: at least one
+    // legacy call site (orders/new/page.tsx's Fabric-canvas fallback path)
+    // builds objects here that don't structurally match GlassPiece. Use the
+    // exported GlassPiece/KonvaShape types directly in code that knows it's
+    // producing/consuming the real Konva format (GlassDesigner.tsx,
+    // whatsappVision.ts) instead of tightening this field.
     pieces?: any[];
     pdfBase64?: string; // Cached high-fidelity PDF
 }
