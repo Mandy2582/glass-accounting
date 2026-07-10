@@ -1303,8 +1303,10 @@ export default function OrderDetailPage() {
                     </div>
                     <div style={{ textAlign: 'right' }}>
                         <div style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>Payment Status</div>
-                        <div style={{ fontWeight: 600, color: balanceDue <= 0 ? '#10b981' : '#ef4444' }}>
-                            {balanceDue <= 0 ? 'PAID' : `Due: ₹${balanceDue.toFixed(2)}`}
+                        {/* A zero-total order (e.g. a WhatsApp/email intake still awaiting
+                            items) has nothing billed yet -- showing PAID there is misleading. */}
+                        <div style={{ fontWeight: 600, color: order.total <= 0 ? 'var(--color-text-muted)' : balanceDue <= 0 ? '#10b981' : '#ef4444' }}>
+                            {order.total <= 0 ? 'NOT BILLED YET' : balanceDue <= 0 ? 'PAID' : `Due: ₹${balanceDue.toFixed(2)}`}
                         </div>
                     </div>
                 </div>

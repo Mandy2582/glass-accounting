@@ -8,12 +8,13 @@ import {
     summarizeParsedWhatsAppLines,
 } from '@/lib/whatsappOrders';
 import { analyzeWhatsAppImage, buildDesignDataFromImageAnalysis, WhatsAppImageAnalysis } from '@/lib/whatsappVision';
-import { generateUUID } from '@/lib/utils';
+import { generateUUID, roundCurrency } from '@/lib/utils';
 import { withAvailableStock } from '@/lib/stockReservations';
 import { isAffirmativeReply, resolveImageOrderIntent, resolveOrderIntent } from '@/lib/orderIntent';
 import { findPendingConfirmationOrder, withNeedsApproval, withOrderSource } from '@/lib/orderNotes';
 import { approveAndInvoiceOrder } from '@/lib/orderQuotation';
-import type { CustomDesign, Order, Party } from '@/types';
+import { upsertDesignItemsInOrder } from '@/lib/orderDesignItems';
+import type { CustomDesign, Order, Party, PricingConfig } from '@/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -298,6 +299,7 @@ async function createDraftFromWhatsAppImage(event: WhatsAppMessageEvent, caption
     const customer = await getOrCreateCustomer(event, parties);
     const order = await createReviewOrderForImage(event, customer, analysis, caption);
     const design = await createDesignDraftForImage(order, customer, analysis, event.message.id, caption);
+    await priceIntakeDesignOrder(order, design);
 
     return {
         messageId: event.message.id,
@@ -479,6 +481,34 @@ async function createDesignDraftForImage(
 
     await designsDb.add(design);
     return design;
+}
+
+// A freshly-intaken drawing order used to sit at zero items / zero totals
+// until staff opened and saved the design in the editor -- so the order page
+// showed an empty Items table (and a misleading zero-total payment state),
+// and the design card showed a Rs.0 estimate even though the extracted
+// pieces carry real area/hole/cut counts. Price the pieces immediately with
+// the same pricing config + row-building helpers the design editor uses on
+// save, so the review order is quotable the moment it arrives. Intake never
+// fails on this: any pricing problem just leaves the order in the old
+// zero-item state for manual completion.
+async function priceIntakeDesignOrder(order: Order, design: CustomDesign): Promise<void> {
+    try {
+        const pricing = await db.settings.getPricing();
+        const thicknessPricing = await db.settings.getThicknessPricing();
+        const pricingConfig: PricingConfig = { ...pricing, thicknessPricing };
+        const updatedOrder = upsertDesignItemsInOrder(order, design, pricingConfig);
+        await db.orders.update(updatedOrder);
+
+        const estimatedCost = roundCurrency((updatedOrder.items || [])
+            .filter(item => item.designId === design.id)
+            .reduce((sum, item) => sum + (Number(item.lineTotal) || 0), 0));
+        if (estimatedCost > 0) {
+            await designsDb.update({ ...design, estimatedCost });
+        }
+    } catch (error) {
+        console.error('Failed to price intake design order:', error);
+    }
 }
 
 async function findExistingWhatsAppOrder(messageId: string): Promise<Order | null> {

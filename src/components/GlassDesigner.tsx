@@ -3183,13 +3183,13 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                         <Group key={shape.id}>
                                             <Rect {...props} width={shape.width} height={shape.height} />
                                             <Text x={shape.x + (shape.width || 0) / 2} y={shape.y + (shape.height || 0) / 2} text="C" fill={flagColor} fontSize={10} fontStyle="bold" align="center" width={60} offsetX={30} offsetY={5} listening={false} />
-                                            <Text x={shape.x + (shape.width || 0) / 2} y={shape.y + (shape.height || 0) / 2 + 14} text={`${formatInchesFraction(shape.width || 0)}" x ${formatInchesFraction(shape.height || 0)}"`} fill={needsReview ? '#b45309' : '#b91c1c'} fontSize={8} fontStyle="bold" align="center" width={140} offsetX={70} listening={false} />
+                                            <Text x={shape.x + (shape.width || 0) / 2} y={shape.y + (shape.height || 0) + 4} text={`${formatInchesFraction(shape.width || 0)}" x ${formatInchesFraction(shape.height || 0)}"`} fill={needsReview ? '#b45309' : '#b91c1c'} fontSize={12} fontStyle="bold" align="center" width={200} offsetX={100} listening={false} />
                                         </Group>
                                     ) : (
                                         <Group key={shape.id}>
                                             <Circle {...props} radius={shape.radius} />
                                             <Text x={shape.x} y={shape.y} text="H" fill={flagColor} fontSize={10} fontStyle="bold" align="center" width={60} offsetX={30} offsetY={5} listening={false} />
-                                            <Text x={shape.x} y={shape.y + 14} text={`Ø ${formatInchesFraction((shape.radius || 0) * 2)}"`} fill={needsReview ? '#b45309' : '#b91c1c'} fontSize={8} fontStyle="bold" align="center" width={100} offsetX={50} listening={false} />
+                                            <Text x={shape.x} y={shape.y + (shape.radius || 0) + 4} text={`Ø ${formatInchesFraction((shape.radius || 0) * 2)}"`} fill={needsReview ? '#b45309' : '#b91c1c'} fontSize={12} fontStyle="bold" align="center" width={160} offsetX={80} listening={false} />
                                         </Group>
                                     );
                                 })}
@@ -3491,7 +3491,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                 return isCircle ? (
                                     <Group key={shape.id}><Circle {...baseProps} radius={shape.radius} />{renderCircleDimensions(shape, drawingScale)}</Group>
                                 ) : (
-                                    <Group key={shape.id}><Rect {...baseProps} width={shape.width} height={shape.height} />{renderRectDimensions(shape, drawingScale)}</Group>
+                                    <Group key={shape.id}><Rect {...baseProps} width={shape.width} height={shape.height} />{renderRectDimensions(shape, drawingScale, !hasSiblingToTheRight(shape, activePiece.shapes))}</Group>
                                 );
                             })}
 
@@ -3531,13 +3531,13 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                     <Group key={shape.id}>
                                         <Rect {...props} width={shape.width} height={shape.height} />
                                         <Text x={shape.x + (shape.width || 0) / 2} y={shape.y + (shape.height || 0) / 2} text="C" fill={needsReview ? '#f59e0b' : '#ef4444'} fontSize={10 / drawingScale} fontStyle="bold" align="center" width={60 / drawingScale} offsetX={30 / drawingScale} offsetY={5 / drawingScale} listening={false} />
-                                        <Text x={shape.x + (shape.width || 0) / 2} y={shape.y + (shape.height || 0) / 2 + 14 / drawingScale} text={`${formatInchesFraction(shape.width || 0)}" x ${formatInchesFraction(shape.height || 0)}"`} fill={needsReview ? '#b45309' : '#b91c1c'} fontSize={8 / drawingScale} fontStyle="bold" align="center" width={140 / drawingScale} offsetX={70 / drawingScale} listening={false} />
+                                        <Text x={shape.x + (shape.width || 0) / 2} y={shape.y + (shape.height || 0) + 4 / drawingScale} text={`${formatInchesFraction(shape.width || 0)}" x ${formatInchesFraction(shape.height || 0)}"`} fill={needsReview ? '#b45309' : '#b91c1c'} fontSize={12 / drawingScale} fontStyle="bold" align="center" width={200 / drawingScale} offsetX={100 / drawingScale} listening={false} />
                                     </Group>
                                 ) : (
                                     <Group key={shape.id}>
                                         <Circle {...props} radius={shape.radius} />
                                         <Text x={shape.x} y={shape.y} text="H" fill={needsReview ? '#f59e0b' : '#ef4444'} fontSize={10 / drawingScale} fontStyle="bold" align="center" width={60 / drawingScale} offsetX={30 / drawingScale} offsetY={5 / drawingScale} listening={false} />
-                                        <Text x={shape.x} y={shape.y + 14 / drawingScale} text={`Ø ${formatInchesFraction((shape.radius || 0) * 2)}"`} fill={needsReview ? '#b45309' : '#b91c1c'} fontSize={8 / drawingScale} fontStyle="bold" align="center" width={100 / drawingScale} offsetX={50 / drawingScale} listening={false} />
+                                        <Text x={shape.x} y={shape.y + (shape.radius || 0) + 4 / drawingScale} text={`Ø ${formatInchesFraction((shape.radius || 0) * 2)}"`} fill={needsReview ? '#b45309' : '#b91c1c'} fontSize={12 / drawingScale} fontStyle="bold" align="center" width={160 / drawingScale} offsetX={80 / drawingScale} listening={false} />
                                     </Group>
                                 );
                             })}

@@ -8,12 +8,13 @@ import {
     summarizeParsedWhatsAppLines,
 } from '@/lib/whatsappOrders';
 import { analyzeWhatsAppImage, buildDesignDataFromImageAnalysis, WhatsAppImageAnalysis } from '@/lib/whatsappVision';
-import { generateUUID } from '@/lib/utils';
+import { generateUUID, roundCurrency } from '@/lib/utils';
 import { withAvailableStock } from '@/lib/stockReservations';
 import { isAffirmativeReply, resolveImageOrderIntent, resolveOrderIntent } from '@/lib/orderIntent';
 import { findPendingConfirmationOrder, withNeedsApproval, withOrderSource } from '@/lib/orderNotes';
 import { approveAndInvoiceOrder } from '@/lib/orderQuotation';
-import type { CustomDesign, Order, Party } from '@/types';
+import { upsertDesignItemsInOrder } from '@/lib/orderDesignItems';
+import type { CustomDesign, Order, Party, PricingConfig } from '@/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -224,6 +225,7 @@ async function createDraftFromEmailImage(
     const customer = await getOrCreateCustomer(email, parties);
     const order = await createReviewOrderForEmailImage(email, customer, analysis, caption);
     const design = await createDesignDraftForEmailImage(order, customer, analysis, email.messageId, caption);
+    await priceIntakeDesignOrder(order, design);
 
     return {
         status: 'drawing_review_created',
@@ -405,6 +407,30 @@ async function createDesignDraftForEmailImage(
 
     await designsDb.add(design);
     return design;
+}
+
+// Same as the WhatsApp webhook's helper: price the extracted pieces
+// immediately (items + totals on the order, estimate on the design) instead
+// of leaving the review order at zero until staff open and save the design.
+// Intake never fails on this -- pricing problems just leave the order in the
+// old zero-item state for manual completion.
+async function priceIntakeDesignOrder(order: Order, design: CustomDesign): Promise<void> {
+    try {
+        const pricing = await db.settings.getPricing();
+        const thicknessPricing = await db.settings.getThicknessPricing();
+        const pricingConfig: PricingConfig = { ...pricing, thicknessPricing };
+        const updatedOrder = upsertDesignItemsInOrder(order, design, pricingConfig);
+        await db.orders.update(updatedOrder);
+
+        const estimatedCost = roundCurrency((updatedOrder.items || [])
+            .filter(item => item.designId === design.id)
+            .reduce((sum, item) => sum + (Number(item.lineTotal) || 0), 0));
+        if (estimatedCost > 0) {
+            await designsDb.update({ ...design, estimatedCost });
+        }
+    } catch (error) {
+        console.error('Failed to price intake design order:', error);
+    }
 }
 
 async function findExistingEmailOrder(messageId: string): Promise<Order | null> {
