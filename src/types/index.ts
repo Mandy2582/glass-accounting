@@ -113,6 +113,7 @@ export interface InvoiceItem {
     unit: Unit;
     sqft: number; // Calculated sqft
     rate: number;
+    rateUnit?: Unit; // Unit `rate` is denominated in -- may differ from `unit` (e.g. rate entered per sqft while billing in sheets)
     amount: number;
     lineTotal?: number; // Customer-facing amount including tax, used to prevent paisa drift
     cost_amount?: number; // FIFO Cost

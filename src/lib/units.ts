@@ -348,6 +348,13 @@ export function calculateLineAmounts(input: {
     quantity?: number;
     unit?: string;
     rate?: number;
+    // Unit `rate` is denominated in, when it differs from `unit` (the
+    // billing/quantity unit) -- e.g. a rate quoted per sqft while the line
+    // bills in sheets. Without this, quantity * rate silently mixes units
+    // whenever they don't already match (a rate typed in while a line
+    // happens to be billing in sheets was being read as "per sheet" even
+    // when the person entering it meant "per sqft").
+    rateUnit?: string;
     taxRate?: number;
     conversionFactor?: number;
     unitFallback?: Unit;
@@ -359,10 +366,25 @@ export function calculateLineAmounts(input: {
     billingLabel: string;
 } {
     const measurement = calculateLineMeasurement(input);
-    const rate = Number(input.rate) || 0;
+    const rawRate = Number(input.rate) || 0;
+    const rate = input.rateUnit && input.rateUnit !== measurement.billingUnit
+        ? convertRateForItemUnit({
+            rate: rawRate,
+            fromUnit: input.rateUnit,
+            toUnit: measurement.billingUnit,
+            width: input.width,
+            height: input.height,
+            conversionFactor: input.conversionFactor,
+        })
+        : rawRate;
     const taxRate = Number(input.taxRate) || 0;
-    const lineTotal = roundCurrency(measurement.billingQuantity * rate);
-    const amount = roundCurrency(lineTotal / (1 + taxRate / 100));
+    // rate is always the pre-tax unit price -- amount (the subtotal) comes
+    // first, and GST is added on top to get lineTotal. This was previously
+    // inverted (lineTotal computed directly as quantity * rate, then amount
+    // derived by *removing* tax from it), which silently absorbed GST into
+    // the entered rate instead of adding it on top.
+    const amount = roundCurrency(measurement.billingQuantity * rate);
+    const lineTotal = roundCurrency(amount * (1 + taxRate / 100));
 
     return {
         sqft: measurement.sqft,

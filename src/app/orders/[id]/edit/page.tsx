@@ -53,6 +53,7 @@ export default function EditOrderPage() {
                 quantity: item.quantity,
                 unit: item.unit,
                 rate: item.rate,
+                rateUnit: item.rateUnit,
                 taxRate: formData.taxRate,
                 conversionFactor: catalogItem?.conversionFactor,
             });
@@ -116,6 +117,7 @@ export default function EditOrderPage() {
                 unit: item.unit || 'sqft',
                 sqft: item.sqft || 0,
                 rate: item.rate,
+                rateUnit: item.rateUnit || item.unit || 'sqft',
                 amount: item.amount,
                 lineTotal: item.lineTotal
             })));
@@ -160,6 +162,7 @@ export default function EditOrderPage() {
                 const height = newItem.height || 0;
                 const qty = Number(row.quantity) || 1;
                 const unit = newItem.rateUnit || newItem.unit || (newItem.category === 'hardware' ? 'nos' : 'sqft');
+                const rateUnit = newItem.rateUnit || newItem.unit || unit;
                 const rate = Number(newItem.rate) || 0;
                 const calculated = calculateLineAmounts({
                     width,
@@ -167,6 +170,7 @@ export default function EditOrderPage() {
                     quantity: qty,
                     unit,
                     rate,
+                    rateUnit,
                     taxRate: formData.taxRate,
                     conversionFactor: newItem.conversionFactor,
                 });
@@ -186,6 +190,7 @@ export default function EditOrderPage() {
                     unit,
                     sqft: calculated.sqft,
                     rate,
+                    rateUnit,
                     amount: calculated.amount,
                     lineTotal: calculated.lineTotal,
                 };
@@ -208,6 +213,7 @@ export default function EditOrderPage() {
             unit: 'sqft',
             sqft: 0,
             rate: 0,
+            rateUnit: 'sqft',
             amount: 0
         }]);
     };
@@ -220,7 +226,7 @@ export default function EditOrderPage() {
 
     const updateItem = (index: number, field: string, value: any) => {
         const updated = [...orderItems];
-        const previousUnit = updated[index].unit || 'nos';
+        const previousRateUnit = updated[index].rateUnit || updated[index].unit || 'nos';
         const item = { ...updated[index], [field]: value };
 
         // If selecting from catalog
@@ -230,16 +236,25 @@ export default function EditOrderPage() {
                 item.itemName = catalogItem.name;
                 item.rate = catalogItem.rate;
                 item.unit = catalogItem.rateUnit || catalogItem.unit;
+                item.rateUnit = catalogItem.rateUnit || catalogItem.unit;
                 item.width = catalogItem.width || 0;
                 item.height = catalogItem.height || 0;
             }
         }
 
-        if (field === 'unit') {
+        // Rate is tracked in its own unit (rateUnit), independent of the
+        // billing/quantity unit -- so changing the billing unit no longer
+        // needs to touch the rate at all (previously it did, on the
+        // assumption rate was always expressed in whatever unit quantity
+        // was billed in, which silently misread a rate typed in as, say,
+        // "per sqft" as "per sheet" whenever the line happened to bill in
+        // sheets). Only changing rateUnit itself converts the rate value,
+        // to preserve its real-world price when switching how it's quoted.
+        if (field === 'rateUnit') {
             const catalogItem = items.find(i => i.id === item.itemId);
             item.rate = convertRateForItemUnit({
                 rate: Number(item.rate) || 0,
-                fromUnit: previousUnit,
+                fromUnit: previousRateUnit,
                 toUnit: value,
                 width: item.width || catalogItem?.width,
                 height: item.height || catalogItem?.height,
@@ -248,12 +263,13 @@ export default function EditOrderPage() {
         }
 
         // Recalculate
-        if (['width', 'height', 'quantity', 'rate', 'itemId', 'unit'].includes(field)) {
+        if (['width', 'height', 'quantity', 'rate', 'rateUnit', 'itemId', 'unit'].includes(field)) {
             const rawWidth = field === 'width' ? value : item.width;
             const rawHeight = field === 'height' ? value : item.height;
             const rawQty = field === 'quantity' ? value : item.quantity;
             const rawRate = field === 'rate' ? value : item.rate;
             const unit = field === 'unit' ? value : (item.unit || 'sqft');
+            const rateUnit = item.rateUnit || unit;
 
             const width = rawWidth === '' ? 0 : Number(rawWidth);
             const height = rawHeight === '' ? 0 : Number(rawHeight);
@@ -267,6 +283,7 @@ export default function EditOrderPage() {
                 quantity: qty,
                 unit,
                 rate,
+                rateUnit,
                 taxRate: formData.taxRate,
                 conversionFactor: (catalogItem as any)?.conversionFactor,
             });
@@ -290,6 +307,7 @@ export default function EditOrderPage() {
                 quantity: item.quantity,
                 unit: item.unit,
                 rate: item.rate,
+                rateUnit: item.rateUnit,
                 taxRate: formData.taxRate,
                 conversionFactor: catalogItem?.conversionFactor,
             });
@@ -483,15 +501,16 @@ export default function EditOrderPage() {
                         <table className="table" style={{ width: '100%', tableLayout: 'fixed' }}>
                             <thead>
                                 <tr>
-                                    <th style={{ width: '22%' }}>Item / Description</th>
-                                    <th style={{ width: '13%' }}>From Catalog</th>
-                                    <th style={{ width: '8%' }}>W (in)</th>
-                                    <th style={{ width: '8%' }}>H (in)</th>
-                                    <th style={{ width: '9%' }}>Qty</th>
-                                    <th style={{ width: '9%' }}>Unit</th>
-                                    <th style={{ width: '9%' }}>Sqft</th>
-                                    <th style={{ width: '10%' }}>Rate</th>
-                                    <th style={{ width: '10%' }}>Amount</th>
+                                    <th style={{ width: '18%' }}>Item / Description</th>
+                                    <th style={{ width: '11%' }}>From Catalog</th>
+                                    <th style={{ width: '7%' }}>W (in)</th>
+                                    <th style={{ width: '7%' }}>H (in)</th>
+                                    <th style={{ width: '8%' }}>Qty</th>
+                                    <th style={{ width: '8%' }}>Unit</th>
+                                    <th style={{ width: '8%' }}>Sqft</th>
+                                    <th style={{ width: '9%' }}>Rate</th>
+                                    <th style={{ width: '8%' }}>Rate Unit</th>
+                                    <th style={{ width: '9%' }}>Amount</th>
                                     <th style={{ width: '4%' }}></th>
                                 </tr>
                             </thead>
@@ -596,6 +615,23 @@ export default function EditOrderPage() {
                                                 precision={2}
                                                 style={{ fontSize: '0.875rem', width: '100%' }}
                                             />
+                                        </td>
+                                        <td>
+                                            <select
+                                                className="input"
+                                                value={item.rateUnit || item.unit || 'sqft'}
+                                                onChange={(e) => updateItem(index, 'rateUnit', e.target.value)}
+                                                title="The unit this rate is priced per -- can differ from the billing unit (e.g. rate per sqft while billing in sheets)"
+                                                style={{ fontSize: '0.875rem', width: '100%' }}
+                                            >
+                                                {UNIT_OPTIONS_BY_GROUP.map(group => (
+                                                    <optgroup key={group.label} label={group.label}>
+                                                        {group.units.map(unit => (
+                                                            <option key={unit.value} value={unit.value}>{unit.label}</option>
+                                                        ))}
+                                                    </optgroup>
+                                                ))}
+                                            </select>
                                         </td>
                                         <td style={{ fontWeight: 600 }}>
                                             ₹{(Number(item.amount) || 0).toFixed(2)}
