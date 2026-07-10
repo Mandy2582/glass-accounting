@@ -19,15 +19,20 @@ const RECT_DIM_LABEL_HALF_H_PX = 12; // half of labelHeight=24
 const POLYGON_SIDE_DIM_OFFSET_PX = 70;
 const VERTEX_ANGLE_OFFSET_PX = 22;
 
-// Fixed Stage viewport (CSS pixels) -- there is no zoom/pan control today,
-// so these are constants, not state. Logical (world) size scales inversely
-// with drawingScale; centerPieceShapes uses this to center a piece
-// regardless of the current scale.
+// Default/minimum Stage viewport (CSS pixels). Width grows to fill the
+// actual canvas frame container (measured via ResizeObserver, see
+// canvasFrameRef/stageViewportWidth state below) so wide multi-section
+// drawings use the available space instead of sitting in a fixed 920px
+// column with empty margin on either side; this is only the floor for
+// narrow containers/before the first measurement. Height stays fixed --
+// there is no vertical zoom/pan control today. Logical (world) size scales
+// inversely with drawingScale; centerPieceShapes uses this to center a
+// piece regardless of the current scale.
 const STAGE_VIEWPORT_WIDTH = 920;
 const STAGE_VIEWPORT_HEIGHT = 560;
-const getStageLogicalSize = (scale: number): { width: number; height: number } => ({
-    width: Math.ceil(STAGE_VIEWPORT_WIDTH / scale),
-    height: Math.ceil(STAGE_VIEWPORT_HEIGHT / scale),
+const getStageLogicalSize = (scale: number, viewportWidth: number = STAGE_VIEWPORT_WIDTH, viewportHeight: number = STAGE_VIEWPORT_HEIGHT): { width: number; height: number } => ({
+    width: Math.ceil(viewportWidth / scale),
+    height: Math.ceil(viewportHeight / scale),
 });
 
 // Snap a value in pixels (1 inch = 10 pixels) to the nearest 0.125 inches (1.25 pixels)
@@ -335,8 +340,35 @@ const getPolygonSideDimensions = (shape: KonvaShape, drawingScale: number = 1): 
     return sideDimensions;
 };
 
+const RECT_ADJACENCY_TOLERANCE_UNITS = 5; // 0.5 inch -- generous enough to tolerate rounding from the merge/offset math
+
+// True when another glass_rect/glass_polygon in the same piece touches this
+// shape's right edge (an interior seam of a connected multi-section run).
+// Used to suppress a rect's own height dimension line at seams, since every
+// section in a touching run shares the same height -- without this check
+// each section would draw an identical, overlapping height callout.
+const hasSiblingToTheRight = (shape: KonvaShape, allShapes: KonvaShape[]): boolean => {
+    const width = shape.width || 0;
+    const height = shape.height || 0;
+    return allShapes.some(other => {
+        if (other.id === shape.id) return false;
+        if (other.type !== 'glass_rect' && other.type !== 'glass_polygon') return false;
+        const otherHeight = other.height || 0;
+        const touchesRight = Math.abs(other.x - (shape.x + width)) < RECT_ADJACENCY_TOLERANCE_UNITS;
+        const verticallyOverlaps = other.y < shape.y + height && other.y + otherHeight > shape.y;
+        return touchesRight && verticallyOverlaps;
+    });
+};
+
 // Render dimensions for rectangle shapes with split line & central text
-const renderRectDimensions = (shape: KonvaShape, scale: number = 1): React.ReactNode => {
+// showHeightDimension can be set false when this rect sits directly against
+// a sibling rect on its right edge (an interior seam within a connected
+// multi-section piece) -- every section would otherwise draw its own
+// identical height dimension line, cluttering and overlapping at each seam
+// where sections touch. Only the rightmost/last section in such a run (or
+// any standalone rect) should render the height dimension, giving one clean
+// callout for the whole connected run instead of one per section.
+const renderRectDimensions = (shape: KonvaShape, scale: number = 1, showHeightDimension: boolean = true): React.ReactNode => {
     const width = shape.width || 0;
     const height = shape.height || 0;
     
@@ -368,8 +400,12 @@ const renderRectDimensions = (shape: KonvaShape, scale: number = 1): React.React
         <Group>
             <Line points={[shape.x, shape.y, shape.x, cy]} stroke={extensionColor} strokeWidth={1.2 / scale} listening={false} />
             <Line points={[shape.x + width, shape.y, shape.x + width, cy]} stroke={extensionColor} strokeWidth={1.2 / scale} listening={false} />
-            <Line points={[shape.x + width, shape.y, hcx, shape.y]} stroke={extensionColor} strokeWidth={1.2 / scale} listening={false} />
-            <Line points={[shape.x + width, shape.y + height, hcx, shape.y + height]} stroke={extensionColor} strokeWidth={1.2 / scale} listening={false} />
+            {showHeightDimension && (
+                <>
+                    <Line points={[shape.x + width, shape.y, hcx, shape.y]} stroke={extensionColor} strokeWidth={1.2 / scale} listening={false} />
+                    <Line points={[shape.x + width, shape.y + height, hcx, shape.y + height]} stroke={extensionColor} strokeWidth={1.2 / scale} listening={false} />
+                </>
+            )}
             {/* Horizontal Dimension (Width) */}
             {showWidthSplit ? (
                 <>
@@ -431,66 +467,70 @@ const renderRectDimensions = (shape: KonvaShape, scale: number = 1): React.React
                 listening={false}
             />
 
-            {/* Vertical Dimension (Height) */}
-            {showHeightSplit ? (
+            {/* Vertical Dimension (Height) -- suppressed at interior seams of a connected multi-section piece */}
+            {showHeightDimension && (
                 <>
-                    <Arrow
-                        points={[hcx, hcy - textGap, hcx, hcy - vLineHalf]}
-                        stroke={dimensionColor}
-                        strokeWidth={2 / scale}
-                        pointerAtEnding={true}
-                        pointerLength={8 / scale}
-                        pointerWidth={8 / scale}
-                        fill={dimensionColor}
+                    {showHeightSplit ? (
+                        <>
+                            <Arrow
+                                points={[hcx, hcy - textGap, hcx, hcy - vLineHalf]}
+                                stroke={dimensionColor}
+                                strokeWidth={2 / scale}
+                                pointerAtEnding={true}
+                                pointerLength={8 / scale}
+                                pointerWidth={8 / scale}
+                                fill={dimensionColor}
+                                listening={false}
+                            />
+                            <Arrow
+                                points={[hcx, hcy + textGap, hcx, hcy + vLineHalf]}
+                                stroke={dimensionColor}
+                                strokeWidth={2 / scale}
+                                pointerAtEnding={true}
+                                pointerLength={8 / scale}
+                                pointerWidth={8 / scale}
+                                fill={dimensionColor}
+                                listening={false}
+                            />
+                        </>
+                    ) : (
+                        <Arrow
+                            points={[hcx, hcy - vLineHalf, hcx, hcy + vLineHalf]}
+                            stroke={dimensionColor}
+                            strokeWidth={2 / scale}
+                            pointerAtBeginning={true}
+                            pointerAtEnding={true}
+                            pointerLength={8 / scale}
+                            pointerWidth={8 / scale}
+                            fill={dimensionColor}
+                            listening={false}
+                        />
+                    )}
+                    <Rect
+                        x={hcx - labelWidth / 2}
+                        y={hcy - labelHeight / 2}
+                        width={labelWidth}
+                        height={labelHeight}
+                        fill="#ffffff"
+                        stroke="#bfdbfe"
+                        strokeWidth={1 / scale}
+                        cornerRadius={6 / scale}
                         listening={false}
                     />
-                    <Arrow
-                        points={[hcx, hcy + textGap, hcx, hcy + vLineHalf]}
-                        stroke={dimensionColor}
-                        strokeWidth={2 / scale}
-                        pointerAtEnding={true}
-                        pointerLength={8 / scale}
-                        pointerWidth={8 / scale}
-                        fill={dimensionColor}
+                    <Text
+                        x={hcx - labelWidth / 2}
+                        y={hcy - textFontSize / 2}
+                        text={hText}
+                        fontSize={textFontSize}
+                        fontStyle="bold"
+                        fill="#1d4ed8"
+                        align="center"
+                        width={labelWidth}
+                        offsetY={1 / scale}
                         listening={false}
                     />
                 </>
-            ) : (
-                <Arrow
-                    points={[hcx, hcy - vLineHalf, hcx, hcy + vLineHalf]}
-                    stroke={dimensionColor}
-                    strokeWidth={2 / scale}
-                    pointerAtBeginning={true}
-                    pointerAtEnding={true}
-                    pointerLength={8 / scale}
-                    pointerWidth={8 / scale}
-                    fill={dimensionColor}
-                    listening={false}
-                />
             )}
-            <Rect
-                x={hcx - labelWidth / 2}
-                y={hcy - labelHeight / 2}
-                width={labelWidth}
-                height={labelHeight}
-                fill="#ffffff"
-                stroke="#bfdbfe"
-                strokeWidth={1 / scale}
-                cornerRadius={6 / scale}
-                listening={false}
-            />
-            <Text
-                x={hcx - labelWidth / 2}
-                y={hcy - textFontSize / 2}
-                text={hText}
-                fontSize={textFontSize}
-                fontStyle="bold"
-                fill="#1d4ed8"
-                align="center"
-                width={labelWidth}
-                offsetY={1 / scale}
-                listening={false}
-            />
         </Group>
     );
 };
@@ -1065,6 +1105,15 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
         setSelectedShapeIds(id ? [id] : []);
     };
     const [drawingScale, setDrawingScale] = useState<number>(0.3); // Scale: default 30% keeps common glass pieces inside one viewport
+    // The Stage viewport used to render at a fixed 920px CSS width regardless
+    // of how wide the actual canvas frame container was, leaving unused
+    // empty margin on both sides for wide multi-section drawings. Measured
+    // via ResizeObserver below so the Stage (and therefore how much of a
+    // wide connected run is visible before scrolling) uses the real
+    // available width, with STAGE_VIEWPORT_WIDTH as a floor for narrow
+    // containers or before the first measurement.
+    const [stageViewportWidth, setStageViewportWidth] = useState<number>(STAGE_VIEWPORT_WIDTH);
+    const canvasFrameRef = useRef<HTMLDivElement>(null);
     const [localInputs, setLocalInputs] = useState<Record<string, string>>({});
     const [focusedField, setFocusedField] = useState<string | null>(null);
     const [polygonSideSpecs, setPolygonSideSpecs] = useState<string[]>(['15', '15', '15', '15']);
@@ -1091,6 +1140,43 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
 
     // Navigation guard checking for unsaved changes
     const isDirty = initialPiecesJsonRef.current !== '' && JSON.stringify(pieces) !== initialPiecesJsonRef.current;
+
+    // Measure the actual canvas frame container so the Stage can use the
+    // real available width instead of a fixed 920px column.
+    useEffect(() => {
+        const frame = canvasFrameRef.current;
+        if (!frame) return;
+        const FRAME_HORIZONTAL_PADDING_PX = 24; // matches the frame's own padding, see designer-canvas-frame style below
+        const observer = new ResizeObserver(entries => {
+            const entry = entries[0];
+            if (!entry) return;
+            const measuredWidth = Math.floor(entry.contentRect.width - FRAME_HORIZONTAL_PADDING_PX);
+            setStageViewportWidth(Math.max(STAGE_VIEWPORT_WIDTH, measuredWidth));
+        });
+        observer.observe(frame);
+        return () => observer.disconnect();
+    }, []);
+
+    // The initial-data-loading effect below centers pieces using whatever
+    // stageViewportWidth is at that moment, which is still the default
+    // (ResizeObserver's first callback hasn't fired yet on first mount) --
+    // re-center once the real width is measured (and again on any later
+    // resize) so a wide connected run actually uses the newly available
+    // space instead of staying anchored to the 920px default. Keeps
+    // initialPiecesJsonRef in sync so a resize never shows a false "unsaved
+    // changes" state.
+    const lastCenteredViewportWidthRef = useRef<number>(STAGE_VIEWPORT_WIDTH);
+    useEffect(() => {
+        if (stageViewportWidth === lastCenteredViewportWidthRef.current) return;
+        lastCenteredViewportWidthRef.current = stageViewportWidth;
+        const { width: logicalWidth, height: logicalHeight } = getStageLogicalSize(drawingScale, stageViewportWidth);
+        setPieces(prev => {
+            const recentered = prev.map(piece => ({ ...piece, shapes: centerPieceShapes(piece.shapes, logicalWidth, logicalHeight, drawingScale) }));
+            initialPiecesJsonRef.current = JSON.stringify(recentered);
+            return recentered;
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [stageViewportWidth]);
 
     useEffect(() => {
         let cancelled = false;
@@ -1284,7 +1370,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
 
     // Initialize data
     useEffect(() => {
-        const { width: logicalWidth, height: logicalHeight } = getStageLogicalSize(drawingScale);
+        const { width: logicalWidth, height: logicalHeight } = getStageLogicalSize(drawingScale, stageViewportWidth);
         const centerPiece = (piece: GlassPiece): GlassPiece => ({
             ...piece,
             shapes: centerPieceShapes(piece.shapes, logicalWidth, logicalHeight, drawingScale),
@@ -1825,7 +1911,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
 
     const addPiece = () => {
         saveHistory();
-        const { width: logicalWidth, height: logicalHeight } = getStageLogicalSize(drawingScale);
+        const { width: logicalWidth, height: logicalHeight } = getStageLogicalSize(drawingScale, stageViewportWidth);
         const newPiece: GlassPiece = {
             id: generateUUID(),
             name: `Piece ${pieces.length + 1}`,
@@ -1842,7 +1928,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
 
     const addPresetPiece = (preset: DesignPreset) => {
         saveHistory();
-        const { width: logicalWidth, height: logicalHeight } = getStageLogicalSize(drawingScale);
+        const { width: logicalWidth, height: logicalHeight } = getStageLogicalSize(drawingScale, stageViewportWidth);
         const presetPieces = preset.createPieces ? preset.createPieces() : preset.createPiece ? [preset.createPiece()] : [];
         const newPieces: GlassPiece[] = presetPieces.map(piece => ({
             id: generateUUID(),
@@ -1906,7 +1992,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
         }
 
         saveHistory();
-        const { width: logicalWidth, height: logicalHeight } = getStageLogicalSize(drawingScale);
+        const { width: logicalWidth, height: logicalHeight } = getStageLogicalSize(drawingScale, stageViewportWidth);
         const generatedPieces: GlassPiece[] = readyDrafts.map((draft, index) => ({
             id: generateUUID(),
             name: draft.pieceName || `Photo Piece ${index + 1}`,
@@ -2372,9 +2458,8 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
 
     if (!activePiece) return <div>Loading designer...</div>;
 
-    const stageViewportWidth = STAGE_VIEWPORT_WIDTH;
     const stageViewportHeight = STAGE_VIEWPORT_HEIGHT;
-    const { width: stageLogicalWidth, height: stageLogicalHeight } = getStageLogicalSize(drawingScale);
+    const { width: stageLogicalWidth, height: stageLogicalHeight } = getStageLogicalSize(drawingScale, stageViewportWidth);
     const gridColumnCount = Math.ceil(stageLogicalWidth / 20) + 1;
     const gridRowCount = Math.ceil(stageLogicalHeight / 20) + 1;
 
@@ -3082,7 +3167,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                         );
                                     }
                                     return shape.type === 'glass_rect' ? (
-                                        <Group key={shape.id}><Rect {...props} width={shape.width} height={shape.height} />{renderRectDimensions(shape, 1)}</Group>
+                                        <Group key={shape.id}><Rect {...props} width={shape.width} height={shape.height} />{renderRectDimensions(shape, 1, !hasSiblingToTheRight(shape, piece.shapes))}</Group>
                                     ) : (
                                         <Group key={shape.id}><Circle {...props} radius={shape.radius} />{renderCircleDimensions(shape, 1)}</Group>
                                     );
@@ -3098,11 +3183,13 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                         <Group key={shape.id}>
                                             <Rect {...props} width={shape.width} height={shape.height} />
                                             <Text x={shape.x + (shape.width || 0) / 2} y={shape.y + (shape.height || 0) / 2} text="C" fill={flagColor} fontSize={10} fontStyle="bold" align="center" width={60} offsetX={30} offsetY={5} listening={false} />
+                                            <Text x={shape.x + (shape.width || 0) / 2} y={shape.y + (shape.height || 0) / 2 + 14} text={`${formatInchesFraction(shape.width || 0)}" x ${formatInchesFraction(shape.height || 0)}"`} fill={needsReview ? '#b45309' : '#b91c1c'} fontSize={8} fontStyle="bold" align="center" width={140} offsetX={70} listening={false} />
                                         </Group>
                                     ) : (
                                         <Group key={shape.id}>
                                             <Circle {...props} radius={shape.radius} />
                                             <Text x={shape.x} y={shape.y} text="H" fill={flagColor} fontSize={10} fontStyle="bold" align="center" width={60} offsetX={30} offsetY={5} listening={false} />
+                                            <Text x={shape.x} y={shape.y + 14} text={`Ø ${formatInchesFraction((shape.radius || 0) * 2)}"`} fill={needsReview ? '#b45309' : '#b91c1c'} fontSize={8} fontStyle="bold" align="center" width={100} offsetX={50} listening={false} />
                                         </Group>
                                     );
                                 })}
@@ -3112,9 +3199,9 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                 </div>
 
                 {/* Canvas Area */}
-                <div className="designer-canvas-frame" style={{ 
-                    width: '100%', 
-                    overflow: 'hidden', 
+                <div ref={canvasFrameRef} className="designer-canvas-frame" style={{
+                    width: '100%',
+                    overflow: 'hidden',
                     background: 'linear-gradient(135deg, #e2e8f0, #f8fafc)', 
                     borderRadius: '14px', 
                     border: '1px solid rgba(148, 163, 184, 0.35)', 
@@ -3444,11 +3531,13 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                     <Group key={shape.id}>
                                         <Rect {...props} width={shape.width} height={shape.height} />
                                         <Text x={shape.x + (shape.width || 0) / 2} y={shape.y + (shape.height || 0) / 2} text="C" fill={needsReview ? '#f59e0b' : '#ef4444'} fontSize={10 / drawingScale} fontStyle="bold" align="center" width={60 / drawingScale} offsetX={30 / drawingScale} offsetY={5 / drawingScale} listening={false} />
+                                        <Text x={shape.x + (shape.width || 0) / 2} y={shape.y + (shape.height || 0) / 2 + 14 / drawingScale} text={`${formatInchesFraction(shape.width || 0)}" x ${formatInchesFraction(shape.height || 0)}"`} fill={needsReview ? '#b45309' : '#b91c1c'} fontSize={8 / drawingScale} fontStyle="bold" align="center" width={140 / drawingScale} offsetX={70 / drawingScale} listening={false} />
                                     </Group>
                                 ) : (
                                     <Group key={shape.id}>
                                         <Circle {...props} radius={shape.radius} />
                                         <Text x={shape.x} y={shape.y} text="H" fill={needsReview ? '#f59e0b' : '#ef4444'} fontSize={10 / drawingScale} fontStyle="bold" align="center" width={60 / drawingScale} offsetX={30 / drawingScale} offsetY={5 / drawingScale} listening={false} />
+                                        <Text x={shape.x} y={shape.y + 14 / drawingScale} text={`Ø ${formatInchesFraction((shape.radius || 0) * 2)}"`} fill={needsReview ? '#b45309' : '#b91c1c'} fontSize={8 / drawingScale} fontStyle="bold" align="center" width={100 / drawingScale} offsetX={50 / drawingScale} listening={false} />
                                     </Group>
                                 );
                             })}
