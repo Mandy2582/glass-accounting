@@ -1,4 +1,4 @@
-import { calculateLineAmounts, convertRateForItemUnit, formatUnitLabel } from '@/lib/units';
+import { calculateLineAmounts, convertRateForItemUnit, convertQuantityForItemUnit, formatUnitLabel } from '@/lib/units';
 import { generateUUID, roundCurrency } from '@/lib/utils';
 import type { GlassItem, InvoiceItem, Unit } from '@/types';
 
@@ -12,7 +12,10 @@ export type ParsedWhatsAppOrderLine = {
     amount: number;
     lineTotal: number;
     sqft: number;
-    confidence: 'matched' | 'review';
+    // 'out_of_stock' is a resolved, priced line (so it can still be quoted)
+    // for a quantity that no matching catalogue item -- across any brand --
+    // currently has available stock to cover.
+    confidence: 'matched' | 'review' | 'out_of_stock';
 };
 
 export function parseWhatsAppOrderText(text: string, items: GlassItem[]): ParsedWhatsAppOrderLine[] {
@@ -20,43 +23,94 @@ export function parseWhatsAppOrderText(text: string, items: GlassItem[]): Parsed
         .split(/\n|,/)
         .map(line => line.trim())
         .filter(Boolean)
-        .map(raw => {
-            const item = findBestItem(raw, items);
-            const quantity = extractQuantity(raw);
-            const unit = extractUnit(raw, item);
-            const rate = item
-                ? convertRateForItemUnit({
-                    rate: item.rate || 0,
-                    fromUnit: item.rateUnit || item.unit,
-                    toUnit: unit,
-                    width: item.width,
-                    height: item.height,
-                    conversionFactor: item.conversionFactor,
-                })
-                : 0;
-            const calculation = calculateLineAmounts({
-                width: item?.width,
-                height: item?.height,
-                quantity,
-                unit,
-                rate,
-                taxRate: 18,
-                conversionFactor: item?.conversionFactor,
-            });
+        .flatMap(raw => resolveLine(raw, items));
+}
 
-            return {
-                id: generateUUID(),
-                raw,
-                item,
-                quantity,
-                unit,
-                rate,
-                amount: calculation.amount,
-                lineTotal: calculation.lineTotal,
-                sqft: calculation.sqft,
-                confidence: item ? 'matched' : 'review',
-            };
-        });
+function resolveLine(raw: string, items: GlassItem[]): ParsedWhatsAppOrderLine[] {
+    const candidates = findCandidateItems(raw, items);
+    const quantity = extractQuantity(raw);
+
+    if (!candidates.length) {
+        const unit = extractUnit(raw, undefined);
+        return [buildLine(raw, undefined, quantity, unit, 'review')];
+    }
+
+    const unit = extractUnit(raw, candidates[0].item);
+    const requestedBrand = detectRequestedBrand(raw);
+    const scoped = requestedBrand
+        ? (() => {
+            const sameBrand = candidates.filter(entry => (entry.item.make || '').toLowerCase() === requestedBrand.toLowerCase());
+            return sameBrand.length ? sameBrand : candidates;
+        })()
+        : candidates;
+
+    // Brand substitution only makes sense across items that are actually the
+    // SAME requested spec (colour/type/thickness/size) in a different brand
+    // -- e.g. two brands' "Reflective Blue 8mm 6x8ft". Without this, a size-
+    // filtered pool that also loosely matches an unrelated colour/type in
+    // another brand (any 6x8ft "Reflective ___" clears the token-overlap
+    // bar) could get pulled in as a false substitute just because Saint
+    // Gobain was deprioritised. Since brand isn't part of the score when the
+    // customer doesn't name one, a genuine cross-brand match of the same
+    // spec scores identically -- so only the top-scoring tier is eligible.
+    const topScore = scoped[0].score;
+    const sameSpec = scoped.filter(entry => entry.score === topScore).map(entry => entry.item);
+
+    const prioritized = orderCandidatesByBrandPriority(sameSpec);
+    const { allocations, remaining } = allocateQuantity(quantity, unit, prioritized);
+
+    const lines = allocations.map(({ item, quantity: allocatedQty }) => buildLine(raw, item, allocatedQty, unit, 'matched'));
+
+    if (remaining > 0.0001) {
+        // Nothing (or not enough) in stock anywhere -- still resolve to a
+        // priced line naming the best-matching item, flagged as out of
+        // stock, so the order can go to a customer as a quotation instead of
+        // silently dropping the request or blocking the whole order.
+        lines.push(buildLine(raw, prioritized[0], remaining, unit, 'out_of_stock'));
+    }
+
+    return lines;
+}
+
+function buildLine(
+    raw: string,
+    item: GlassItem | undefined,
+    quantity: number,
+    unit: Unit,
+    confidence: ParsedWhatsAppOrderLine['confidence']
+): ParsedWhatsAppOrderLine {
+    const rate = item
+        ? convertRateForItemUnit({
+            rate: item.rate || 0,
+            fromUnit: item.rateUnit || item.unit,
+            toUnit: unit,
+            width: item.width,
+            height: item.height,
+            conversionFactor: item.conversionFactor,
+        })
+        : 0;
+    const calculation = calculateLineAmounts({
+        width: item?.width,
+        height: item?.height,
+        quantity,
+        unit,
+        rate,
+        taxRate: 18,
+        conversionFactor: item?.conversionFactor,
+    });
+
+    return {
+        id: generateUUID(),
+        raw,
+        item,
+        quantity,
+        unit,
+        rate,
+        amount: calculation.amount,
+        lineTotal: calculation.lineTotal,
+        sqft: calculation.sqft,
+        confidence,
+    };
 }
 
 export function getWhatsAppOrderTotals(lines: ParsedWhatsAppOrderLine[]) {
@@ -78,7 +132,7 @@ export function parsedLineToInvoiceItem(line: ParsedWhatsAppOrderLine): InvoiceI
         id: generateUUID(),
         itemId: line.item.id,
         itemName: line.item.name,
-        description: line.raw,
+        description: line.confidence === 'out_of_stock' ? `${line.raw} (Out of stock)` : line.raw,
         make: line.item.make,
         model: line.item.model,
         type: line.item.type,
@@ -101,27 +155,96 @@ export function summarizeParsedWhatsAppLines(lines: ParsedWhatsAppOrderLine[]): 
     return lines
         .map(line => {
             const name = line.item?.name || line.raw;
-            const status = line.item ? 'matched' : 'needs review';
+            const status = line.confidence === 'matched'
+                ? 'matched'
+                : line.confidence === 'out_of_stock'
+                    ? 'NOT AVAILABLE -- out of stock'
+                    : 'needs review';
             return `- ${name}: ${line.quantity} ${formatUnitLabel(line.unit)} (${status})`;
         })
         .join('\n');
 }
 
-function findBestItem(line: string, items: GlassItem[]): GlassItem | undefined {
-    const lineTokens = tokenize(line);
-    if (!lineTokens.length) return undefined;
+// Which of the 3 catalogue brands (if any) the customer explicitly named --
+// when present, substitution across brands is skipped and only that brand's
+// stock is considered, since the customer asked for it specifically.
+function detectRequestedBrand(line: string): string | undefined {
+    const normalized = normalize(line);
+    if (/\bsaint\s*gobain\b|\bgobain\b/.test(normalized)) return 'Saint Gobain';
+    if (/\bgold\s*plus\b|\bgoldplus\b/.test(normalized)) return 'Gold Plus';
+    if (/\basahi\b|\bais\b/.test(normalized)) return 'Asahi';
+    return undefined;
+}
 
-    const ranked = items
-        .map(item => {
-            const haystack = tokenize(`${item.name} ${item.type || ''} ${item.make || ''} ${item.model || ''} ${item.thickness || ''}mm`);
-            const matches = haystack.filter(token => lineTokens.includes(token)).length;
-            const exactName = normalize(line).includes(normalize(item.name));
-            return { item, score: matches + (exactName ? 5 : 0) };
-        })
-        .filter(entry => entry.score >= 2)
-        .sort((a, b) => b.score - a.score);
+// Business priority when the customer doesn't name a brand: Gold Plus and
+// Asahi are preferred over Saint Gobain, and between the two, whichever
+// currently has more available stock goes first so it gets fully used up
+// before the next one is touched. Any other/generic make (e.g. the original
+// non-branded catalogue) sits in between; Saint Gobain always goes last
+// regardless of its own stock level.
+function orderCandidatesByBrandPriority(candidates: GlassItem[]): GlassItem[] {
+    const byMake = new Map<string, GlassItem>();
+    for (const item of candidates) {
+        const make = item.make || 'General';
+        if (!byMake.has(make)) byMake.set(make, item);
+    }
 
-    return ranked[0]?.item;
+    const goldPlus = byMake.get('Gold Plus');
+    const asahi = byMake.get('Asahi');
+    const saintGobain = byMake.get('Saint Gobain');
+    const others = Array.from(byMake.entries())
+        .filter(([make]) => !['Gold Plus', 'Asahi', 'Saint Gobain'].includes(make))
+        .map(([, item]) => item);
+
+    const preferredPair = [goldPlus, asahi]
+        .filter((item): item is GlassItem => !!item)
+        .sort((a, b) => (Number(b.stock) || 0) - (Number(a.stock) || 0));
+
+    return [...preferredPair, ...others, ...(saintGobain ? [saintGobain] : [])];
+}
+
+// Greedily draws the requested quantity from each candidate's available
+// stock (items are expected to already carry availableStock in .stock, via
+// withAvailableStock) in priority order, moving to the next candidate only
+// once the current one is used up -- this is what completes an order across
+// makes ("if one of make stocks is utilised then move to another make").
+function allocateQuantity(
+    requestedQuantity: number,
+    unit: Unit,
+    candidates: GlassItem[]
+): { allocations: Array<{ item: GlassItem; quantity: number }>; remaining: number } {
+    let remaining = requestedQuantity;
+    const allocations: Array<{ item: GlassItem; quantity: number }> = [];
+
+    for (const item of candidates) {
+        if (remaining <= 0.0001) break;
+
+        const requestedInStockUnit = convertQuantityForItemUnit({
+            quantity: remaining,
+            fromUnit: unit,
+            toUnit: item.unit || unit,
+            width: item.width,
+            height: item.height,
+            conversionFactor: item.conversionFactor,
+        });
+        const availableInStockUnit = Number(item.stock) || 0;
+        const takenInStockUnit = Math.min(requestedInStockUnit, availableInStockUnit);
+        if (takenInStockUnit <= 0.0001) continue;
+
+        const takenInRequestedUnit = convertQuantityForItemUnit({
+            quantity: takenInStockUnit,
+            fromUnit: item.unit || unit,
+            toUnit: unit,
+            width: item.width,
+            height: item.height,
+            conversionFactor: item.conversionFactor,
+        });
+
+        allocations.push({ item, quantity: takenInRequestedUnit });
+        remaining = roundCurrency(remaining - takenInRequestedUnit);
+    }
+
+    return { allocations, remaining: Math.max(0, remaining) };
 }
 
 // A thickness like "4mm" or a size pair like "4x8"/"4*8" must never be
@@ -136,6 +259,20 @@ function extractThicknessMm(line: string): number | undefined {
 function extractDimensionPair(line: string): { a: number; b: number } | undefined {
     const match = line.match(/(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)/i);
     return match ? { a: Number(match[1]), b: Number(match[2]) } : undefined;
+}
+
+// True when the line's requested WxH (assumed to be in feet, as customers
+// always type it) matches this item's own stored sheet size (in inches),
+// in either width/height order. A small tolerance covers the 5'4" size,
+// which customers type as "5.4x8" (5.4 feet, not 5'4.8").
+function sizeMatchesItem(dims: { a: number; b: number } | undefined, item: GlassItem): boolean {
+    if (!dims || !item.width || !item.height) return false;
+    const itemFeetA = item.width / 12;
+    const itemFeetB = item.height / 12;
+    const tolerance = 0.2;
+    const matchesInOrder = Math.abs(dims.a - itemFeetA) < tolerance && Math.abs(dims.b - itemFeetB) < tolerance;
+    const matchesSwapped = Math.abs(dims.a - itemFeetB) < tolerance && Math.abs(dims.b - itemFeetA) < tolerance;
+    return matchesInOrder || matchesSwapped;
 }
 
 function extractQuantity(line: string): number {
@@ -195,4 +332,33 @@ function tokenize(value: string): string[] {
         .split(/\s+/)
         .map(token => CATALOGUE_SYNONYMS[token] || token)
         .filter(token => token.length > 1 && !['mm', 'the', 'and', 'for', 'pcs', 'nos', 'set'].includes(token));
+}
+
+// Returns every catalogue item that plausibly matches the line, best score
+// first. When the line states an explicit size and at least one match at
+// that size exists, non-matching sizes are excluded entirely -- previously
+// size was never part of scoring at all, so "6x8" in the message could
+// silently resolve to a 4x6 item just because it happened to sort first.
+function findCandidateItems(line: string, items: GlassItem[]): Array<{ item: GlassItem; score: number }> {
+    const lineTokens = tokenize(line);
+    if (!lineTokens.length) return [];
+
+    const dims = extractDimensionPair(line);
+
+    const ranked = items
+        .map(item => {
+            const haystack = tokenize(`${item.name} ${item.type || ''} ${item.make || ''} ${item.model || ''} ${item.thickness || ''}mm`);
+            const matches = haystack.filter(token => lineTokens.includes(token)).length;
+            const exactName = normalize(line).includes(normalize(item.name));
+            return { item, score: matches + (exactName ? 5 : 0) };
+        })
+        .filter(entry => entry.score >= 2)
+        .sort((a, b) => b.score - a.score);
+
+    if (dims) {
+        const sizeMatched = ranked.filter(entry => sizeMatchesItem(dims, entry.item));
+        if (sizeMatched.length > 0) return sizeMatched;
+    }
+
+    return ranked;
 }

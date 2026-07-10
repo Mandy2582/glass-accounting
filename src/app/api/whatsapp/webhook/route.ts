@@ -9,7 +9,7 @@ import {
 } from '@/lib/whatsappOrders';
 import { analyzeWhatsAppImage, buildDesignDataFromImageAnalysis, WhatsAppImageAnalysis } from '@/lib/whatsappVision';
 import { generateUUID } from '@/lib/utils';
-import { hasSufficientAvailableStock, withAvailableStock } from '@/lib/stockReservations';
+import { withAvailableStock } from '@/lib/stockReservations';
 import { isAffirmativeReply, resolveImageOrderIntent, resolveOrderIntent } from '@/lib/orderIntent';
 import { findPendingConfirmationOrder, withNeedsApproval, withOrderSource } from '@/lib/orderNotes';
 import { approveAndInvoiceOrder } from '@/lib/orderQuotation';
@@ -175,28 +175,28 @@ async function createOrderFromWhatsAppEvent(event: WhatsAppMessageEvent) {
 
     const items = await withAvailableStock(await db.items.getAll());
     const parsedLines = parseWhatsAppOrderText(body, items);
-    const matchedLines = parsedLines.filter(line => line.item);
+    // A resolved line has a catalogue item attached, whether the stock for
+    // it was actually available ('matched') or not ('out_of_stock' -- still
+    // priced and named so it can go out on a quotation). Only a line with no
+    // catalogue match at all falls back to unresolved review.
+    const resolvedLines = parsedLines.filter(line => line.item);
 
     // No catalogue line matched at all -- before creating a customer + blank
     // review order for what might just be a "hi"/"are you open" message,
     // check whether this even looks like an order.
-    if (!matchedLines.length) {
+    if (!resolvedLines.length) {
         const intent = await resolveOrderIntent(body);
         if (!intent.isOrderRelated) {
             console.log(`[whatsapp] Ignoring non-order message from ${event.message.from}: ${intent.reason}`);
             return { messageId, status: 'ignored_not_order', reason: intent.reason };
         }
-    }
 
-    const parties = await db.parties.getAll();
-    const customer = await getOrCreateCustomer(event, parties);
-    const stockShortLines = matchedLines.filter(line => !hasSufficientAvailableStock(line.item!, line.quantity, line.unit));
-
-    if (!matchedLines.length || stockShortLines.length > 0) {
-        const order = await createReviewOrderForWhatsAppText(event, customer, body, parsedLines, stockShortLines);
+        const parties = await db.parties.getAll();
+        const customer = await getOrCreateCustomer(event, parties);
+        const order = await createReviewOrderForWhatsAppText(event, customer, body, parsedLines);
         return {
             messageId,
-            status: stockShortLines.length > 0 ? 'stock_review_created' : 'text_review_created',
+            status: 'text_review_created',
             orderId: order.id,
             orderNumber: order.number,
             customerId: customer.id,
@@ -205,24 +205,26 @@ async function createOrderFromWhatsAppEvent(event: WhatsAppMessageEvent) {
         };
     }
 
+    const parties = await db.parties.getAll();
+    const customer = await getOrCreateCustomer(event, parties);
     const order = await saveWhatsAppOrder({
         customer,
         messageId,
         from: event.message.from,
         originalMessage: body,
         parsedLines,
-        matchedLines,
+        matchedLines: resolvedLines,
         source: 'WhatsApp Business webhook',
     });
 
     return {
         messageId,
-        status: 'order_created',
+        status: resolvedLines.some(line => line.confidence === 'out_of_stock') ? 'order_created_with_shortage' : 'order_created',
         orderId: order.id,
         orderNumber: order.number,
         customerId: customer.id,
         customerName: customer.name,
-        matchedRows: matchedLines.length,
+        matchedRows: resolvedLines.length,
         total: order.total,
     };
 }
@@ -251,25 +253,9 @@ async function createDraftFromWhatsAppImage(event: WhatsAppMessageEvent, caption
         ].filter(Boolean).join('\n');
         const items = await withAvailableStock(await db.items.getAll());
         const parsedLines = parseWhatsAppOrderText(orderText, items);
-        const matchedLines = parsedLines.filter(line => line.item);
-        const stockShortLines = matchedLines.filter(line => !hasSufficientAvailableStock(line.item!, line.quantity, line.unit));
+        const resolvedLines = parsedLines.filter(line => line.item);
 
-        if (matchedLines.length && stockShortLines.length > 0) {
-            const parties = await db.parties.getAll();
-            const customer = await getOrCreateCustomer(event, parties);
-            const order = await createReviewOrderForWhatsAppText(event, customer, orderText, parsedLines, stockShortLines);
-            return {
-                messageId: event.message.id,
-                status: 'stock_review_created',
-                orderId: order.id,
-                orderNumber: order.number,
-                customerId: customer.id,
-                matchedRows: 0,
-                confidence: analysis.confidence,
-            };
-        }
-
-        if (matchedLines.length) {
+        if (resolvedLines.length) {
             const parties = await db.parties.getAll();
             const customer = await getOrCreateCustomer(event, parties);
             const order = await saveWhatsAppOrder({
@@ -278,17 +264,17 @@ async function createDraftFromWhatsAppImage(event: WhatsAppMessageEvent, caption
                 from: event.message.from,
                 originalMessage: orderText,
                 parsedLines,
-                matchedLines,
+                matchedLines: resolvedLines,
                 source: 'WhatsApp image order',
             });
 
             return {
                 messageId: event.message.id,
-                status: 'image_order_created',
+                status: resolvedLines.some(line => line.confidence === 'out_of_stock') ? 'image_order_created_with_shortage' : 'image_order_created',
                 orderId: order.id,
                 orderNumber: order.number,
                 customerId: customer.id,
-                matchedRows: matchedLines.length,
+                matchedRows: resolvedLines.length,
                 total: order.total,
                 confidence: analysis.confidence,
             };
@@ -375,18 +361,10 @@ async function createReviewOrderForWhatsAppText(
     event: WhatsAppMessageEvent,
     customer: Party,
     originalMessage: string,
-    parsedLines: ReturnType<typeof parseWhatsAppOrderText>,
-    stockShortLines: ReturnType<typeof parseWhatsAppOrderText> = []
+    parsedLines: ReturnType<typeof parseWhatsAppOrderText>
 ): Promise<Order> {
     const orderNumber = await db.orders.generateNextOrderNumber('sale_order');
     const generalNumber = await db.orders.generateNextGeneralNumber();
-    const stockNote = stockShortLines.length
-        ? [
-            '',
-            'Stock issue -- requested quantity exceeds what is currently available (accounting for other open orders):',
-            ...stockShortLines.map(line => `- ${line.item?.name || line.raw}: requested ${line.quantity} ${line.unit}, available ${line.item?.stock ?? 0} ${line.item?.unit || line.unit}`),
-        ].join('\n')
-        : '';
     const order: Order = {
         id: generateUUID(),
         type: 'sale_order',
@@ -412,7 +390,6 @@ async function createReviewOrderForWhatsAppText(
             '',
             'Parsed rows:',
             summarizeParsedWhatsAppLines(parsedLines),
-            stockNote,
         ].filter(Boolean).join('\n'), 'whatsapp')),
         paidAmount: 0,
         paymentStatus: 'unpaid',
