@@ -246,7 +246,7 @@ export default function NotificationsHubPage() {
                             </div>
 
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: '1rem' }}>
-                                {!n.read && (
+                                {!n.read && n.type !== 'order_approval' && (
                                     <button
                                         onClick={(e) => {
                                             e.stopPropagation();

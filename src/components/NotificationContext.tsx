@@ -16,22 +16,36 @@ interface NotificationContextType {
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
+// order_approval alerts represent a WhatsApp/email order still waiting on a
+// staff decision -- marking one "read" must not hide it, or a real pending
+// order could get silently lost from the queue. It only stops appearing once
+// the order is actually approved or rejected, which removes it from the
+// underlying data the notification is computed from. Every other type is a
+// point-in-time nudge (low stock, an aging order, an overdue invoice) that's
+// fine to dismiss for good once acknowledged.
+function isDismissible(type: AppNotification['type']): boolean {
+    return type !== 'order_approval';
+}
+
+function loadReadIds(): string[] {
+    if (typeof window === 'undefined') return [];
+
+    const stored = localStorage.getItem('agh_read_notifications');
+    if (!stored) return [];
+
+    try {
+        const parsed = JSON.parse(stored);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+        console.error('Error parsing read notifications:', error);
+        return [];
+    }
+}
+
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
     const [notifications, setNotifications] = useState<AppNotification[]>([]);
     const [toasts, setToasts] = useState<AppNotification[]>([]);
-    const [readIds, setReadIds] = useState<string[]>(() => {
-        if (typeof window === 'undefined') return [];
-
-        const stored = localStorage.getItem('agh_read_notifications');
-        if (!stored) return [];
-
-        try {
-            return JSON.parse(stored);
-        } catch (error) {
-            console.error('Error parsing stored read notifications:', error);
-            return [];
-        }
-    });
+    const [readIds, setReadIds] = useState<string[]>(() => loadReadIds());
 
     const removeToast = useCallback((id: string) => {
         setToasts(prev => prev.filter(t => t.id !== id));
@@ -39,22 +53,15 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
     const refreshNotifications = useCallback(async () => {
         const rawAlerts = await evaluateNotifications();
-        
-        // Load read IDs again to stay in sync
-        const stored = localStorage.getItem('agh_read_notifications');
-        let currentReadIds: string[] = [];
-        if (stored) {
-            try {
-                currentReadIds = JSON.parse(stored);
-            } catch {}
-        }
 
-        // Once read, a notification is dismissed from the panel entirely
-        // rather than left behind grayed-out -- the underlying situation
-        // (e.g. an order still awaiting approval) stays visible through its
-        // own page (Orders list, order detail banner), so nothing is
-        // actually lost by clearing it out of this transient feed.
-        const processed = rawAlerts.filter(alert => !currentReadIds.includes(alert.id));
+        // Reload from storage to stay in sync across tabs/sessions.
+        const currentReadIds = loadReadIds();
+
+        // A dismissed notification is hidden from the panel entirely rather
+        // than left behind grayed-out -- except order_approval alerts, which
+        // always show while the order is still pending a decision (see
+        // isDismissible above).
+        const processed = rawAlerts.filter(alert => !isDismissible(alert.type) || !currentReadIds.includes(alert.id));
 
         // Determine new alerts that should trigger toast notifications
         // We only toast alerts that are warnings or errors and haven't been shown in the current session
@@ -109,21 +116,24 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     }, [refreshNotifications]);
 
     const markAsRead = (id: string) => {
-        const updatedRead = [...readIds];
-        if (!updatedRead.includes(id)) {
-            updatedRead.push(id);
-            setReadIds(updatedRead);
-            localStorage.setItem('agh_read_notifications', JSON.stringify(updatedRead));
+        const target = notifications.find(n => n.id === id);
+        if (target && !isDismissible(target.type)) return;
+
+        if (!readIds.includes(id)) {
+            const updated = [...readIds, id];
+            setReadIds(updated);
+            localStorage.setItem('agh_read_notifications', JSON.stringify(updated));
         }
 
         setNotifications(prev => prev.filter(n => n.id !== id));
     };
 
     const markAllAsRead = () => {
-        const allIds = Array.from(new Set([...readIds, ...notifications.map(n => n.id)]));
-        setReadIds(allIds);
-        localStorage.setItem('agh_read_notifications', JSON.stringify(allIds));
-        setNotifications([]);
+        const dismissibleIds = notifications.filter(n => isDismissible(n.type)).map(n => n.id);
+        const updated = Array.from(new Set([...readIds, ...dismissibleIds]));
+        setReadIds(updated);
+        localStorage.setItem('agh_read_notifications', JSON.stringify(updated));
+        setNotifications(prev => prev.filter(n => !isDismissible(n.type)));
     };
 
     const unreadCount = notifications.length;
