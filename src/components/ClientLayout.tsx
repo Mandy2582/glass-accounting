@@ -12,6 +12,7 @@ import { AppRole, MODULE_LABELS, ROLE_LABELS, UserPermissions, canAccessPath, ge
 import { ShieldAlert } from 'lucide-react';
 
 import { NotificationProvider } from '@/components/NotificationContext';
+import { RoleProvider } from '@/components/RoleContext';
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
@@ -86,6 +87,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     const isSettingsPath = isAdminOnlyPath(pathname);
 
     return (
+        <RoleProvider role={role} permissions={permissions}>
         <NotificationProvider>
             <div className={styles.layout}>
                 <AutoLogout />
@@ -118,5 +120,6 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
                 </div>
             </div>
         </NotificationProvider>
+        </RoleProvider>
     );
 }

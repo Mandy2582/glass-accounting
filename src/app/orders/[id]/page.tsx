@@ -20,6 +20,7 @@ import {
 } from '@/lib/orderWork';
 import { estimateSent, getOrderIntakeDetails, getOrderSource, needsApproval } from '@/lib/orderNotes';
 import { approveAndInvoiceOrder, sendQuotationForOrder } from '@/lib/orderQuotation';
+import { useRole } from '@/components/RoleContext';
 
 const isCustomDesignOrderItem = (item: InvoiceItem): boolean => {
     return item.sourceType === 'design' || !!item.designId || !!item.designPieceId;
@@ -105,6 +106,7 @@ export default function OrderDetailPage() {
     const params = useParams();
     const router = useRouter();
     const orderId = params.id as string;
+    const { role } = useRole();
 
     const [order, setOrder] = useState<Order | null>(null);
     const [linkedOrder, setLinkedOrder] = useState<Order | null>(null);
@@ -736,6 +738,11 @@ export default function OrderDetailPage() {
         const onlineCatalogOrder = isOnlineCatalogOrder(order);
         const needsManualReview = isEnquiryOrManualReviewOrder(order);
         const requiresDesign = !onlineCatalogOrder && (order.requiresDesign || (order.items || []).some(isCustomDesignOrderItem));
+        // Customer delivery always routes through an assigned transport task
+        // now instead of a direct "Mark Delivered" shortcut -- completing that
+        // task in Operations is what actually flips the order to
+        // customer_delivered (see buildDeliveredOrder in operations/page.tsx).
+        const hasOpenTransportWork = getOrderWorkSummary(order).hasOpenTransport;
 
         let steps: {
             title: string;
@@ -904,14 +911,16 @@ export default function OrderDetailPage() {
                 },
                 {
                     title: '6. Customer Delivery',
-                    description: isDelivered 
+                    description: isDelivered
                         ? `Delivered to customer on ${order.customerDeliveryDate ? new Date(order.customerDeliveryDate).toLocaleDateString() : 'N/A'}.`
-                        : 'Deliver the custom processed glass to the customer.',
+                        : hasOpenTransportWork
+                            ? 'Transport work assigned -- mark it complete in Operations to finish delivery.'
+                            : 'Assign transport work to deliver the custom processed glass to the customer.',
                     status: isDelivered ? 'completed' : (isPOReceived ? 'current' : 'upcoming'),
-                    action: !isDelivered && isPOReceived && (
-                        <button onClick={() => { setDeliveryType('customer'); setShowDeliveryModal(true); }} className="btn btn-primary" style={{ fontSize: '0.875rem', padding: '0.5rem 1rem', cursor: 'pointer' }}>
-                            <Truck size={16} style={{ marginRight: '0.25rem' }} />
-                            Mark Delivered
+                    action: !isDelivered && isPOReceived && !hasOpenTransportWork && (
+                        <button onClick={() => setShowWorkModal(true)} className="btn btn-primary" style={{ fontSize: '0.875rem', padding: '0.5rem 1rem', cursor: 'pointer' }}>
+                            <Route size={16} style={{ marginRight: '0.25rem' }} />
+                            Assign Work
                         </button>
                     )
                 },
@@ -971,32 +980,16 @@ export default function OrderDetailPage() {
 
             steps = [
                 {
-                    title: '1. Fulfil Order',
-                    description: 'Online checkout order is already confirmed. Reserve stock, prepare items, and dispatch when ready.',
-                    status: isDelivered || isCompleted ? 'completed' : 'current',
-                    action: !isDelivered && (
-                        <button onClick={() => { setDeliveryType('customer'); setShowDeliveryModal(true); }} className="btn btn-primary" style={{ fontSize: '0.875rem', padding: '0.5rem 1rem', cursor: 'pointer' }}>
-                            <Truck size={16} style={{ marginRight: '0.25rem' }} />
-                            Mark Delivered
-                        </button>
-                    )
-                },
-                {
-                    title: '2. Payment',
-                    description: isPaid ? 'Payment is settled.' : `Collect or verify balance: ₹${balanceDue.toFixed(2)}.`,
-                    status: isPaid ? 'completed' : (isDelivered ? 'current' : 'upcoming'),
-                    action: !isPaid && (
-                        <button onClick={() => setShowPaymentModal(true)} className="btn" style={{ fontSize: '0.875rem', padding: '0.5rem 1rem', background: '#8b5cf6', color: 'white', border: 'none', cursor: 'pointer' }}>
-                            <IndianRupee size={16} style={{ marginRight: '0.25rem' }} />
-                            Record Receipt
-                        </button>
-                    )
-                },
-                {
-                    title: '3. Invoice',
-                    description: hasInvoice ? 'Invoice generated.' : 'Generate invoice when the order is ready for billing.',
-                    status: hasInvoice ? 'completed' : (isDelivered ? 'current' : 'upcoming'),
-                    action: !hasInvoice && isDelivered && (
+                    // Online checkout orders land on 'approved' immediately, so
+                    // the invoice is generated right at checkout -- printed
+                    // and handed to the delivery team, which is why it has to
+                    // exist before work gets assigned, not after.
+                    title: '1. Invoice Generated',
+                    description: hasInvoice
+                        ? 'Invoice generated -- hand this to the delivery/installation team.'
+                        : 'Generate invoice when the order is ready for billing.',
+                    status: hasInvoice ? 'completed' : 'current',
+                    action: !hasInvoice && (
                         <button
                             onClick={async () => {
                                 if (confirm('Create an invoice from this order?')) {
@@ -1015,6 +1008,32 @@ export default function OrderDetailPage() {
                         >
                             <CreditCard size={16} style={{ marginRight: '0.25rem' }} />
                             Generate Invoice
+                        </button>
+                    )
+                },
+                {
+                    title: '2. Fulfil Order',
+                    description: isDelivered || isCompleted
+                        ? 'Online checkout order is already confirmed. Reserve stock, prepare items, and dispatch when ready.'
+                        : hasOpenTransportWork
+                            ? 'Transport work assigned -- mark it complete in Operations to finish delivery.'
+                            : 'Assign transport work to reserve stock, prepare items, and dispatch.',
+                    status: isDelivered || isCompleted ? 'completed' : (hasInvoice ? 'current' : 'upcoming'),
+                    action: !isDelivered && hasInvoice && !hasOpenTransportWork && (
+                        <button onClick={() => setShowWorkModal(true)} className="btn btn-primary" style={{ fontSize: '0.875rem', padding: '0.5rem 1rem', cursor: 'pointer' }}>
+                            <Route size={16} style={{ marginRight: '0.25rem' }} />
+                            Assign Work
+                        </button>
+                    )
+                },
+                {
+                    title: '3. Payment',
+                    description: isPaid ? 'Payment is settled.' : `Collect or verify balance: ₹${balanceDue.toFixed(2)}.`,
+                    status: isPaid ? 'completed' : (isDelivered ? 'current' : 'upcoming'),
+                    action: !isPaid && (
+                        <button onClick={() => setShowPaymentModal(true)} className="btn" style={{ fontSize: '0.875rem', padding: '0.5rem 1rem', background: '#8b5cf6', color: 'white', border: 'none', cursor: 'pointer' }}>
+                            <IndianRupee size={16} style={{ marginRight: '0.25rem' }} />
+                            Record Receipt
                         </button>
                     )
                 },
@@ -1070,11 +1089,11 @@ export default function OrderDetailPage() {
                         <div style={{ display: 'flex', gap: '0.5rem' }}>
                             <button
                                 onClick={async () => {
-                                    if (confirm('Approve this order to fulfill directly from stock?')) {
+                                    if (confirm('Approve this order to fulfill directly from stock? An invoice will be generated automatically.')) {
                                         try {
-                                            await db.orders.updateStatus(order.id, 'approved');
+                                            await approveAndInvoiceOrder(order);
                                             loadOrder();
-                                            alert('Order approved successfully!');
+                                            alert('Order approved and invoiced successfully!');
                                         } catch (error) {
                                             console.error(error);
                                             alert('Failed to approve order');
@@ -1097,20 +1116,34 @@ export default function OrderDetailPage() {
                     )
                 },
                 {
-                    title: '3. Customer Delivery',
-                    description: isDelivered 
+                    // Invoice now generates automatically the moment the order
+                    // is approved (see approveAndInvoiceOrder), so this step is
+                    // just a status readout -- the printed invoice is what
+                    // gets handed to the delivery team, so it has to exist
+                    // before work is assigned, not after.
+                    title: '3. Invoice Generated',
+                    description: hasInvoice
+                        ? `Invoice generated -- hand this to the delivery/installation team.`
+                        : 'Invoice will be generated automatically once the order is approved.',
+                    status: hasInvoice ? 'completed' : (isApproved ? 'current' : 'upcoming'),
+                },
+                {
+                    title: '4. Assign Work',
+                    description: isDelivered
                         ? `Delivered to customer on ${order.customerDeliveryDate ? new Date(order.customerDeliveryDate).toLocaleDateString() : 'N/A'}.`
-                        : 'Deliver items to the customer.',
-                    status: isDelivered ? 'completed' : (isApproved ? 'current' : 'upcoming'),
-                    action: !isDelivered && isApproved && (
-                        <button onClick={() => { setDeliveryType('customer'); setShowDeliveryModal(true); }} className="btn btn-primary" style={{ fontSize: '0.875rem', padding: '0.5rem 1rem', cursor: 'pointer' }}>
-                            <Truck size={16} style={{ marginRight: '0.25rem' }} />
-                            Mark Delivered
+                        : hasOpenTransportWork
+                            ? 'Transport work assigned -- mark it complete in Operations to finish delivery.'
+                            : 'Assign transport work to deliver items to the customer.',
+                    status: isDelivered ? 'completed' : (hasInvoice ? 'current' : 'upcoming'),
+                    action: !isDelivered && hasInvoice && !hasOpenTransportWork && (
+                        <button onClick={() => setShowWorkModal(true)} className="btn btn-primary" style={{ fontSize: '0.875rem', padding: '0.5rem 1rem', cursor: 'pointer' }}>
+                            <Route size={16} style={{ marginRight: '0.25rem' }} />
+                            Assign Work
                         </button>
                     )
                 },
                 {
-                    title: '4. Payments & Billing',
+                    title: '5. Payments & Billing',
                     description: `Balance Due: ₹${balanceDue.toFixed(2)}. GST Invoice: ${hasInvoice ? 'Generated' : 'Pending'}.`,
                     status: isCompleted ? 'completed' : (isDelivered ? 'current' : 'upcoming'),
                     action: isDelivered && (
@@ -1146,7 +1179,7 @@ export default function OrderDetailPage() {
                     )
                 },
                 {
-                    title: '5. Order Completion',
+                    title: '6. Order Completion',
                     description: isCompleted ? 'Order marked completed.' : 'Finalize the order details and complete.',
                     status: isCompleted ? 'completed' : (isDelivered ? 'current' : 'upcoming'),
                     action: !isCompleted && isDelivered && (
@@ -1453,8 +1486,9 @@ export default function OrderDetailPage() {
                     Export PDF
                 </button>
 
-                {/* Edit Order Button */}
-                {order.status !== 'completed' && order.status !== 'cancelled' && (
+                {/* Edit Order Button -- once an order has moved past pending
+                    (i.e. approved), only admins can still edit or delete it. */}
+                {order.status !== 'completed' && order.status !== 'cancelled' && (role === 'admin' || order.status === 'pending') && (
                     <Link href={`/orders/${order.id}/edit`} className="btn" style={{ display: 'inline-flex', alignItems: 'center', background: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
                         Edit Order
                     </Link>
@@ -1496,8 +1530,8 @@ export default function OrderDetailPage() {
                     </button>
                 )}
 
-                {/* Delete Order Button */}
-                {order.status !== 'completed' && (
+                {/* Delete Order Button -- same admin-only-once-approved gate as Edit above. */}
+                {order.status !== 'completed' && (role === 'admin' || order.status === 'pending') && (
                     <button
                         onClick={async () => {
                             if (confirm('Are you sure you want to delete this order? This action cannot be undone.')) {

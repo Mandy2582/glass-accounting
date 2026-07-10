@@ -2107,6 +2107,14 @@ export default function ShopPage() {
             };
 
             await db.orders.add(order);
+            // Online checkout orders land straight on 'approved' -- generate
+            // the invoice immediately rather than waiting on a staff click,
+            // since it's what gets printed and handed to the delivery team.
+            try {
+                await db.orders.convertToInvoice(order.id);
+            } catch (invoiceError) {
+                console.error('Failed to auto-generate invoice for online order:', invoiceError);
+            }
             saveOrderReference(order);
             window.dispatchEvent(new Event('agh_notifications_refresh'));
             clearCart();
