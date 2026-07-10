@@ -81,6 +81,16 @@ export type WhatsAppImageAnalysis = {
             holes: VisionHole[];
             cuts: VisionCut[];
             tapers: VisionCornerTaper[];
+            // True when this piece is cut from the same continuous sheet/run
+            // as the immediately preceding piece in this array (adjoining
+            // sections sharing one top/bottom edge, divided only by cut
+            // lines -- e.g. a multi-section railing or shopfront run).
+            // Connected pieces are drawn together on one shared canvas at
+            // their real relative widths instead of separate tabs; genuinely
+            // separate/independent panels (a door drawn apart from a
+            // sidelite, unrelated pieces on the same page) should leave this
+            // null/false.
+            connectedToPrevious?: boolean | null;
             hardwareNotes?: string | null;
         }>;
     };
@@ -133,10 +143,12 @@ export async function analyzeWhatsAppImage(input: {
                                 'Analyze this photo of a hand-marked engineering/order drawing sent to a glass shop.',
                                 'Classify it as text_order, drawing, mixed, or unknown.',
                                 '',
-                                'MULTI-PIECE DRAWINGS: A single photo may show more than one separate glass panel (e.g. a fixed panel + a door + a ventilator, or several unrelated pieces sketched on one page). Treat each visually distinct panel/outline as its own entry in drawing.pieces, even if they share dimensions or touch each other in the sketch. Do not merge multiple panels into one piece, and do not drop a panel just because some of its details are unclear -- report every piece you can see, leaving fields null where you are unsure.',
+                                'MULTI-PIECE DRAWINGS: A single photo may show more than one separate glass panel (e.g. a fixed panel + a door + a ventilator, or several unrelated pieces sketched on one page, or several adjoining sections cut from one continuous sheet like a shopfront or railing run). Treat each visually distinct panel/outline as its own entry in drawing.pieces -- do not merge multiple panels into one piece, and do not drop a panel just because some of its details are unclear or repetitive-looking. CHECK EVERY SINGLE SECTION for holes and cuts individually, even ones that look plain or identical to a neighboring section -- it is a common mistake to carefully read the two end sections of a multi-section run (which often have extra hardware markings) and then skip the plainer middle sections entirely; every section that has holes or cuts marked on it must have them reported, not just the ones with the most detail.',
+                                '  - If adjoining sections are cut from one continuous sheet (sharing one unbroken top and bottom edge, divided only by vertical cut lines, with a single overall width dimension spanning all of them), set connectedToPrevious to true on every section after the first one in that run, so they get drawn together on one shared canvas instead of separate tabs. Leave it null/false for genuinely separate, independent pieces (e.g. a door drawn apart from a fixed sidelite).',
                                 '',
                                 'HOLE AND CUT POSITIONS: These drawings dimension hole/cut positions in different ways depending on the sketch -- read each one as it is actually drawn, using whichever of the following applies:',
                                 '  - MOST COMMON: distance from one or two nearby edges (e.g. "20mm from left", "15mm from top"), or marked as centered on an axis (a centerline, or equal tick marks on both sides). Record fromLeft/fromRight/fromTop/fromBottom as the distance from that edge of the panel to the CENTER of the hole/cut -- only fill in the edges that are actually dimensioned, leave the rest null. If marked centered instead of a number, set centeredX and/or centeredY to true rather than guessing a number.',
+                                '  - IMPORTANT -- determine fromTop vs fromBottom (and fromLeft vs fromRight) by which edge the dimension line actually starts from, NOT by which way its arrowhead points. A dimension line is very often drawn starting at the bottom edge with the arrow pointing upward toward the hole/cut -- that is still a distance FROM THE BOTTOM (fromBottom), even though the arrow points up. Trace the line back to the edge it touches to decide which field to fill in.',
                                 '  - NO NUMBER, BUT NEAR AN EDGE: many drawings place a row or column of holes/cuts close to one edge of the panel with no distance written at all (e.g. a column of holes running down near the left edge). When you can see it is clearly aligned along one specific edge but no number dimensions that distance, set nearEdge to that edge ("left"/"right"/"top"/"bottom") instead of leaving every field null -- this is a real observation (which edge it is near), not a guessed number.',
                                 '  - DIMENSIONED FROM ANOTHER HOLE/CUT, NOT AN EDGE: sometimes a single distance is written between two holes/cuts themselves (e.g. two holes stacked vertically with "200mm" written between them), rather than either one being dimensioned from a panel edge. For the second of the pair, set pitchFromIndex to the 0-based index of the other hole/cut in this same array (list the reference one first), set pitchDistance and pitchUnit to that written number, and set pitchAxis to "vertical" if they are stacked one above the other or "horizontal" if side by side.',
                                 '  - If a hole or cut has no readable position at all by any of the above (no edge dimension, no visible edge alignment, no pitch to another hole/cut), still include it in the array (never drop it), but leave every position field null.',
@@ -217,7 +229,7 @@ export async function analyzeWhatsAppImage(input: {
                                         items: {
                                             type: 'object',
                                             additionalProperties: false,
-                                            required: ['name', 'type', 'width', 'height', 'widthUnit', 'heightUnit', 'thickness', 'quantity', 'holes', 'cuts', 'tapers', 'hardwareNotes'],
+                                            required: ['name', 'type', 'width', 'height', 'widthUnit', 'heightUnit', 'thickness', 'quantity', 'holes', 'cuts', 'tapers', 'connectedToPrevious', 'hardwareNotes'],
                                             properties: {
                                                 name: { type: 'string' },
                                                 type: { type: 'string' },
@@ -290,6 +302,7 @@ export async function analyzeWhatsAppImage(input: {
                                                         },
                                                     },
                                                 },
+                                                connectedToPrevious: { type: ['boolean', 'null'] },
                                                 hardwareNotes: { type: ['string', 'null'] },
                                             },
                                         },
@@ -603,6 +616,64 @@ function buildPieceShapes(piece: VisionPieceLike): KonvaShape[] {
     return shapes;
 }
 
+type MergedPieceGroup = {
+    name: string;
+    type: string;
+    thickness: number;
+    quantity: number;
+    holes: number;
+    cuts: number;
+    hardwareNotes: string;
+    shapes: KonvaShape[];
+};
+
+// Groups consecutive pieces marked connectedToPrevious into a single canvas
+// entry, placing each member's rectangle side by side (left to right, in
+// array order) at its real width offset, so an adjoining multi-section run
+// (e.g. 5 panels cut from one continuous sheet) renders together on one
+// shared canvas instead of separate tabs -- staff can then see at a glance
+// whether a hole/cut lines up correctly against its neighboring section,
+// rather than checking each section in isolation. Every member's holes/cuts
+// stay correctly attached to their own rectangle (parentId) and simply move
+// with it. This only affects the canvas grouping -- billing (the `items`
+// array in buildDesignDataFromImageAnalysis) is built separately, one entry
+// per original piece, so merging pieces here never changes area/cost counts.
+function mergeConnectedPieceGroups(
+    pieces: Array<{ name: string; type: string; thickness: number; quantity: number; holes: number; cuts: number; hardwareNotes: string; shapes: KonvaShape[]; connectedToPrevious?: boolean | null }>,
+): MergedPieceGroup[] {
+    const groups: Array<typeof pieces> = [];
+    pieces.forEach(piece => {
+        if (piece.connectedToPrevious && groups.length > 0) {
+            groups[groups.length - 1].push(piece);
+        } else {
+            groups.push([piece]);
+        }
+    });
+
+    return groups.map(group => {
+        let cumulativeWidthUnits = 0;
+        const mergedShapes: KonvaShape[] = [];
+        group.forEach(piece => {
+            const dx = cumulativeWidthUnits;
+            const outline = piece.shapes.find(s => s.type === 'glass_rect' || s.type === 'glass_polygon');
+            piece.shapes.forEach(shape => mergedShapes.push({ ...shape, x: shape.x + dx }));
+            cumulativeWidthUnits += outline?.width ?? 0;
+        });
+
+        const first = group[0];
+        return {
+            name: group.length > 1 ? `${first.name} (${group.length} connected sections)` : first.name,
+            type: first.type,
+            thickness: first.thickness,
+            quantity: first.quantity,
+            holes: group.reduce((sum, piece) => sum + piece.holes, 0),
+            cuts: group.reduce((sum, piece) => sum + piece.cuts, 0),
+            hardwareNotes: group.map(piece => piece.hardwareNotes).filter(Boolean).join('; '),
+            shapes: mergedShapes,
+        };
+    });
+}
+
 export function buildDesignDataFromImageAnalysis(analysis: WhatsAppImageAnalysis): {
     drawingData: DesignData;
     totalArea: number;
@@ -623,6 +694,7 @@ export function buildDesignDataFromImageAnalysis(analysis: WhatsAppImageAnalysis
             holes: [],
             cuts: [],
             tapers: [],
+            connectedToPrevious: false,
             hardwareNotes: analysis.drawing.notes || analysis.extractedText,
         }];
 
@@ -675,21 +747,34 @@ export function buildDesignDataFromImageAnalysis(analysis: WhatsAppImageAnalysis
             'Review dimensions, hardware, and any flagged (amber) holes/cuts before production.',
         ].filter(Boolean).join('\n'),
         items,
-        pieces: pieces.map((piece, index) => ({
-            id: generateUUID(),
+        // Built per original piece first (unmerged -- items[] above already
+        // captured accurate per-piece billing independently of this), then
+        // grouped through mergeConnectedPieceGroups so consecutive
+        // connectedToPrevious pieces land on one shared canvas instead of
+        // separate tabs.
+        pieces: mergeConnectedPieceGroups(pieces.map((piece, index) => ({
             name: piece.name || `Image Piece ${index + 1}`,
             type: piece.type || 'Glass Piece',
-            width: Number(piece.width) || 0,
-            height: Number(piece.height) || 0,
             thickness: Number(piece.thickness) || 6,
             quantity: Number(piece.quantity) || 1,
             holes: (piece.holes || []).length,
             cuts: (piece.cuts || []).length,
             hardwareNotes: piece.hardwareNotes || '',
-            source: 'whatsapp-image',
+            connectedToPrevious: piece.connectedToPrevious,
             // Real, editable canvas geometry -- empty array when there's no
             // width/height to draw from, same as before in that case.
             shapes: buildPieceShapes(piece),
+        }))).map(group => ({
+            id: generateUUID(),
+            name: group.name,
+            type: group.type,
+            thickness: group.thickness,
+            quantity: group.quantity,
+            holes: group.holes,
+            cuts: group.cuts,
+            hardwareNotes: group.hardwareNotes,
+            source: 'whatsapp-image',
+            shapes: group.shapes,
         })),
     };
 
