@@ -19,11 +19,66 @@ export type ParsedWhatsAppOrderLine = {
 };
 
 export function parseWhatsAppOrderText(text: string, items: GlassItem[]): ParsedWhatsAppOrderLine[] {
-    return text
+    const rawLines = text
         .split(/\n|,/)
-        .map(line => line.trim())
-        .filter(Boolean)
+        .map(line => insertMissingSpaces(line.trim()))
+        .filter(Boolean);
+
+    return groupShorthandLines(rawLines, items)
+        .filter(raw => !isPureNoise(raw, items))
         .flatMap(raw => resolveLine(raw, items));
+}
+
+// Customers often type the thickness tight against the next word with no
+// space ("5mmblack" meaning "5mm black") -- this breaks both thickness
+// extraction (the mm-boundary regex needs a non-letter after "mm") and
+// catalogue token matching (the whole glued string becomes one meaningless
+// token). Insert the space back before any other parsing sees the line.
+function insertMissingSpaces(line: string): string {
+    return line.replace(/(\d+(?:\.\d+)?\s*mm)(?=[a-zA-Z])/gi, '$1 ');
+}
+
+// A line with a thickness/colour but no size or quantity of its own ("3.5mm
+// plain") is very often followed by a separate line that's just the size
+// and quantity ("4*8-30") -- a common shorthand where the descriptor and
+// the order details are typed on consecutive lines rather than one. Merge
+// such a pair into a single line before matching so the descriptor's
+// thickness/colour and the following line's size/quantity are read
+// together, instead of two independently-unresolvable fragments.
+function groupShorthandLines(rawLines: string[], items: GlassItem[]): string[] {
+    const result: string[] = [];
+    let i = 0;
+    while (i < rawLines.length) {
+        const current = rawLines[i];
+        const hasDims = extractDimensionPair(current) !== undefined;
+        const looksLikeDescriptor = !hasDims
+            && (extractThicknessMm(current) !== undefined || findCandidateItems(current, items).length > 0);
+
+        if (looksLikeDescriptor && i + 1 < rawLines.length) {
+            const next = rawLines[i + 1];
+            const nextIsBareContinuation = extractThicknessMm(next) === undefined
+                && extractDimensionPair(next) !== undefined;
+            if (nextIsBareContinuation) {
+                result.push(`${current} ${next}`);
+                i += 2;
+                continue;
+            }
+        }
+
+        result.push(current);
+        i += 1;
+    }
+    return result;
+}
+
+// A line with no digits at all and no catalogue-token overlap carries zero
+// order information ("Book my order", "Hi", "please confirm") -- reporting
+// it as an unmatched "needs review" row with a guessed quantity of 1 is
+// pure noise, not a real line item to review.
+function isPureNoise(raw: string, items: GlassItem[]): boolean {
+    const hasDigit = /\d/.test(raw);
+    if (hasDigit) return false;
+    return findCandidateItems(raw, items).length === 0;
 }
 
 function resolveLine(raw: string, items: GlassItem[]): ParsedWhatsAppOrderLine[] {
@@ -310,8 +365,19 @@ function extractUnit(line: string, item?: GlassItem): Unit {
     return item?.unit || 'nos';
 }
 
+// Protects a decimal point between two digits (e.g. "3.5mm") before the
+// non-alphanumeric strip below would otherwise split it into "3" and "5mm"
+// -- the leading "3" then gets silently dropped as a length-1 token by
+// tokenize()'s filter, turning a 3.5mm thickness into a 5mm one. "p" is an
+// arbitrary safe placeholder (never appears in a numeric thickness), and is
+// applied consistently to both the customer's line and the catalogue
+// item's own tokenized fields, so "3.5mm" matches "3.5mm" on both sides.
+function protectDecimals(value: string): string {
+    return value.replace(/(\d)\.(\d)/g, '$1p$2');
+}
+
 function normalize(value: string): string {
-    return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    return protectDecimals(value.toLowerCase()).replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
 // Shop-floor slang for catalogue terms customers actually type, none of
