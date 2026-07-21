@@ -154,6 +154,7 @@ export async function analyzeWhatsAppImage(input: {
                                 '  - If adjoining sections are cut from one continuous sheet (sharing one unbroken top and bottom edge, divided only by vertical cut lines, with a single overall width dimension spanning all of them), set connectedToPrevious to true on every section after the first one in that run, so they get drawn together on one shared canvas instead of separate tabs. Leave it null/false for genuinely separate, independent pieces (e.g. a door drawn apart from a fixed sidelite).',
                                 '',
                                 'COUNT EVERY HOLE INDIVIDUALLY: each small circle ("o") drawn on the glass is one hole. Scan methodically -- along the top edge, bottom edge, left edge, right edge and interior of EVERY section -- and report one holes[] entry per circle. Never compress repeats: if five sections each show 2 circles at the top and 2 at the bottom, that is 20 separate entries, not 5. Under-counting holes is the single most common mistake on these drawings; recount the circles before finalizing and make sure the holes array length matches your count.',
+                                'BEFORE writing the final answer, go section by section and, for each section, count the circles along each of its four edges separately (e.g. "section 3: top edge 2, bottom edge 2, left edge 0, right edge 0 = 4 total") and make sure that per-section total matches how many holes[] entries you actually write for that section -- a section is not "the same as its neighbor", each one must be counted from what is actually drawn on it, even if two sections look identical at a glance.',
                                 '',
                                 'HOLE AND CUT POSITIONS: These drawings dimension hole/cut positions in different ways depending on the sketch -- read each one as it is actually drawn, using whichever of the following applies:',
                                 '  - CUT SIZE vs CUT DISTANCE: a cut is usually drawn as a small shaded/hatched rectangle. Its SIZE is written against its own sides (width above or below it, height beside it -- e.g. "8" above and "8" beside it means an 8 x 8 cut). A number attached to an arrow running from a panel edge to the cut (e.g. 6" with an upward arrow from the bottom edge) is the cut\'s DISTANCE from that edge (fromBottom/fromLeft/etc.), NOT its width or height -- never use an edge-distance number as a cut dimension.',
@@ -163,6 +164,7 @@ export async function analyzeWhatsAppImage(input: {
                                 '  - DIMENSIONED FROM ANOTHER HOLE/CUT, NOT AN EDGE: sometimes a single distance is written between two holes/cuts themselves (e.g. two holes stacked vertically with "200mm" written between them), rather than either one being dimensioned from a panel edge. For the second of the pair, set pitchFromIndex to the 0-based index of the other hole/cut in this same array (list the reference one first), set pitchDistance and pitchUnit to that written number, and set pitchAxis to "vertical" if they are stacked one above the other or "horizontal" if side by side.',
                                 '  - If a hole or cut has no readable position at all by any of the above (no edge dimension, no visible edge alignment, no pitch to another hole/cut), still include it in the array (never drop it), but leave every position field null.',
                                 '  - For a notch cut from a corner, set cutType to "corner_notch" and corner to which corner, plus its width/height. Otherwise use "edge_notch" for a notch cut into an edge (not a corner), or "through_cut" for an internal cutout.',
+                                '  - DO NOT MERGE NEARBY CUTS: a section can have more than one separate hatched/shaded cut area near the same corner or edge (e.g. a small notch right at the corner AND a larger cut a few inches away from it). Each hatched shape is its own cuts[] entry with its own size and own position numbers -- never combine two different hatched shapes into a single entry, and never let one cut\'s size number bleed into another cut\'s position number just because they are drawn close together.',
                                 '',
                                 'PANEL SHAPE / TAPERED CORNERS: A panel is not always a plain rectangle. If one or more corners are drawn cut off at an angle instead of square (often labeled "Taper", common on railing glass following a staircase rake), add an entry to tapers for each such corner with corner set to which one. Many drawings only label this qualitatively with no measurement at all (the angle is matched on site, not on paper) -- in that case leave horizontalCut and verticalCut null, do not guess a size. Only fill in horizontalCut (how far the cut runs in along the horizontal edge from that corner) and verticalCut (how far it runs in along the vertical edge from that corner) when the drawing actually gives both of those two measurements for that corner.',
                                 '',
@@ -452,10 +454,18 @@ function resolvePositions<T extends PositionFields>(
     // potential pitch anchor has a real position before pass 4 tries to
     // chain off it. Items that themselves reference another via
     // pitchFromIndex are deliberately excluded here; they wait for pass 4.
+    // Only the axis that's actually missing gets guessed here -- a shape
+    // dimensioned on one axis only (e.g. "6 from bottom" with no horizontal
+    // dimension) must keep that real value; overwriting both axes wholesale
+    // would silently discard a confirmed fact just because its other axis
+    // wasn't given.
     const rootUnresolved = items.map((_, i) => i).filter(i => (resolved[i].x == null || resolved[i].y == null) && items[i].pitchFromIndex == null);
     rootUnresolved.forEach((i, orderInGroup) => {
         const fraction = (orderInGroup + 1) / (rootUnresolved.length + 1);
-        resolved[i] = { x: rectX + rectW * fraction, y: rectY + rectH / 2, xConfirmed: false, yConfirmed: false };
+        const next = { ...resolved[i] };
+        if (next.x == null) { next.x = rectX + rectW * fraction; next.xConfirmed = false; }
+        if (next.y == null) { next.y = rectY + rectH / 2; next.yConfirmed = false; }
+        resolved[i] = next;
     });
 
     // Pass 4: pitch chains. By this point every non-chained item has some
@@ -485,11 +495,15 @@ function resolvePositions<T extends PositionFields>(
 
     // Pass 5: final safety net -- a pitchFromIndex pointing out of range or
     // at a cycle would otherwise leave a shape with no position at all
-    // (which would break rendering); fall back to plain even-spacing.
+    // (which would break rendering); fall back to plain even-spacing. As in
+    // pass 3, only fill in whichever axis is actually still missing.
     const stillUnresolved = items.map((_, i) => i).filter(i => resolved[i].x == null || resolved[i].y == null);
     stillUnresolved.forEach((i, orderInGroup) => {
         const fraction = (orderInGroup + 1) / (stillUnresolved.length + 1);
-        resolved[i] = { x: rectX + rectW * fraction, y: rectY + rectH / 2, xConfirmed: false, yConfirmed: false };
+        const next = { ...resolved[i] };
+        if (next.x == null) { next.x = rectX + rectW * fraction; next.xConfirmed = false; }
+        if (next.y == null) { next.y = rectY + rectH / 2; next.yConfirmed = false; }
+        resolved[i] = next;
     });
 
     return resolved;
