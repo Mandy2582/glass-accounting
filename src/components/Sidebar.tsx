@@ -111,7 +111,7 @@ const sections: NavSection[] = [
             { label: 'Company Details', href: '/settings/company', icon: Building2 },
             { label: 'Pricing', href: '/settings/pricing', icon: DollarSign },
             { label: 'Order Automation', href: '/settings/automation', icon: Bot },
-            { label: 'Rate Updates (WhatsApp)', href: '/settings/rate-updates', icon: MessageSquare },
+            { label: 'Catalogue Commands (WhatsApp)', href: '/settings/rate-updates', icon: MessageSquare },
             { label: 'Items Configuration', href: '/settings/items', icon: Tags },
             { label: 'Users & Roles', href: '/settings/users', icon: Users },
             { label: 'Terms & Conditions', href: '/settings/terms', icon: FileText },

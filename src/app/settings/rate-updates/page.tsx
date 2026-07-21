@@ -23,7 +23,7 @@ export default function RateUpdateSettingsPage() {
         setMessage(null);
         try {
             await db.settings.updateRateUpdateConfig(config);
-            setMessage({ kind: 'ok', text: 'Rate update settings saved.' });
+            setMessage({ kind: 'ok', text: 'Settings saved.' });
         } catch (error) {
             setMessage({ kind: 'error', text: error instanceof Error ? error.message : 'Failed to save settings.' });
         } finally {
@@ -50,12 +50,12 @@ export default function RateUpdateSettingsPage() {
         <div className="card" style={{ padding: '1.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.35rem' }}>
                 <MessageSquare size={20} />
-                <h2 style={{ fontSize: '1.25rem', fontWeight: 600, margin: 0 }}>Rate Updates via WhatsApp</h2>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: 600, margin: 0 }}>Catalogue Commands via WhatsApp</h2>
             </div>
             <p style={{ color: 'var(--color-text-muted)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
-                Lets specific phone numbers reprice a whole product line by sending a message to this WhatsApp business
-                number -- e.g. <code>12mm Saint Gobain Clear 85</code> sets the rate for every size of that make,
-                thickness and type at once, since they all share the same rate per sqft.
+                Lets specific phone numbers reprice a product line, correct a stock count, or record a purchase by
+                sending a message to this WhatsApp business number, instead of editing inventory by hand. Each message
+                starts with a code word below to say which of the three it is.
             </p>
 
             <label style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start', padding: '1rem', border: '1px solid var(--color-border)', borderRadius: '10px', cursor: 'pointer', marginBottom: '1.25rem' }}>
@@ -66,10 +66,10 @@ export default function RateUpdateSettingsPage() {
                     style={{ marginTop: '0.2rem', width: '18px', height: '18px' }}
                 />
                 <span>
-                    <span style={{ fontWeight: 600, display: 'block' }}>Enable rate updates by WhatsApp</span>
+                    <span style={{ fontWeight: 600, display: 'block' }}>Enable catalogue commands by WhatsApp</span>
                     <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
-                        Only messages from the numbers listed below are ever treated as a rate update -- every other
-                        number is unaffected and continues through the normal order flow.
+                        Only messages from the numbers listed below are ever treated as one of these commands -- every
+                        other number is unaffected and continues through the normal order flow.
                     </span>
                 </span>
             </label>
@@ -106,17 +106,74 @@ export default function RateUpdateSettingsPage() {
                 </div>
             </div>
 
+            <div style={{ padding: '1rem', border: '1px solid var(--color-border)', borderRadius: '10px', marginBottom: '1.25rem' }}>
+                <label style={{ fontWeight: 600, display: 'block', marginBottom: '0.75rem' }}>Code words</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
+                    <div>
+                        <label style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>Rate update</label>
+                        <input
+                            className="input"
+                            value={config.rateKeyword}
+                            onChange={e => setConfig({ ...config, rateKeyword: e.target.value.toUpperCase() })}
+                        />
+                    </div>
+                    <div>
+                        <label style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>Stock correction</label>
+                        <input
+                            className="input"
+                            value={config.stockKeyword}
+                            onChange={e => setConfig({ ...config, stockKeyword: e.target.value.toUpperCase() })}
+                        />
+                    </div>
+                    <div>
+                        <label style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>Purchase entry</label>
+                        <input
+                            className="input"
+                            value={config.purchaseKeyword}
+                            onChange={e => setConfig({ ...config, purchaseKeyword: e.target.value.toUpperCase() })}
+                        />
+                    </div>
+                </div>
+                <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: '0.6rem', marginBottom: 0 }}>
+                    Each message must start with the matching word (not case-sensitive) -- e.g. the default <code>RATE</code> means
+                    a message has to begin with <code>RATE</code> to be treated as a rate update.
+                </p>
+            </div>
+
             <div style={{ padding: '1rem', border: '1px solid var(--color-border)', borderRadius: '10px', background: '#f8fafc', fontSize: '0.85rem' }}>
-                <div style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Message format</div>
+                <div style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Message formats</div>
                 <div style={{ color: 'var(--color-text-muted)' }}>
-                    <div><code>&lt;thickness&gt;mm &lt;make&gt; &lt;type/color&gt; &lt;rate&gt;</code></div>
-                    <div style={{ marginTop: '0.4rem' }}>Examples:</div>
+                    <div style={{ fontWeight: 600, marginTop: '0.6rem' }}>{config.rateKeyword} -- reprice a whole product line</div>
+                    <div><code>{config.rateKeyword} &lt;thickness&gt;mm [make] &lt;type/colour&gt; &lt;rate&gt;</code> (glass) or <code>{config.rateKeyword} &lt;make&gt; &lt;item name&gt; &lt;rate&gt;</code> (hardware)</div>
                     <ul style={{ marginTop: '0.2rem', paddingLeft: '1.2rem' }}>
-                        <li><code>12mm Saint Gobain Clear 85</code></li>
-                        <li><code>Gold Plus 5mm Reflective Gold Rs 150 per sqft</code></li>
+                        <li><code>{config.rateKeyword} 12mm Saint Gobain Clear 85</code></li>
+                        <li><code>{config.rateKeyword} 5mm grey 150</code> -- no make named, applies to Gold Plus and Asahi</li>
+                        <li><code>{config.rateKeyword} 5mm ref grey 180</code> -- &quot;ref&quot;/&quot;r&quot; means Reflective; a bare colour with no marker means Tinted</li>
+                        <li><code>{config.rateKeyword} Ozone Top Patch Fitting 900</code></li>
                     </ul>
+
+                    <div style={{ fontWeight: 600, marginTop: '0.9rem' }}>{config.stockKeyword} -- correct a stock count</div>
+                    <div>Same as a rate message, but glass also needs the exact size (stock is tracked per size, not per whole line):</div>
+                    <ul style={{ marginTop: '0.2rem', paddingLeft: '1.2rem' }}>
+                        <li><code>{config.stockKeyword} 12mm Saint Gobain Clear 4x6ft 50</code></li>
+                        <li><code>{config.stockKeyword} Ozone Top Patch Fitting 40</code></li>
+                    </ul>
+
+                    <div style={{ fontWeight: 600, marginTop: '0.9rem' }}>{config.purchaseKeyword} -- record a purchase from a supplier</div>
+                    <div>First line is the supplier name; one item per line after that, each ending in <code>@&lt;purchase rate&gt;</code>:</div>
+                    <pre style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: '6px', padding: '0.6rem', marginTop: '0.3rem', whiteSpace: 'pre-wrap' }}>
+{`${config.purchaseKeyword} ABC Traders
+12mm Saint Gobain Clear 4x6ft - 50 sheets @800
+Ozone Top Patch Fitting - 20 @750`}
+                    </pre>
                     <div style={{ marginTop: '0.4rem' }}>
-                        If a make + thickness has more than one type/color in stock, the type/color word is required --
+                        An unrecognised supplier name is added automatically as a new supplier. This actually updates stock
+                        and cost accounting (unlike the stock command, which is a plain correction) -- use it for real
+                        deliveries received.
+                    </div>
+
+                    <div style={{ marginTop: '0.9rem' }}>
+                        If a make + thickness has more than one type/colour in stock, the type/colour word is required --
                         the shop gets a reply back listing the available options if it&apos;s missing or ambiguous.
                     </div>
                 </div>

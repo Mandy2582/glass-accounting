@@ -311,7 +311,10 @@ function extractThicknessMm(line: string): number | undefined {
     return match ? Number(match[1]) : undefined;
 }
 
-function extractDimensionPair(line: string): { a: number; b: number } | undefined {
+// Exported for reuse by catalogMatch.ts (stock/purchase WhatsApp messages
+// also need to narrow a make+thickness+descriptor group down to one exact
+// sheet size, same as here).
+export function extractDimensionPair(line: string): { a: number; b: number } | undefined {
     const match = line.match(/(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)/i);
     return match ? { a: Number(match[1]), b: Number(match[2]) } : undefined;
 }
@@ -320,7 +323,7 @@ function extractDimensionPair(line: string): { a: number; b: number } | undefine
 // always type it) matches this item's own stored sheet size (in inches),
 // in either width/height order. A small tolerance covers the 5'4" size,
 // which customers type as "5.4x8" (5.4 feet, not 5'4.8").
-function sizeMatchesItem(dims: { a: number; b: number } | undefined, item: GlassItem): boolean {
+export function sizeMatchesItem(dims: { a: number; b: number } | undefined, item: GlassItem): boolean {
     if (!dims || !item.width || !item.height) return false;
     const itemFeetA = item.width / 12;
     const itemFeetB = item.height / 12;
@@ -330,7 +333,10 @@ function sizeMatchesItem(dims: { a: number; b: number } | undefined, item: Glass
     return matchesInOrder || matchesSwapped;
 }
 
-function extractQuantity(line: string): number {
+// Exported for reuse by purchaseMessage.ts -- a purchase line ("... 4x6ft -
+// 50 sheets @800") needs the same quantity inference as a customer order
+// line.
+export function extractQuantity(line: string): number {
     // Prefer an explicit trailing quantity, e.g. "... - 10" or "... x 10" at
     // the end of the line -- the standard shorthand for "spec - count".
     const trailing = line.match(/[-x×]\s*(\d+(?:\.\d+)?)\s*(?:sheets?|pcs?|pieces?|nos|sets?|pair)?\s*$/i);
@@ -350,7 +356,8 @@ function extractQuantity(line: string): number {
     return candidate ?? 1;
 }
 
-function extractUnit(line: string, item?: GlassItem): Unit {
+// Exported for reuse by purchaseMessage.ts.
+export function extractUnit(line: string, item?: GlassItem): Unit {
     const lower = line.toLowerCase();
     if (/sq\.?\s*ft|sqft|square feet/.test(lower)) return 'sqft';
     if (/sq\.?\s*m|sqm|square metre|square meter/.test(lower)) return 'sqm';
@@ -387,7 +394,9 @@ function normalize(value: string): string {
 // explicitly, just never spell it out. "black" covers dark grey glass
 // commonly called "black" by customers even though there's no separate
 // black product -- the catalogue's own colour term is "grey".
-const CATALOGUE_SYNONYMS: Record<string, string> = {
+// Exported for reuse by catalogMatch.ts -- the rate/stock/purchase WhatsApp
+// commands are typed by the same staff using the same shorthand.
+export const CATALOGUE_SYNONYMS: Record<string, string> = {
     plain: 'clear',
     plane: 'clear',
     simple: 'clear',
@@ -410,9 +419,10 @@ function tokenize(value: string): string[] {
 
 // Colour words that appear across the Tinted/Reflective catalogue. Used
 // only to detect "the customer named a colour but no category" -- see
-// preferTinted in findCandidateItems below.
-const KNOWN_GLASS_COLOURS = ['grey', 'gray', 'bronze', 'brown', 'gold', 'golden', 'blue', 'green', 'silver', 'aqua', 'ocean', 'pearl', 'royal', 'white'];
-const GLASS_CATEGORY_TOKENS = ['reflective', 'tinted', 'mirror', 'toughened', 'clear', 'fluted', 'frosted'];
+// preferTinted in findCandidateItems below. Exported for reuse by
+// catalogMatch.ts (same shorthand applies to rate/stock/purchase messages).
+export const KNOWN_GLASS_COLOURS = ['grey', 'gray', 'bronze', 'brown', 'gold', 'golden', 'blue', 'green', 'silver', 'aqua', 'ocean', 'pearl', 'royal', 'white'];
+export const GLASS_CATEGORY_TOKENS = ['reflective', 'tinted', 'mirror', 'toughened', 'clear', 'fluted', 'frosted'];
 
 // Returns every catalogue item that plausibly matches the line, best score
 // first. When the line states an explicit size and at least one match at

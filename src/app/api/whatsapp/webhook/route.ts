@@ -16,9 +16,12 @@ import { approveAndInvoiceOrder } from '@/lib/orderQuotation';
 import { runAutoReview, sendOrderBookedConfirmation } from '@/lib/autoReview';
 import { sendWhatsAppText } from '@/lib/outboundMessaging';
 import { formatRateUpdateReply, parseAndApplyRateUpdate } from '@/lib/rateUpdateMessage';
+import { formatStockUpdateReply, parseAndApplyStockUpdate } from '@/lib/stockUpdateMessage';
+import { parsePurchaseMessage, type ParsedPurchaseLine } from '@/lib/purchaseMessage';
+import { calculateLineAmounts, defaultUnitsForItem } from '@/lib/units';
 import { upsertDesignItemsInOrder } from '@/lib/orderDesignItems';
 import { normalizeIntakeImage, type NormalizedIntakeImage } from '@/lib/intakeImage';
-import type { CustomDesign, Order, Party, PricingConfig } from '@/types';
+import type { CustomDesign, Invoice, InvoiceItem, Order, Party, PricingConfig } from '@/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -161,14 +164,17 @@ async function createOrderFromWhatsAppEvent(event: WhatsAppMessageEvent) {
 
     const body = event.message.text?.body?.trim() || event.message.image?.caption?.trim() || '';
 
-    // Rate-update numbers are staff/owner phones the shop explicitly
-    // authorized in Settings -- never a customer. Every text message from
-    // one is treated as a reprice attempt and never falls through to order
-    // processing, so a parse failure still needs its own clear reply rather
-    // than silently becoming (or being ignored as) a customer order.
+    // Catalogue-command numbers are staff/owner phones the shop explicitly
+    // authorized in Settings -- never a customer. A message from one that
+    // starts with the configured RATE/STOCK/PURCHASE keyword is treated as
+    // that command and never falls through to order processing, so a
+    // parse failure still needs its own clear reply rather than silently
+    // becoming (or being ignored as) a customer order. A message from an
+    // authorized number that matches none of the three keywords falls
+    // through normally (e.g. the owner placing an ordinary order).
     if (event.message.type === 'text' && body) {
-        const rateUpdateResult = await tryApplyRateUpdateMessage(event.message.from, body);
-        if (rateUpdateResult) return { messageId, ...rateUpdateResult };
+        const commandResult = await tryApplyCatalogueCommand(event.message.from, body);
+        if (commandResult) return { messageId, ...commandResult };
     }
 
     const duplicate = await findExistingWhatsAppOrder(messageId);
@@ -566,7 +572,12 @@ async function priceIntakeDesignOrder(order: Order, design: CustomDesign): Promi
 // only when this sender is an authorized rate-update number; returns null
 // for everyone else so their message proceeds through normal order
 // processing untouched.
-async function tryApplyRateUpdateMessage(fromPhone: string, body: string): Promise<{ status: string; reason?: string; itemsUpdated?: number } | null> {
+// Dispatches an authorized number's message to whichever of RATE/STOCK/
+// PURCHASE its first word (the configured keyword) selects. Returns null
+// (meaning "not a catalogue command, continue normal processing") when the
+// feature is off, the number isn't authorized, or the first word matches
+// none of the three keywords.
+async function tryApplyCatalogueCommand(fromPhone: string, body: string): Promise<{ status: string; reason?: string; itemsUpdated?: number } | null> {
     const config = await db.settings.getRateUpdateConfig();
     if (!config.enabled) return null;
 
@@ -574,11 +585,22 @@ async function tryApplyRateUpdateMessage(fromPhone: string, body: string): Promi
     const isAuthorized = config.authorizedPhones.some(phone => normalizePhone(phone) === normalizedFrom);
     if (!isAuthorized) return null;
 
+    const trimmed = body.trim();
+    const firstWord = trimmed.split(/\s+/)[0] || '';
+    const rest = trimmed.slice(firstWord.length).trim();
+
+    if (firstWord.toUpperCase() === config.rateKeyword.trim().toUpperCase()) return applyRateUpdate(fromPhone, rest);
+    if (firstWord.toUpperCase() === config.stockKeyword.trim().toUpperCase()) return applyStockUpdate(fromPhone, rest);
+    if (firstWord.toUpperCase() === config.purchaseKeyword.trim().toUpperCase()) return applyPurchaseEntry(fromPhone, rest);
+    return null;
+}
+
+async function applyRateUpdate(fromPhone: string, body: string): Promise<{ status: string; reason?: string; itemsUpdated?: number }> {
     try {
         const catalog = await db.items.getAll();
         const result = parseAndApplyRateUpdate(body, catalog);
         if (result.ok) {
-            await db.items.bulkUpdateRate(result.matched.map(item => item.id), result.rate, 'sqft');
+            await db.items.bulkUpdateRate(result.matched.map(item => item.id), result.rate, result.rateUnit);
         }
         await sendWhatsAppText(fromPhone, formatRateUpdateReply(result));
         return result.ok
@@ -590,6 +612,137 @@ async function tryApplyRateUpdateMessage(fromPhone: string, body: string): Promi
         await sendWhatsAppText(fromPhone, `Rate update failed: ${message}`).catch(() => {});
         return { status: 'rate_update_error', reason: message };
     }
+}
+
+async function applyStockUpdate(fromPhone: string, body: string): Promise<{ status: string; reason?: string }> {
+    try {
+        const catalog = await db.items.getAll();
+        const result = parseAndApplyStockUpdate(body, catalog);
+        if (result.ok) {
+            await db.items.bulkUpdateStock(result.item.id, result.stock);
+        }
+        await sendWhatsAppText(fromPhone, formatStockUpdateReply(result));
+        return result.ok ? { status: 'stock_update_applied' } : { status: 'stock_update_rejected', reason: result.reason };
+    } catch (error) {
+        console.error('[stock-update] failed:', error);
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        await sendWhatsAppText(fromPhone, `Stock update failed: ${message}`).catch(() => {});
+        return { status: 'stock_update_error', reason: message };
+    }
+}
+
+function isSuccessfulPurchaseLine(line: ParsedPurchaseLine): line is Extract<ParsedPurchaseLine, { ok: true }> {
+    return line.ok;
+}
+
+async function applyPurchaseEntry(fromPhone: string, body: string): Promise<{ status: string; reason?: string }> {
+    try {
+        const catalog = await db.items.getAll();
+        const parsed = parsePurchaseMessage(body, catalog);
+        if (!parsed.ok) {
+            await sendWhatsAppText(fromPhone, `Purchase not recorded.\n${parsed.reason}`);
+            return { status: 'purchase_rejected', reason: parsed.reason };
+        }
+
+        const failedLines = parsed.lines.filter(line => !line.ok);
+        if (failedLines.length > 0) {
+            const reasons = failedLines.map(line => `- "${line.raw}": ${!line.ok ? line.reason : ''}`).join('\n');
+            await sendWhatsAppText(fromPhone, `Purchase not recorded -- fix these lines and resend:\n${reasons}`);
+            return { status: 'purchase_rejected', reason: reasons };
+        }
+
+        const okLines = parsed.lines.filter(isSuccessfulPurchaseLine);
+
+        const parties = await db.parties.getAll();
+        const supplier = await getOrCreateSupplier(parsed.supplierName, parties);
+
+        const items: InvoiceItem[] = okLines.map(line => {
+            const { unit, rateUnit } = defaultUnitsForItem({ ...line.item, rateUnit: line.unit });
+            const calculated = calculateLineAmounts({
+                width: line.item.width,
+                height: line.item.height,
+                quantity: line.quantity,
+                unit,
+                rate: line.rate,
+                rateUnit,
+                taxRate: 18,
+                conversionFactor: line.item.conversionFactor,
+            });
+            return {
+                id: generateUUID(),
+                itemId: line.item.id,
+                itemName: line.item.name,
+                make: line.item.make,
+                model: line.item.model,
+                type: line.item.type,
+                warehouse: 'Warehouse A',
+                width: line.item.width || 0,
+                height: line.item.height || 0,
+                quantity: line.quantity,
+                unit,
+                sqft: calculated.sqft,
+                rate: line.rate,
+                rateUnit,
+                amount: calculated.amount,
+                lineTotal: calculated.lineTotal,
+                sourceType: 'text',
+            };
+        });
+
+        const subtotal = roundCurrency(items.reduce((sum, item) => sum + item.amount, 0));
+        const total = roundCurrency(items.reduce((sum, item) => sum + (item.lineTotal ?? item.amount), 0));
+        const taxAmount = roundCurrency(total - subtotal);
+
+        const invoice: Invoice = {
+            id: generateUUID(),
+            type: 'purchase',
+            number: `PUR-${Date.now().toString().slice(-6)}`,
+            date: new Date().toISOString().slice(0, 10),
+            partyId: supplier.id,
+            partyName: supplier.name,
+            items,
+            subtotal,
+            taxRate: 18,
+            taxAmount,
+            total,
+            status: 'unpaid',
+        };
+
+        await db.invoices.add(invoice);
+
+        const lineSummary = okLines.map(line => `- ${line.item.name}: ${line.quantity} ${line.unit} @${line.rate}`).join('\n');
+        await sendWhatsAppText(fromPhone, `Purchase recorded: ${invoice.number} from ${supplier.name}\n${lineSummary}\nTotal: Rs ${invoice.total}`);
+        return { status: 'purchase_recorded' };
+    } catch (error) {
+        console.error('[purchase-entry] failed:', error);
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        await sendWhatsAppText(fromPhone, `Purchase entry failed: ${message}`).catch(() => {});
+        return { status: 'purchase_entry_error', reason: message };
+    }
+}
+
+// Purchase-entry senders are authorized staff/owner numbers naming the
+// supplier in the text (same trust model as rate/stock updates) -- there's
+// no mechanism to recognize a supplier's own phone number. An unmatched
+// supplier name auto-creates a new supplier party, same as how a new
+// customer is created from an ordinary WhatsApp order (getOrCreateCustomer
+// below).
+async function getOrCreateSupplier(name: string, parties: Party[]): Promise<Party> {
+    const normalizeName = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    const normalized = normalizeName(name);
+    const existing = parties.find(party => party.type === 'supplier' && normalizeName(party.name) === normalized);
+    if (existing) return existing;
+
+    const newParty: Party = {
+        id: generateUUID(),
+        name: name.trim(),
+        type: 'supplier',
+        phone: '',
+        address: '',
+        balance: 0,
+    };
+    await db.parties.add(newParty);
+    return newParty;
 }
 
 async function findExistingWhatsAppOrder(messageId: string): Promise<Order | null> {

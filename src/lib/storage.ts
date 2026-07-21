@@ -338,6 +338,31 @@ export const db = {
                 .update({ rate, rate_unit: rateUnit })
                 .in('id', itemIds);
             handleSupabaseError(error);
+        },
+        // Sets the stock count for a single item directly -- used by the
+        // WhatsApp stock-correction message handler. This is a plain
+        // override (e.g. after a physical stock count), not a transaction:
+        // unlike a purchase, it deliberately does NOT touch stock_batches
+        // or purchase_rate/avg cost. Mirrors the warehouse_stock/stock
+        // update shape used by db.invoices.add's purchase path (recomputes
+        // total stock as the sum across warehouses) so both stay
+        // consistent with each other.
+        async bulkUpdateStock(itemId: string, stock: number, warehouse: string = 'Warehouse A'): Promise<void> {
+            const { data: existing, error: fetchError } = await supabase
+                .from('items')
+                .select('warehouse_stock')
+                .eq('id', itemId)
+                .single();
+            handleSupabaseError(fetchError);
+
+            const updatedWarehouseStock = { ...(existing?.warehouse_stock || {}), [warehouse]: stock };
+            const totalStock = Object.values(updatedWarehouseStock).reduce((sum: number, value) => sum + (Number(value) || 0), 0);
+
+            const { error } = await supabase
+                .from('items')
+                .update({ stock: totalStock, warehouse_stock: updatedWarehouseStock })
+                .eq('id', itemId);
+            handleSupabaseError(error);
         }
     },
     parties: {
@@ -1853,7 +1878,7 @@ export const db = {
         },
 
         getRateUpdateDefaults(): RateUpdateConfig {
-            return { enabled: false, authorizedPhones: [] };
+            return { enabled: false, authorizedPhones: [], rateKeyword: 'RATE', stockKeyword: 'STOCK', purchaseKeyword: 'PURCHASE' };
         },
 
         async getRateUpdateConfig(): Promise<RateUpdateConfig> {

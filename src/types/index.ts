@@ -415,13 +415,20 @@ export interface AutomationConfig {
     autoReviewRequireCleanDrawing: boolean;
 }
 
-// Lets specific staff/owner phone numbers update glass selling prices by
-// WhatsApp message (e.g. "12mm Saint Gobain Clear 85") instead of editing
-// inventory by hand every time rates change. Off by default, and only ever
-// acted on for numbers explicitly listed here -- never a customer number.
+// Lets specific staff/owner phone numbers manage the catalogue by WhatsApp
+// message instead of editing inventory by hand: reprice a product line
+// ("RATE 12mm Saint Gobain Clear 85"), correct a stock count ("STOCK 12mm
+// Saint Gobain Clear 4x6ft 50"), or record a purchase ("PURCHASE ABC
+// Traders\n12mm Saint Gobain Clear 4x6ft - 50 sheets @800"). Off by
+// default, and only ever acted on for numbers explicitly listed here --
+// never a customer number. One shared authorized-phone list covers all
+// three actions; the three keywords are how a message picks which one.
 export interface RateUpdateConfig {
     enabled: boolean;
     authorizedPhones: string[];
+    rateKeyword: string;
+    stockKeyword: string;
+    purchaseKeyword: string;
 }
 
 export interface BusinessConfig {
