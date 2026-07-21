@@ -732,8 +732,13 @@ export function buildDesignDataFromImageAnalysis(analysis: WhatsAppImageAnalysis
             // `any[]`) -- without them a reopened draft shows 0 holes/cuts
             // and quantity 1 regardless of what was actually extracted.
             netArea: area,
-            holes: (piece.holes || []).length,
-            cuts: (piece.cuts || []).length,
+            // Totals across this piece's quantity, matching what `area`
+            // already is (calculateDimensionAreaSqft multiplies by quantity)
+            // and what GlassDesigner stores for editor-built designs. Billing
+            // in orderDesignItems.ts relies on that convention holding for
+            // both producers.
+            holes: (piece.holes || []).length * quantity,
+            cuts: (piece.cuts || []).length * quantity,
             quantity,
         } as DesignItem;
     });

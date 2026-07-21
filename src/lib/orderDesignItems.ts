@@ -104,8 +104,14 @@ export const createOrderItemsFromDesign = (
 
     const rows: InvoiceItem[] = pieces.map((piece, index) => {
         const pieceCount = Math.max(1, Number(piece.quantity) || 1);
-        const areaPerPiece = roundCurrency(Number(piece.netArea ?? piece.area ?? 0) || 0);
-        const billableArea = roundCurrency(areaPerPiece * pieceCount);
+        // netArea/holes/cuts on a design piece are already totals across the
+        // piece's own quantity -- both producers multiply by it before
+        // storing (whatsappVision's calculateDimensionAreaSqft(w, h, qty),
+        // and GlassDesigner's `(grossSqIn / 144) * qty` with
+        // `holes: holeCount * qty`). Multiplying by pieceCount again here
+        // would square the quantity and overbill any piece with qty > 1.
+        const billableArea = roundCurrency(Number(piece.netArea ?? piece.area ?? 0) || 0);
+        const areaPerPiece = roundCurrency(billableArea / pieceCount);
         const thicknessRate = getPieceThicknessRate(piece, pricingConfig);
         const amount = roundCurrency(billableArea * thicknessRate);
         const lineTotal = roundCurrency(amount * taxMultiplier);
@@ -143,7 +149,9 @@ export const createOrderItemsFromDesign = (
     });
 
     pieces.forEach((piece, index) => {
-        const pieceCount = Math.max(1, Number(piece.quantity) || 1);
+        // As above: piece.holes/piece.cuts already count every hole across
+        // the piece's quantity, so these charges must not scale by
+        // pieceCount again.
         const pieceName = piece.name || `${design.name} - Piece ${index + 1}`;
         const holes = Number(piece.holes) || 0;
         const cuts = Number(piece.cuts) || 0;
@@ -152,7 +160,7 @@ export const createOrderItemsFromDesign = (
         const pieceId = piece.id || `${design.id}-piece-${index + 1}`;
 
         if (holes > 0 && holeCharge > 0) {
-            const quantity = holes * pieceCount;
+            const quantity = holes;
             const amount = roundCurrency(quantity * holeCharge);
             const lineTotal = roundCurrency(amount * taxMultiplier);
             inclusiveTotals.push(lineTotal);
@@ -178,7 +186,7 @@ export const createOrderItemsFromDesign = (
         }
 
         if (cuts > 0 && cutCharge > 0) {
-            const quantity = cuts * pieceCount;
+            const quantity = cuts;
             const amount = roundCurrency(quantity * cutCharge);
             const lineTotal = roundCurrency(amount * taxMultiplier);
             inclusiveTotals.push(lineTotal);
