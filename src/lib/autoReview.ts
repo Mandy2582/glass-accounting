@@ -1,6 +1,7 @@
 import { db, designsDb } from '@/lib/storage';
 import { getOrderSource, withApprovalCleared } from '@/lib/orderNotes';
-import { sendPlainEmail, sendWhatsAppText } from '@/lib/outboundMessaging';
+import { sendPlainEmail, sendWhatsAppDocument, sendWhatsAppText } from '@/lib/outboundMessaging';
+import { buildQuotationPdfBase64 } from '@/lib/serverQuotationPdf';
 import type { AutomationConfig, CustomDesign, Order, Party } from '@/types';
 
 // Automatic review: quote an incoming WhatsApp/email order without waiting
@@ -107,10 +108,30 @@ export function buildOrderConfirmationMessage(order: Order, businessName: string
     ].filter(Boolean).join('\n');
 }
 
-async function sendThroughOrderChannel(order: Order, party: Party | undefined, subject: string, body: string) {
+async function sendThroughOrderChannel(
+    order: Order,
+    party: Party | undefined,
+    subject: string,
+    body: string,
+    pdf?: { base64: string; filename: string }
+) {
     const source = getOrderSource(order.notes);
     if (source === 'email') {
-        return sendPlainEmail((party?.email || '').trim(), subject, body);
+        return sendPlainEmail(
+            (party?.email || '').trim(),
+            subject,
+            body,
+            pdf ? { filename: pdf.filename, base64: pdf.base64 } : undefined
+        );
+    }
+    if (pdf) {
+        const sent = await sendWhatsAppDocument(party?.phone || '', pdf.base64, pdf.filename, body);
+        // The document upload can fail for reasons the text send won't hit
+        // (media store rejection, size limits). The customer still needs the
+        // numbers, so fall back to the plain itemised text rather than
+        // silently sending nothing.
+        if (sent.ok) return sent;
+        console.error(`[auto-review] PDF send failed (${sent.reason}); falling back to text quotation.`);
     }
     return sendWhatsAppText(party?.phone || '', body);
 }
@@ -134,14 +155,24 @@ export async function runAutoReview(order: Order): Promise<AutoReviewDecision> {
             return decision;
         }
 
-        const [parties, businessConfig] = await Promise.all([
+        const [parties, businessConfig, pricing] = await Promise.all([
             db.parties.getAll(),
             db.businessConfig.get(),
+            db.settings.getPricing().catch(() => null),
         ]);
         const party = parties.find(p => p.id === order.partyId);
         const body = buildQuotationMessage(order, businessConfig.businessName);
 
-        const sent = await sendThroughOrderChannel(order, party, `Estimate - Order ${order.number}`, body);
+        // Attach the same quotation as a PDF. If it can't be built for any
+        // reason the itemised text still goes out on its own.
+        let pdf: { base64: string; filename: string } | undefined;
+        try {
+            pdf = { base64: buildQuotationPdfBase64(order, businessConfig, pricing?.termsAndConditions), filename: `quotation_${order.number}.pdf` };
+        } catch (error) {
+            console.error('[auto-review] quotation PDF build failed, sending text only:', error);
+        }
+
+        const sent = await sendThroughOrderChannel(order, party, `Estimate - Order ${order.number}`, body, pdf);
         if (!sent.ok) {
             console.error(`[auto-review] ${order.number} quotation send failed: ${sent.reason}`);
             return { eligible: false, reason: sent.reason };
