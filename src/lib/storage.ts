@@ -2063,7 +2063,9 @@ export const designsDb = {
             createdDate: d.created_date,
             approvedDate: d.approved_date,
             notes: d.notes,
-            orderId: d.order_id
+            orderId: d.order_id,
+            sourceImageBase64: d.source_image_base64 || undefined,
+            sourceImageMimeType: d.source_image_mime_type || undefined
         }));
     },
 
@@ -2101,7 +2103,9 @@ export const designsDb = {
             createdDate: data.created_date,
             approvedDate: data.approved_date,
             notes: data.notes,
-            orderId: data.order_id
+            orderId: data.order_id,
+            sourceImageBase64: data.source_image_base64 || undefined,
+            sourceImageMimeType: data.source_image_mime_type || undefined
         };
     },
 
@@ -2127,7 +2131,9 @@ export const designsDb = {
                 created_date: design.createdDate,
                 approved_date: design.approvedDate,
                 notes: design.notes,
-                order_id: design.orderId
+                order_id: design.orderId,
+                source_image_base64: design.sourceImageBase64,
+                source_image_mime_type: design.sourceImageMimeType
             });
 
             if (error) {

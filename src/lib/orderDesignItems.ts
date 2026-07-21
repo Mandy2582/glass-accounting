@@ -39,24 +39,42 @@ type HardwareRowInput = {
     requirementLabel: string;
 };
 
-const getPieceInclusiveTotal = (piece: DesignPiece, pricingConfig: PricingConfig): number => {
-    const area = Number(piece.netArea ?? piece.area ?? 0) || 0;
+const getPieceThicknessRate = (piece: DesignPiece, pricingConfig: PricingConfig): number => {
     const thickness = Number(piece.thickness) || 6;
-    const thicknessRate = pricingConfig.thicknessPricing?.find(item => Number(item.thickness) === thickness)?.ratePerSqft
-        ?? pricingConfig.baseRatePerSqft
-        ?? 0;
-    const glassAmount = area * (Number(thicknessRate) || 0);
-    const holeAmount = (Number(piece.holes) || 0) * (pricingConfig.holeCharge || 0);
-    const cutAmount = (Number(piece.cuts) || 0) * (pricingConfig.cutCharge || 0);
-    return roundCurrency(glassAmount + holeAmount + cutAmount);
+    const exactMatch = pricingConfig.thicknessPricing?.find(item => Number(item.thickness) === thickness);
+    return roundCurrency(Number(exactMatch?.ratePerSqft ?? pricingConfig.baseRatePerSqft ?? 0) || 0);
 };
 
-const getBillingQuantity = (item: InvoiceItem): number => calculateLineMeasurement({
-    width: item.width,
-    height: item.height,
-    quantity: item.quantity,
-    unit: item.unit,
-}).billingQuantity || Number(item.sqft) || Number(item.quantity) || 0;
+const isDesignOrderItem = (item: InvoiceItem): boolean => (
+    item.sourceType === 'design' || !!item.designId || !!item.designPieceId
+);
+
+export const normalizeDesignItemBillingFields = (item: InvoiceItem): InvoiceItem => {
+    if (!isDesignOrderItem(item)) return item;
+
+    const sqft = roundCurrency(Number(item.sqft) || 0);
+    const quantity = roundCurrency(Number(item.quantity) || 0);
+    const billableArea = item.unit === 'sqft' && sqft > 0 ? sqft : quantity;
+
+    return {
+        ...item,
+        quantity: billableArea,
+        unit: item.unit || 'sqft',
+        sqft: item.unit === 'sqft' ? billableArea : sqft,
+        rateUnit: item.rateUnit || item.unit || 'sqft',
+        sourceType: 'design'
+    };
+};
+
+const getBillingQuantity = (item: InvoiceItem): number => {
+    const normalized = normalizeDesignItemBillingFields(item);
+    return calculateLineMeasurement({
+        width: normalized.width,
+        height: normalized.height,
+        quantity: normalized.quantity,
+        unit: normalized.unit,
+    }).billingQuantity || Number(normalized.sqft) || Number(normalized.quantity) || 0;
+};
 
 const getFallbackPieces = (design: CustomDesign): DesignPiece[] => {
     const pieces = design.drawingData?.items;
@@ -85,20 +103,23 @@ export const createOrderItemsFromDesign = (
     const inclusiveTotals: number[] = [];
 
     const rows: InvoiceItem[] = pieces.map((piece, index) => {
-        const inclusiveTotal = getPieceInclusiveTotal(piece, pricingConfig);
-        inclusiveTotals.push(inclusiveTotal);
-        const area = roundCurrency(Number(piece.netArea ?? piece.area ?? 0) || 0);
-        const quantity = Math.max(1, Number(piece.quantity) || 1);
-        const rate = area > 0 ? roundCurrency(inclusiveTotal / area) : inclusiveTotal;
-        const amount = inclusiveTotal / taxMultiplier;
+        const pieceCount = Math.max(1, Number(piece.quantity) || 1);
+        const areaPerPiece = roundCurrency(Number(piece.netArea ?? piece.area ?? 0) || 0);
+        const billableArea = roundCurrency(areaPerPiece * pieceCount);
+        const thicknessRate = getPieceThicknessRate(piece, pricingConfig);
+        const amount = roundCurrency(billableArea * thicknessRate);
+        const lineTotal = roundCurrency(amount * taxMultiplier);
+        inclusiveTotals.push(lineTotal);
         const pieceType = piece.type || 'Custom Glass';
         const thicknessText = piece.thickness ? `${piece.thickness}mm` : 'custom thickness';
         const featureText = [
-            `${quantity} ${quantity === 1 ? 'piece' : 'pieces'}`,
-            `${area.toFixed(2)} sqft`,
+            `${pieceCount} ${pieceCount === 1 ? 'piece' : 'pieces'}`,
+            pieceCount > 1 ? `${areaPerPiece.toFixed(2)} sqft each` : `${areaPerPiece.toFixed(2)} sqft`,
+            pieceCount > 1 ? `${billableArea.toFixed(2)} sqft total` : '',
             `${Number(piece.holes) || 0} holes`,
-            `${Number(piece.cuts) || 0} cuts`
-        ].join(', ');
+            `${Number(piece.cuts) || 0} cuts`,
+            `glass @ ₹${thicknessRate.toFixed(2)}/sqft`
+        ].filter(Boolean).join(', ');
 
         return {
             id: crypto.randomUUID(),
@@ -108,16 +129,79 @@ export const createOrderItemsFromDesign = (
             type: pieceType,
             width: Number(piece.width) || 0,
             height: Number(piece.height) || 0,
-            quantity,
+            quantity: billableArea,
             unit: 'sqft' as const,
-            sqft: area,
-            rate,
+            sqft: billableArea,
+            rate: thicknessRate,
+            rateUnit: 'sqft' as const,
             amount,
-            lineTotal: inclusiveTotal,
+            lineTotal,
             sourceType: 'design' as const,
             designId: design.id,
             designPieceId: piece.id || `${design.id}-piece-${index + 1}`
         };
+    });
+
+    pieces.forEach((piece, index) => {
+        const pieceCount = Math.max(1, Number(piece.quantity) || 1);
+        const pieceName = piece.name || `${design.name} - Piece ${index + 1}`;
+        const holes = Number(piece.holes) || 0;
+        const cuts = Number(piece.cuts) || 0;
+        const holeCharge = Number(pricingConfig.holeCharge) || 0;
+        const cutCharge = Number(pricingConfig.cutCharge) || 0;
+        const pieceId = piece.id || `${design.id}-piece-${index + 1}`;
+
+        if (holes > 0 && holeCharge > 0) {
+            const quantity = holes * pieceCount;
+            const amount = roundCurrency(quantity * holeCharge);
+            const lineTotal = roundCurrency(amount * taxMultiplier);
+            inclusiveTotals.push(lineTotal);
+            rows.push({
+                id: crypto.randomUUID(),
+                itemId: '',
+                itemName: `${pieceName} - Hole Charges`,
+                description: `${quantity} design holes @ ₹${holeCharge.toFixed(2)} each`,
+                type: 'Design Charge',
+                width: 0,
+                height: 0,
+                quantity,
+                unit: 'nos',
+                sqft: 0,
+                rate: roundCurrency(holeCharge),
+                rateUnit: 'nos',
+                amount,
+                lineTotal,
+                sourceType: 'design',
+                designId: design.id,
+                designPieceId: `${pieceId}-holes`
+            });
+        }
+
+        if (cuts > 0 && cutCharge > 0) {
+            const quantity = cuts * pieceCount;
+            const amount = roundCurrency(quantity * cutCharge);
+            const lineTotal = roundCurrency(amount * taxMultiplier);
+            inclusiveTotals.push(lineTotal);
+            rows.push({
+                id: crypto.randomUUID(),
+                itemId: '',
+                itemName: `${pieceName} - Cut Charges`,
+                description: `${quantity} design cuts @ ₹${cutCharge.toFixed(2)} each`,
+                type: 'Design Charge',
+                width: 0,
+                height: 0,
+                quantity,
+                unit: 'nos',
+                sqft: 0,
+                rate: roundCurrency(cutCharge),
+                rateUnit: 'nos',
+                amount,
+                lineTotal,
+                sourceType: 'design',
+                designId: design.id,
+                designPieceId: `${pieceId}-cuts`
+            });
+        }
     });
 
     const hardwareMap = new Map<string, HardwareRowInput>();
@@ -158,7 +242,8 @@ export const createOrderItemsFromDesign = (
     });
 
     hardwareMap.forEach(hardware => {
-        const lineTotal = roundCurrency(hardware.rate * hardware.quantity);
+        const amount = roundCurrency(hardware.rate * hardware.quantity);
+        const lineTotal = roundCurrency(amount * taxMultiplier);
         inclusiveTotals.push(lineTotal);
         rows.push({
             id: crypto.randomUUID(),
@@ -172,7 +257,8 @@ export const createOrderItemsFromDesign = (
             unit: 'nos',
             sqft: 0,
             rate: hardware.rate,
-            amount: lineTotal / taxMultiplier,
+            rateUnit: 'nos',
+            amount,
             lineTotal,
             sourceType: 'design',
             designId: design.id,

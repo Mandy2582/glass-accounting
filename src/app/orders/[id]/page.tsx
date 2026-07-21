@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Package, Truck, CheckCircle, Plus, IndianRupee, CreditCard, PenTool, Route, Wrench, Mail } from 'lucide-react';
 import { db, designsDb } from '@/lib/storage';
+import DesignPreview from '@/components/DesignPreview';
 import { Order, Party, InvoiceItem, OrderDelivery, BankAccount, CustomDesign, Employee } from '@/types';
 import Link from 'next/link';
 import { formatInchesToFraction, roundCurrency } from '@/lib/utils';
@@ -1311,6 +1312,66 @@ export default function OrderDetailPage() {
                     </div>
                 </div>
             </div>
+
+            {/* Drawing review, kept directly under the header: an intake order
+                is approved or rejected on the strength of its drawing, so the
+                original photo and what we extracted from it belong at the top
+                of this page rather than several screens down past the items
+                table -- previously the only way to see the drawing at all was
+                to open the full editor and navigate back. */}
+            {linkedDesigns.filter(design => design.sourceImageBase64 || (design.drawingData?.pieces?.length ?? 0) > 0).map(design => {
+                const pieces = design.drawingData?.pieces || [];
+                const flaggedCount = pieces.reduce((sum: number, piece: any) => sum + (piece.shapes || []).filter((shape: any) => shape.positionSource === 'estimated-fallback').length, 0);
+                return (
+                    <div key={design.id} className="card" style={{ marginBottom: '1.5rem', padding: '1.25rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+                            <div>
+                                <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 600 }}>Drawing Review -- {design.name}</h3>
+                                <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
+                                    {design.totalArea?.toFixed(2)} sqft • {design.holes} holes • {design.cuts} cuts
+                                    {flaggedCount > 0 && (
+                                        <span style={{ color: '#b45309', fontWeight: 600 }}>
+                                            {' '}• {flaggedCount} position{flaggedCount === 1 ? '' : 's'} need checking
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                            <Link href={`/orders/${order.id}/designs/${design.id}`} className="btn btn-primary" style={{ fontSize: '0.875rem', padding: '0.5rem 1rem' }}>
+                                Open in Editor
+                            </Link>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+                            <div>
+                                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '0.4rem' }}>Original Photo</div>
+                                {design.sourceImageBase64 ? (
+                                    <a href={`data:${design.sourceImageMimeType || 'image/jpeg'};base64,${design.sourceImageBase64}`} target="_blank" rel="noopener noreferrer">
+                                        <img
+                                            src={`data:${design.sourceImageMimeType || 'image/jpeg'};base64,${design.sourceImageBase64}`}
+                                            alt="Original drawing sent by the customer"
+                                            style={{ width: '100%', height: '260px', objectFit: 'contain', background: 'var(--color-bg)', borderRadius: '8px', border: '1px solid var(--color-border)' }}
+                                        />
+                                    </a>
+                                ) : (
+                                    <div style={{ height: '260px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-muted)', fontSize: '0.875rem', background: 'var(--color-bg)', borderRadius: '8px', border: '1px solid var(--color-border)', textAlign: 'center', padding: '1rem' }}>
+                                        Original photo not stored for this order.
+                                    </div>
+                                )}
+                            </div>
+                            <div>
+                                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '0.4rem' }}>Extracted Drawing</div>
+                                <div style={{ background: 'var(--color-bg)', borderRadius: '8px', border: '1px solid var(--color-border)', padding: '0.5rem' }}>
+                                    <DesignPreview pieces={pieces} height={244} />
+                                </div>
+                            </div>
+                        </div>
+                        {flaggedCount > 0 && (
+                            <div style={{ marginTop: '0.75rem', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                                Amber shapes are holes/cuts whose exact position could not be read from the photo -- open the editor to place them before production.
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
 
             {needsApproval(order.notes) && (
                 <div className="card" style={{ marginBottom: '1.5rem', padding: '1.25rem', border: '1px solid #f59e0b', background: 'rgba(254, 243, 199, 0.5)' }}>

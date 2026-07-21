@@ -14,6 +14,7 @@ import { isAffirmativeReply, resolveImageOrderIntent, resolveOrderIntent } from 
 import { findPendingConfirmationOrder, withNeedsApproval, withOrderSource } from '@/lib/orderNotes';
 import { approveAndInvoiceOrder } from '@/lib/orderQuotation';
 import { upsertDesignItemsInOrder } from '@/lib/orderDesignItems';
+import { normalizeIntakeImage, type NormalizedIntakeImage } from '@/lib/intakeImage';
 import type { CustomDesign, Order, Party, PricingConfig } from '@/types';
 
 export const runtime = 'nodejs';
@@ -162,8 +163,14 @@ async function createDraftFromEmailImage(
     image: IncomingEmailAttachment,
     caption: string
 ) {
+    // Bake EXIF orientation into the pixels first -- see intakeImage.ts for
+    // why a sideways photo silently ruins every edge-relative hole position.
+    const normalized = await normalizeIntakeImage(image.base64, image.mimeType);
+    if (normalized.wasRotated) {
+        console.log(`[email-intake] Corrected EXIF orientation on drawing photo from ${email.fromAddress}`);
+    }
     const analysis = await analyzeWhatsAppImage({
-        imageDataUrl: `data:${image.mimeType};base64,${image.base64}`,
+        imageDataUrl: normalized.vision.dataUrl,
         caption,
         fromPhone: email.fromAddress,
     });
@@ -224,7 +231,7 @@ async function createDraftFromEmailImage(
     const parties = await db.parties.getAll();
     const customer = await getOrCreateCustomer(email, parties);
     const order = await createReviewOrderForEmailImage(email, customer, analysis, caption);
-    const design = await createDesignDraftForEmailImage(order, customer, analysis, email.messageId, caption);
+    const design = await createDesignDraftForEmailImage(order, customer, analysis, email.messageId, caption, normalized.stored);
     await priceIntakeDesignOrder(order, design);
 
     return {
@@ -375,7 +382,8 @@ async function createDesignDraftForEmailImage(
     customer: Party,
     analysis: WhatsAppImageAnalysis,
     messageId: string,
-    caption: string
+    caption: string,
+    sourceImage?: NormalizedIntakeImage
 ): Promise<CustomDesign> {
     const designData = buildDesignDataFromImageAnalysis(analysis);
     const design: CustomDesign = {
@@ -403,6 +411,11 @@ async function createDesignDraftForEmailImage(
             'Review dimensions and redraw/adjust on canvas before approval.',
         ].filter(Boolean).join('\n'),
         orderId: order.id,
+        // Kept so the order review page can show the customer's original
+        // drawing beside the extracted version. Purged after 90 days by the
+        // nightly maintenance job.
+        sourceImageBase64: sourceImage?.base64,
+        sourceImageMimeType: sourceImage?.mimeType,
     };
 
     await designsDb.add(design);

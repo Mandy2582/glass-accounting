@@ -357,6 +357,12 @@ export interface CustomDesign {
 
     // Link to order if converted
     orderId?: string;
+
+    // The customer's original intake photo (EXIF-normalized and downscaled),
+    // kept so the order review page can show it beside the extracted drawing.
+    // Purged after 90 days by the nightly maintenance job.
+    sourceImageBase64?: string;
+    sourceImageMimeType?: string;
 }
 
 // Thickness-based pricing

@@ -358,8 +358,10 @@ export default function NestedDesignDetailPage() {
         <div className="container">
             <div style={{ marginBottom: '2rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>
-                    <Link href={`/orders/${orderId}`} style={{ color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center' }}>
-                        <ArrowLeft size={20} />
+                    {/* Labelled rather than a bare icon -- staff were using
+                        browser back (several steps) to return to the order. */}
+                    <Link href={`/orders/${orderId}`} className="btn" style={{ color: 'var(--color-text-muted)', display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.875rem', padding: '0.4rem 0.8rem', border: '1px solid var(--color-border)', background: 'var(--color-bg)' }}>
+                        <ArrowLeft size={18} /> Back to Order
                     </Link>
                     <h1 style={{ fontSize: '2rem', fontWeight: 700 }}>Edit Design</h1>
                 </div>

@@ -1,8 +1,9 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { AppNotification } from '@/types';
 import { evaluateNotifications } from '@/lib/notificationEngine';
+import { supabase } from '@/lib/supabase';
 
 interface NotificationContextType {
     notifications: AppNotification[];
@@ -46,54 +47,75 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     const [notifications, setNotifications] = useState<AppNotification[]>([]);
     const [toasts, setToasts] = useState<AppNotification[]>([]);
     const [readIds, setReadIds] = useState<string[]>(() => loadReadIds());
+    const refreshInFlightRef = useRef(false);
+    const pendingRefreshRef = useRef(false);
 
     const removeToast = useCallback((id: string) => {
         setToasts(prev => prev.filter(t => t.id !== id));
     }, []);
 
     const refreshNotifications = useCallback(async () => {
-        const rawAlerts = await evaluateNotifications();
-
-        // Reload from storage to stay in sync across tabs/sessions.
-        const currentReadIds = loadReadIds();
-
-        // A dismissed notification is hidden from the panel entirely rather
-        // than left behind grayed-out -- except order_approval alerts, which
-        // always show while the order is still pending a decision (see
-        // isDismissible above).
-        const processed = rawAlerts.filter(alert => !isDismissible(alert.type) || !currentReadIds.includes(alert.id));
-
-        // Determine new alerts that should trigger toast notifications
-        // We only toast alerts that are warnings or errors and haven't been shown in the current session
-        const prevSessionToasts = sessionStorage.getItem('agh_shown_toasts');
-        let shownToasts: string[] = [];
-        if (prevSessionToasts) {
-            try {
-                shownToasts = JSON.parse(prevSessionToasts);
-            } catch {}
+        if (refreshInFlightRef.current) {
+            pendingRefreshRef.current = true;
+            return;
         }
 
-        const newToasts: AppNotification[] = [];
-        processed.forEach(alert => {
-            if (!shownToasts.includes(alert.id) && (alert.severity === 'error' || alert.severity === 'warning')) {
-                if (newToasts.length < 3) newToasts.push(alert);
-                shownToasts.push(alert.id);
+        refreshInFlightRef.current = true;
+
+        try {
+            const rawAlerts = await evaluateNotifications();
+
+            // Reload from storage to stay in sync across tabs/sessions.
+            const currentReadIds = loadReadIds();
+
+            // A dismissed notification is hidden from the panel entirely rather
+            // than left behind grayed-out -- except order_approval alerts, which
+            // always show while the order is still pending a decision (see
+            // isDismissible above).
+            const processed = rawAlerts.filter(alert => !isDismissible(alert.type) || !currentReadIds.includes(alert.id));
+
+            // Determine new alerts that should trigger toast notifications
+            // We only toast alerts that are warnings or errors and haven't been shown in the current session
+            const prevSessionToasts = sessionStorage.getItem('agh_shown_toasts');
+            let shownToasts: string[] = [];
+            if (prevSessionToasts) {
+                try {
+                    shownToasts = JSON.parse(prevSessionToasts);
+                } catch {}
             }
-        });
 
-        if (newToasts.length > 0) {
-            sessionStorage.setItem('agh_shown_toasts', JSON.stringify(shownToasts));
-            setToasts(prev => [...prev, ...newToasts]);
-            
-            // Automatically clear toasts after 10 seconds
-            newToasts.forEach(t => {
-                setTimeout(() => {
-                    removeToast(t.id);
-                }, 10000);
+            const newToasts: AppNotification[] = [];
+            processed.forEach(alert => {
+                if (!shownToasts.includes(alert.id) && (alert.severity === 'error' || alert.severity === 'warning')) {
+                    if (newToasts.length < 3) newToasts.push(alert);
+                    shownToasts.push(alert.id);
+                }
             });
-        }
 
-        setNotifications(processed);
+            if (newToasts.length > 0) {
+                sessionStorage.setItem('agh_shown_toasts', JSON.stringify(shownToasts));
+                setToasts(prev => [...prev, ...newToasts]);
+                
+                // Automatically clear toasts after 10 seconds
+                newToasts.forEach(t => {
+                    setTimeout(() => {
+                        removeToast(t.id);
+                    }, 10000);
+                });
+            }
+
+            setNotifications(processed);
+        } catch (error) {
+            console.error('Failed to refresh notifications:', error);
+        } finally {
+            refreshInFlightRef.current = false;
+            if (pendingRefreshRef.current) {
+                pendingRefreshRef.current = false;
+                window.setTimeout(() => {
+                    void refreshNotifications();
+                }, 0);
+            }
+        }
     }, [removeToast]);
 
     useEffect(() => {
@@ -102,16 +124,38 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             void refreshNotifications();
         });
 
-        // Check every 60 seconds
-        const interval = setInterval(refreshNotifications, 60000);
+        // Check frequently enough for server-created WhatsApp/email orders to
+        // appear without a manual refresh. Realtime below is faster when
+        // enabled; this is the dependable fallback.
+        const interval = setInterval(refreshNotifications, 15000);
         const refreshFromEvent = () => {
             void refreshNotifications();
         };
+        const refreshOnVisible = () => {
+            if (!document.hidden) void refreshNotifications();
+        };
+
         window.addEventListener('agh_notifications_refresh', refreshFromEvent);
+        window.addEventListener('focus', refreshFromEvent);
+        document.addEventListener('visibilitychange', refreshOnVisible);
+
+        const ordersChannel = supabase
+            .channel('agh-notifications-orders')
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'orders' },
+                () => {
+                    void refreshNotifications();
+                },
+            )
+            .subscribe();
 
         return () => {
             clearInterval(interval);
             window.removeEventListener('agh_notifications_refresh', refreshFromEvent);
+            window.removeEventListener('focus', refreshFromEvent);
+            document.removeEventListener('visibilitychange', refreshOnVisible);
+            void supabase.removeChannel(ordersChannel);
         };
     }, [refreshNotifications]);
 

@@ -13,6 +13,7 @@ import ItemModal from '@/components/inventory/ItemModal';
 import { generateUUID, roundCurrency } from '@/lib/utils';
 import { calculateLineAmounts, convertRateForItemUnit, defaultUnitsForItem, UNIT_OPTIONS_BY_GROUP } from '@/lib/units';
 import { splitInternalNotes } from '@/lib/orderNotes';
+import { normalizeDesignItemBillingFields } from '@/lib/orderDesignItems';
 
 export default function EditOrderPage() {
     const router = useRouter();
@@ -46,19 +47,20 @@ export default function EditOrderPage() {
 
     useEffect(() => {
         setOrderItems(prev => prev.map(item => {
-            const catalogItem = items.find(i => i.id === item.itemId);
+            const normalized = normalizeDesignItemBillingFields(item);
+            const catalogItem = items.find(i => i.id === normalized.itemId);
             const calculated = calculateLineAmounts({
-                width: item.width,
-                height: item.height,
-                quantity: item.quantity,
-                unit: item.unit,
-                rate: item.rate,
-                rateUnit: item.rateUnit,
+                width: normalized.width,
+                height: normalized.height,
+                quantity: normalized.quantity,
+                unit: normalized.unit,
+                rate: normalized.rate,
+                rateUnit: normalized.rateUnit,
                 taxRate: formData.taxRate,
                 conversionFactor: catalogItem?.conversionFactor,
             });
             return {
-                ...item,
+                ...normalized,
                 sqft: calculated.sqft,
                 amount: calculated.amount,
                 lineTotal: calculated.lineTotal
@@ -106,11 +108,15 @@ export default function EditOrderPage() {
             setPreservedMarkers(otherMarkers);
 
             // Map order items to editable structure, preserving empty string values if they were deleted/cleared
-            setOrderItems(currentOrder.items.map(item => ({
+            setOrderItems(currentOrder.items.map(item => normalizeDesignItemBillingFields({
                 id: item.id || crypto.randomUUID(),
                 itemId: item.itemId || '',
                 itemName: item.itemName || '',
                 description: item.description || '',
+                make: item.make,
+                model: item.model,
+                type: item.type,
+                warehouse: item.warehouse,
                 width: item.width || 0,
                 height: item.height || 0,
                 quantity: item.quantity,
@@ -119,7 +125,10 @@ export default function EditOrderPage() {
                 rate: item.rate,
                 rateUnit: item.rateUnit || item.unit || 'sqft',
                 amount: item.amount,
-                lineTotal: item.lineTotal
+                lineTotal: item.lineTotal,
+                sourceType: item.sourceType,
+                designId: item.designId,
+                designPieceId: item.designPieceId
             })));
         } catch (error) {
             console.error('Error loading order data:', error);
@@ -277,16 +286,22 @@ export default function EditOrderPage() {
             const rate = rawRate === '' ? 0 : Number(rawRate);
 
             const catalogItem = items.find(i => i.id === item.itemId);
+            const normalized = normalizeDesignItemBillingFields(item);
             const calculated = calculateLineAmounts({
-                width,
-                height,
-                quantity: qty,
-                unit,
+                width: normalized.sourceType === 'design' ? normalized.width : width,
+                height: normalized.sourceType === 'design' ? normalized.height : height,
+                quantity: normalized.sourceType === 'design' && field !== 'quantity' ? normalized.quantity : qty,
+                unit: normalized.sourceType === 'design' && field !== 'unit' ? normalized.unit : unit,
                 rate,
                 rateUnit,
                 taxRate: formData.taxRate,
                 conversionFactor: (catalogItem as any)?.conversionFactor,
             });
+            if (normalized.sourceType === 'design') {
+                item.quantity = field === 'quantity' ? qty : normalized.quantity;
+                item.unit = field === 'unit' ? unit : normalized.unit;
+                item.rateUnit = rateUnit;
+            }
             item.sqft = calculated.sqft;
             item.amount = calculated.amount;
             item.lineTotal = calculated.lineTotal;
@@ -300,14 +315,15 @@ export default function EditOrderPage() {
         const subtotal = roundCurrency(orderItems.reduce((sum, item) => sum + (Number(item.amount) || 0), 0));
         const total = roundCurrency(orderItems.reduce((sum, item) => {
             if (item.lineTotal !== undefined) return sum + (Number(item.lineTotal) || 0);
-            const catalogItem = items.find(i => i.id === item.itemId);
+            const normalized = normalizeDesignItemBillingFields(item);
+            const catalogItem = items.find(i => i.id === normalized.itemId);
             const calculated = calculateLineAmounts({
-                width: item.width,
-                height: item.height,
-                quantity: item.quantity,
-                unit: item.unit,
-                rate: item.rate,
-                rateUnit: item.rateUnit,
+                width: normalized.width,
+                height: normalized.height,
+                quantity: normalized.quantity,
+                unit: normalized.unit,
+                rate: normalized.rate,
+                rateUnit: normalized.rateUnit,
                 taxRate: formData.taxRate,
                 conversionFactor: catalogItem?.conversionFactor,
             });
@@ -315,6 +331,21 @@ export default function EditOrderPage() {
         }, 0));
         const taxAmount = roundCurrency(total - subtotal);
         return { subtotal, taxAmount, total };
+    };
+
+    const getBillingLabel = (item: InvoiceItem) => {
+        const normalized = normalizeDesignItemBillingFields(item);
+        const catalogItem = items.find(i => i.id === normalized.itemId);
+        return calculateLineAmounts({
+            width: normalized.width,
+            height: normalized.height,
+            quantity: normalized.quantity,
+            unit: normalized.unit,
+            rate: normalized.rate,
+            rateUnit: normalized.rateUnit,
+            taxRate: formData.taxRate,
+            conversionFactor: catalogItem?.conversionFactor,
+        }).billingLabel;
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -339,16 +370,19 @@ export default function EditOrderPage() {
             const party = customers.find(c => c.id === formData.partyId);
 
             // Sanitize item properties before saving (ensure numbers and strings aren't empty)
-            const sanitizedItems = orderItems.map(item => ({
-                ...item,
-                width: Number(item.width) || 0,
-                height: Number(item.height) || 0,
-                quantity: Number(item.quantity) || 0,
-                sqft: Number(item.sqft) || 0,
-                rate: Number(item.rate) || 0,
-                amount: Number(item.amount) || 0,
-                lineTotal: item.lineTotal === undefined ? undefined : Number(item.lineTotal) || 0
-            }));
+            const sanitizedItems = orderItems.map(item => {
+                const normalized = normalizeDesignItemBillingFields(item);
+                return {
+                    ...normalized,
+                    width: Number(normalized.width) || 0,
+                    height: Number(normalized.height) || 0,
+                    quantity: Number(normalized.quantity) || 0,
+                    sqft: Number(normalized.sqft) || 0,
+                    rate: Number(normalized.rate) || 0,
+                    amount: Number(normalized.amount) || 0,
+                    lineTotal: normalized.lineTotal === undefined ? undefined : Number(normalized.lineTotal) || 0
+                };
+            });
 
             const updatedOrder: Order = {
                 ...order,
@@ -501,16 +535,16 @@ export default function EditOrderPage() {
                         <table className="table" style={{ width: '100%', tableLayout: 'fixed' }}>
                             <thead>
                                 <tr>
-                                    <th style={{ width: '18%' }}>Item / Description</th>
-                                    <th style={{ width: '11%' }}>From Catalog</th>
-                                    <th style={{ width: '7%' }}>W (in)</th>
-                                    <th style={{ width: '7%' }}>H (in)</th>
+                                    <th style={{ width: '17%' }}>Item / Description</th>
+                                    <th style={{ width: '10%' }}>From Catalog</th>
+                                    <th style={{ width: '6%' }}>W (in)</th>
+                                    <th style={{ width: '6%' }}>H (in)</th>
                                     <th style={{ width: '8%' }}>Qty</th>
-                                    <th style={{ width: '8%' }}>Unit</th>
-                                    <th style={{ width: '8%' }}>Sqft</th>
-                                    <th style={{ width: '9%' }}>Rate</th>
+                                    <th style={{ width: '8%' }}>Qty Unit</th>
+                                    <th style={{ width: '9%' }}>Billing</th>
+                                    <th style={{ width: '8%' }}>Rate</th>
                                     <th style={{ width: '8%' }}>Rate Unit</th>
-                                    <th style={{ width: '9%' }}>Amount</th>
+                                    <th style={{ width: '10%' }}>Amount</th>
                                     <th style={{ width: '4%' }}></th>
                                 </tr>
                             </thead>
@@ -602,8 +636,8 @@ export default function EditOrderPage() {
                                                 ))}
                                             </select>
                                         </td>
-                                        <td style={{ fontWeight: 600 }}>
-                                            {(Number(item.sqft) || 0).toFixed(2)}
+                                        <td style={{ fontWeight: 600, fontSize: '0.85rem' }}>
+                                            {getBillingLabel(item)}
                                         </td>
                                         <td>
                                             <NumericInput

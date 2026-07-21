@@ -16,7 +16,7 @@ import dynamic from 'next/dynamic';
 const GlassDesigner = dynamic(() => import('@/components/GlassDesigner'), { ssr: false });
 import { calculateComplexity } from '@/lib/designCalculations';
 import { generateUUID, roundCurrency } from '@/lib/utils';
-import { createOrderItemsFromDesign } from '@/lib/orderDesignItems';
+import { createOrderItemsFromDesign, normalizeDesignItemBillingFields } from '@/lib/orderDesignItems';
 import { calculateLineAmounts, convertRateForItemUnit, defaultUnitsForItem, getUnitOptionsForItem } from '@/lib/units';
 import { withOrderSource } from '@/lib/orderNotes';
 
@@ -69,19 +69,20 @@ export default function NewOrderPage() {
 
     useEffect(() => {
         setOrderItems(prev => prev.map(item => {
-            const catalogItem = items.find(i => i.id === item.itemId);
+            const normalized = normalizeDesignItemBillingFields(item);
+            const catalogItem = items.find(i => i.id === normalized.itemId);
             const calculated = calculateLineAmounts({
-                width: item.width,
-                height: item.height,
-                quantity: item.quantity,
-                unit: item.unit,
-                rate: item.rate,
-                rateUnit: item.rateUnit,
+                width: normalized.width,
+                height: normalized.height,
+                quantity: normalized.quantity,
+                unit: normalized.unit,
+                rate: normalized.rate,
+                rateUnit: normalized.rateUnit,
                 taxRate: formData.taxRate,
                 conversionFactor: catalogItem?.conversionFactor,
             });
             return {
-                ...item,
+                ...normalized,
                 sqft: calculated.sqft,
                 amount: calculated.amount,
                 lineTotal: calculated.lineTotal
@@ -220,6 +221,7 @@ export default function NewOrderPage() {
             unit: 'sqft' as InvoiceItem['unit'],
             sqft: 0,
             rate: 0,
+            rateUnit: 'sqft' as InvoiceItem['unit'],
             amount: 0,
             sourceType: 'design' as const
         };
@@ -351,16 +353,22 @@ export default function NewOrderPage() {
             const rate = rawRate === '' ? 0 : Number(rawRate);
 
             const catalogItem = items.find(i => i.id === item.itemId);
+            const normalized = normalizeDesignItemBillingFields(item);
             const calculated = calculateLineAmounts({
-                width,
-                height,
-                quantity: qty,
-                unit,
+                width: normalized.sourceType === 'design' ? normalized.width : width,
+                height: normalized.sourceType === 'design' ? normalized.height : height,
+                quantity: normalized.sourceType === 'design' && field !== 'quantity' ? normalized.quantity : qty,
+                unit: normalized.sourceType === 'design' && field !== 'unit' ? normalized.unit : unit,
                 rate,
                 rateUnit,
                 taxRate: formData.taxRate,
                 conversionFactor: (catalogItem as any)?.conversionFactor,
             });
+            if (normalized.sourceType === 'design') {
+                item.quantity = field === 'quantity' ? qty : normalized.quantity;
+                item.unit = field === 'unit' ? unit : normalized.unit;
+                item.rateUnit = rateUnit;
+            }
             item.sqft = calculated.sqft;
             item.amount = calculated.amount;
             item.lineTotal = calculated.lineTotal;
@@ -567,16 +575,19 @@ export default function NewOrderPage() {
             const supplier = finalRequiresDesign ? suppliers.find(s => s.id === selectedSupplierId) : null;
 
             // Sanitize item properties before saving (ensure numbers and strings aren't empty)
-            const sanitizedItems = orderItems.map(item => ({
-                ...item,
-                width: Number(item.width) || 0,
-                height: Number(item.height) || 0,
-                quantity: Number(item.quantity) || 0,
-                sqft: Number(item.sqft) || 0,
-                rate: Number(item.rate) || 0,
-                amount: Number(item.amount) || 0,
-                lineTotal: item.lineTotal === undefined ? undefined : Number(item.lineTotal) || 0
-            }));
+            const sanitizedItems = orderItems.map(item => {
+                const normalized = normalizeDesignItemBillingFields(item);
+                return {
+                    ...normalized,
+                    width: Number(normalized.width) || 0,
+                    height: Number(normalized.height) || 0,
+                    quantity: Number(normalized.quantity) || 0,
+                    sqft: Number(normalized.sqft) || 0,
+                    rate: Number(normalized.rate) || 0,
+                    amount: Number(normalized.amount) || 0,
+                    lineTotal: normalized.lineTotal === undefined ? undefined : Number(normalized.lineTotal) || 0
+                };
+            });
 
             // Generate numbers
             const generalNumber = await db.orders.generateNextGeneralNumber();
@@ -708,13 +719,15 @@ export default function NewOrderPage() {
     };
 
     const getBillingLabel = (item: InvoiceItem) => {
-        const catalogItem = getCatalogItem(item);
+        const normalized = normalizeDesignItemBillingFields(item);
+        const catalogItem = getCatalogItem(normalized);
         return calculateLineAmounts({
-            width: item.width,
-            height: item.height,
-            quantity: item.quantity,
-            unit: item.unit,
-            rate: item.rate,
+            width: normalized.width,
+            height: normalized.height,
+            quantity: normalized.quantity,
+            unit: normalized.unit,
+            rate: normalized.rate,
+            rateUnit: normalized.rateUnit,
             taxRate: formData.taxRate,
             conversionFactor: catalogItem?.conversionFactor,
         }).billingLabel;
@@ -1167,24 +1180,23 @@ export default function NewOrderPage() {
                                             />
                                         </div>
 
-                                        {!isDesignRow && (
-                                            <div className="order-field">
-                                                <label>Unit</label>
-                                                <select
-                                                    className="input"
-                                                    value={getValidUnit(item)}
-                                                    onChange={(e) => updateItem(index, 'unit', e.target.value)}
-                                                >
-                                                    {getUnitGroups(item).map(group => (
-                                                        <optgroup key={group.label} label={group.label}>
-                                                            {group.units.map(unit => (
-                                                                <option key={unit.value} value={unit.value}>{unit.label}</option>
-                                                            ))}
-                                                        </optgroup>
-                                                    ))}
-                                                </select>
-                                            </div>
-                                        )}
+                                        <div className="order-field">
+                                            <label>Qty Unit</label>
+                                            <select
+                                                className="input"
+                                                value={getValidUnit(item)}
+                                                onChange={(e) => updateItem(index, 'unit', e.target.value)}
+                                                disabled={!canEditCommercials}
+                                            >
+                                                {getUnitGroups(item).map(group => (
+                                                    <optgroup key={group.label} label={group.label}>
+                                                        {group.units.map(unit => (
+                                                            <option key={unit.value} value={unit.value}>{unit.label}</option>
+                                                        ))}
+                                                    </optgroup>
+                                                ))}
+                                            </select>
+                                        </div>
 
                                         <div className="order-field">
                                             <label>Billing</label>

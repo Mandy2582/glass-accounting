@@ -14,6 +14,7 @@ import { isAffirmativeReply, resolveImageOrderIntent, resolveOrderIntent } from 
 import { findPendingConfirmationOrder, withNeedsApproval, withOrderSource } from '@/lib/orderNotes';
 import { approveAndInvoiceOrder } from '@/lib/orderQuotation';
 import { upsertDesignItemsInOrder } from '@/lib/orderDesignItems';
+import { normalizeIntakeImage, type NormalizedIntakeImage } from '@/lib/intakeImage';
 import type { CustomDesign, Order, Party, PricingConfig } from '@/types';
 
 export const runtime = 'nodejs';
@@ -232,9 +233,16 @@ async function createOrderFromWhatsAppEvent(event: WhatsAppMessageEvent) {
 
 async function createDraftFromWhatsAppImage(event: WhatsAppMessageEvent, caption: string) {
     const media = await downloadWhatsAppMedia(event.message.image?.id || '');
-    const analysis = media
+    // Bake EXIF orientation into the pixels before the model ever sees the
+    // photo -- a sideways image makes every edge-relative hole/cut position
+    // wrong in a way that looks like the model guessing (see intakeImage.ts).
+    const normalized = media ? await normalizeIntakeImage(media.base64, media.mimeType) : null;
+    if (normalized?.wasRotated) {
+        console.log(`[whatsapp] Corrected EXIF orientation on drawing photo from ${event.message.from}`);
+    }
+    const analysis = normalized
         ? await analyzeWhatsAppImage({
-            imageDataUrl: `data:${media.mimeType};base64,${media.base64}`,
+            imageDataUrl: normalized.vision.dataUrl,
             caption,
             fromPhone: event.message.from,
         })
@@ -298,7 +306,7 @@ async function createDraftFromWhatsAppImage(event: WhatsAppMessageEvent, caption
     const parties = await db.parties.getAll();
     const customer = await getOrCreateCustomer(event, parties);
     const order = await createReviewOrderForImage(event, customer, analysis, caption);
-    const design = await createDesignDraftForImage(order, customer, analysis, event.message.id, caption);
+    const design = await createDesignDraftForImage(order, customer, analysis, event.message.id, caption, normalized?.stored);
     await priceIntakeDesignOrder(order, design);
 
     return {
@@ -449,7 +457,8 @@ async function createDesignDraftForImage(
     customer: Party,
     analysis: WhatsAppImageAnalysis,
     messageId: string,
-    caption: string
+    caption: string,
+    sourceImage?: NormalizedIntakeImage
 ): Promise<CustomDesign> {
     const designData = buildDesignDataFromImageAnalysis(analysis);
     const design: CustomDesign = {
@@ -477,6 +486,11 @@ async function createDesignDraftForImage(
             'Review dimensions and redraw/adjust on canvas before approval.',
         ].filter(Boolean).join('\n'),
         orderId: order.id,
+        // Kept so the order review page can show the customer's original
+        // drawing beside the extracted version. Purged after 90 days by the
+        // nightly maintenance job.
+        sourceImageBase64: sourceImage?.base64,
+        sourceImageMimeType: sourceImage?.mimeType,
     };
 
     await designsDb.add(design);
