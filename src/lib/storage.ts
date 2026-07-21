@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
 import { generateUUID, roundCurrency } from './utils';
-import { GlassItem, Party, Invoice, InvoiceItem, Voucher, Order, Employee, Attendance, SalarySlip, BankAccount, CustomDesign, BusinessConfig, AutomationConfig } from '@/types';
+import { GlassItem, Party, Invoice, InvoiceItem, Voucher, Order, Employee, Attendance, SalarySlip, BankAccount, CustomDesign, BusinessConfig, AutomationConfig, RateUpdateConfig } from '@/types';
 import { convertQuantityForItemUnit, convertRateForItemUnit } from '@/lib/units';
 
 const normalizeInvoiceItemMoney = (item: InvoiceItem): InvoiceItem => ({
@@ -324,6 +324,19 @@ export const db = {
         },
         delete: async (id: string): Promise<void> => {
             const { error } = await supabase.from('items').delete().eq('id', id);
+            handleSupabaseError(error);
+        },
+        // Sets only rate/rate_unit for a specific set of item ids, used by
+        // the WhatsApp rate-update message handler. Deliberately narrower
+        // than update() (which writes the full row from an in-memory
+        // GlassItem) so a bulk reprice can never clobber stock/other fields
+        // with stale values.
+        async bulkUpdateRate(itemIds: string[], rate: number, rateUnit: string): Promise<void> {
+            if (itemIds.length === 0) return;
+            const { error } = await supabase
+                .from('items')
+                .update({ rate, rate_unit: rateUnit })
+                .in('id', itemIds);
             handleSupabaseError(error);
         }
     },
@@ -1835,6 +1848,43 @@ export const db = {
 
             if (error) {
                 console.error('Error updating automation settings:', error);
+                throw error;
+            }
+        },
+
+        getRateUpdateDefaults(): RateUpdateConfig {
+            return { enabled: false, authorizedPhones: [] };
+        },
+
+        async getRateUpdateConfig(): Promise<RateUpdateConfig> {
+            const { data, error } = await supabase
+                .from('settings')
+                .select('app_settings')
+                .eq('id', 'default')
+                .single();
+
+            const defaults = db.settings.getRateUpdateDefaults();
+            if (error || !data?.app_settings?.rateUpdate) return defaults;
+            return { ...defaults, ...data.app_settings.rateUpdate };
+        },
+
+        async updateRateUpdateConfig(config: RateUpdateConfig): Promise<void> {
+            const { data: existing } = await supabase
+                .from('settings')
+                .select('app_settings')
+                .eq('id', 'default')
+                .single();
+
+            const { error } = await supabase
+                .from('settings')
+                .upsert({
+                    id: 'default',
+                    app_settings: { ...(existing?.app_settings || {}), rateUpdate: config },
+                    updated_at: new Date().toISOString(),
+                });
+
+            if (error) {
+                console.error('Error updating rate-update settings:', error);
                 throw error;
             }
         }

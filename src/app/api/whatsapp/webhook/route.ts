@@ -14,6 +14,8 @@ import { isAffirmativeReply, resolveImageOrderIntent, resolveOrderIntent } from 
 import { findPendingConfirmationOrder, withNeedsApproval, withOrderSource } from '@/lib/orderNotes';
 import { approveAndInvoiceOrder } from '@/lib/orderQuotation';
 import { runAutoReview, sendOrderBookedConfirmation } from '@/lib/autoReview';
+import { sendWhatsAppText } from '@/lib/outboundMessaging';
+import { formatRateUpdateReply, parseAndApplyRateUpdate } from '@/lib/rateUpdateMessage';
 import { upsertDesignItemsInOrder } from '@/lib/orderDesignItems';
 import { normalizeIntakeImage, type NormalizedIntakeImage } from '@/lib/intakeImage';
 import type { CustomDesign, Order, Party, PricingConfig } from '@/types';
@@ -143,6 +145,17 @@ function extractMessageEvents(payload: any): WhatsAppMessageEvent[] {
 async function createOrderFromWhatsAppEvent(event: WhatsAppMessageEvent) {
     const messageId = event.message.id;
     const body = event.message.text?.body?.trim() || event.message.image?.caption?.trim() || '';
+
+    // Rate-update numbers are staff/owner phones the shop explicitly
+    // authorized in Settings -- never a customer. Every text message from
+    // one is treated as a reprice attempt and never falls through to order
+    // processing, so a parse failure still needs its own clear reply rather
+    // than silently becoming (or being ignored as) a customer order.
+    if (event.message.type === 'text' && body) {
+        const rateUpdateResult = await tryApplyRateUpdateMessage(event.message.from, body);
+        if (rateUpdateResult) return { messageId, ...rateUpdateResult };
+    }
+
     const duplicate = await findExistingWhatsAppOrder(messageId);
 
     if (duplicate) {
@@ -531,6 +544,36 @@ async function priceIntakeDesignOrder(order: Order, design: CustomDesign): Promi
     } catch (error) {
         console.error('Failed to price intake design order:', error);
         return order;
+    }
+}
+
+// Returns a result object (to short-circuit createOrderFromWhatsAppEvent)
+// only when this sender is an authorized rate-update number; returns null
+// for everyone else so their message proceeds through normal order
+// processing untouched.
+async function tryApplyRateUpdateMessage(fromPhone: string, body: string): Promise<{ status: string; reason?: string; itemsUpdated?: number } | null> {
+    const config = await db.settings.getRateUpdateConfig();
+    if (!config.enabled) return null;
+
+    const normalizedFrom = normalizePhone(fromPhone);
+    const isAuthorized = config.authorizedPhones.some(phone => normalizePhone(phone) === normalizedFrom);
+    if (!isAuthorized) return null;
+
+    try {
+        const catalog = await db.items.getAll();
+        const result = parseAndApplyRateUpdate(body, catalog);
+        if (result.ok) {
+            await db.items.bulkUpdateRate(result.matched.map(item => item.id), result.rate, 'sqft');
+        }
+        await sendWhatsAppText(fromPhone, formatRateUpdateReply(result));
+        return result.ok
+            ? { status: 'rate_update_applied', itemsUpdated: result.matched.length }
+            : { status: 'rate_update_rejected', reason: result.reason };
+    } catch (error) {
+        console.error('[rate-update] failed:', error);
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        await sendWhatsAppText(fromPhone, `Rate update failed: ${message}`).catch(() => {});
+        return { status: 'rate_update_error', reason: message };
     }
 }
 

@@ -415,6 +415,15 @@ export interface AutomationConfig {
     autoReviewRequireCleanDrawing: boolean;
 }
 
+// Lets specific staff/owner phone numbers update glass selling prices by
+// WhatsApp message (e.g. "12mm Saint Gobain Clear 85") instead of editing
+// inventory by hand every time rates change. Off by default, and only ever
+// acted on for numbers explicitly listed here -- never a customer number.
+export interface RateUpdateConfig {
+    enabled: boolean;
+    authorizedPhones: string[];
+}
+
 export interface BusinessConfig {
     businessName: string;
     tagline?: string;
