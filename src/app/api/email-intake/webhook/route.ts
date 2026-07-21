@@ -13,6 +13,7 @@ import { withAvailableStock } from '@/lib/stockReservations';
 import { isAffirmativeReply, resolveImageOrderIntent, resolveOrderIntent } from '@/lib/orderIntent';
 import { findPendingConfirmationOrder, withNeedsApproval, withOrderSource } from '@/lib/orderNotes';
 import { approveAndInvoiceOrder } from '@/lib/orderQuotation';
+import { runAutoReview, sendOrderBookedConfirmation } from '@/lib/autoReview';
 import { upsertDesignItemsInOrder } from '@/lib/orderDesignItems';
 import { normalizeIntakeImage, type NormalizedIntakeImage } from '@/lib/intakeImage';
 import type { CustomDesign, Order, Party, PricingConfig } from '@/types';
@@ -90,6 +91,9 @@ async function createOrderFromEmail(email: IncomingEmail) {
         const pendingOrder = findPendingConfirmationOrder(orders, 'email', email.fromAddress);
         if (pendingOrder) {
             const { invoiceId } = await approveAndInvoiceOrder(pendingOrder);
+            // Written confirmation of what was just booked (no-op unless
+            // automatic review is switched on in Settings).
+            await sendOrderBookedConfirmation(pendingOrder);
             return {
                 status: 'auto_approved_from_reply',
                 orderId: pendingOrder.id,
@@ -146,6 +150,7 @@ async function createOrderFromEmail(email: IncomingEmail) {
         matchedLines: resolvedLines,
         source: 'Email intake',
     });
+    await runAutoReview(order);
 
     return {
         status: resolvedLines.some(line => line.confidence === 'out_of_stock') ? 'order_created_with_shortage' : 'order_created',
@@ -202,6 +207,7 @@ async function createDraftFromEmailImage(
                 matchedLines: resolvedLines,
                 source: 'Email image order',
             });
+            await runAutoReview(order);
 
             return {
                 status: resolvedLines.some(line => line.confidence === 'out_of_stock') ? 'image_order_created_with_shortage' : 'image_order_created',
@@ -232,7 +238,8 @@ async function createDraftFromEmailImage(
     const customer = await getOrCreateCustomer(email, parties);
     const order = await createReviewOrderForEmailImage(email, customer, analysis, caption);
     const design = await createDesignDraftForEmailImage(order, customer, analysis, email.messageId, caption, normalized.stored);
-    await priceIntakeDesignOrder(order, design);
+    const pricedOrder = await priceIntakeDesignOrder(order, design);
+    await runAutoReview(pricedOrder);
 
     return {
         status: 'drawing_review_created',
@@ -427,7 +434,7 @@ async function createDesignDraftForEmailImage(
 // of leaving the review order at zero until staff open and save the design.
 // Intake never fails on this -- pricing problems just leave the order in the
 // old zero-item state for manual completion.
-async function priceIntakeDesignOrder(order: Order, design: CustomDesign): Promise<void> {
+async function priceIntakeDesignOrder(order: Order, design: CustomDesign): Promise<Order> {
     try {
         const pricing = await db.settings.getPricing();
         const thicknessPricing = await db.settings.getThicknessPricing();
@@ -441,8 +448,10 @@ async function priceIntakeDesignOrder(order: Order, design: CustomDesign): Promi
         if (estimatedCost > 0) {
             await designsDb.update({ ...design, estimatedCost });
         }
+        return updatedOrder;
     } catch (error) {
         console.error('Failed to price intake design order:', error);
+        return order;
     }
 }
 

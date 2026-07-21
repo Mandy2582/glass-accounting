@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
 import { generateUUID, roundCurrency } from './utils';
-import { GlassItem, Party, Invoice, InvoiceItem, Voucher, Order, Employee, Attendance, SalarySlip, BankAccount, CustomDesign, BusinessConfig } from '@/types';
+import { GlassItem, Party, Invoice, InvoiceItem, Voucher, Order, Employee, Attendance, SalarySlip, BankAccount, CustomDesign, BusinessConfig, AutomationConfig } from '@/types';
 import { convertQuantityForItemUnit, convertRateForItemUnit } from '@/lib/units';
 
 const normalizeInvoiceItemMoney = (item: InvoiceItem): InvoiceItem => ({
@@ -1789,6 +1789,50 @@ export const db = {
                 }
             } catch (error) {
                 console.error('Error updating thickness pricing:', error);
+                throw error;
+            }
+        },
+
+        // Automation lives in the previously unused app_settings column.
+        // Defaults are deliberately "everything off" so upgrading an
+        // existing install never silently starts messaging customers.
+        getAutomationDefaults(): AutomationConfig {
+            return {
+                autoReviewEnabled: false,
+                autoReviewMaxOrderValue: 0,
+                autoReviewRequireCleanDrawing: true,
+            };
+        },
+
+        async getAutomation(): Promise<AutomationConfig> {
+            const { data, error } = await supabase
+                .from('settings')
+                .select('app_settings')
+                .eq('id', 'default')
+                .single();
+
+            const defaults = db.settings.getAutomationDefaults();
+            if (error || !data?.app_settings?.automation) return defaults;
+            return { ...defaults, ...data.app_settings.automation };
+        },
+
+        async updateAutomation(automation: AutomationConfig): Promise<void> {
+            const { data: existing } = await supabase
+                .from('settings')
+                .select('app_settings')
+                .eq('id', 'default')
+                .single();
+
+            const { error } = await supabase
+                .from('settings')
+                .upsert({
+                    id: 'default',
+                    app_settings: { ...(existing?.app_settings || {}), automation },
+                    updated_at: new Date().toISOString(),
+                });
+
+            if (error) {
+                console.error('Error updating automation settings:', error);
                 throw error;
             }
         }

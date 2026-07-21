@@ -13,6 +13,7 @@ import { withAvailableStock } from '@/lib/stockReservations';
 import { isAffirmativeReply, resolveImageOrderIntent, resolveOrderIntent } from '@/lib/orderIntent';
 import { findPendingConfirmationOrder, withNeedsApproval, withOrderSource } from '@/lib/orderNotes';
 import { approveAndInvoiceOrder } from '@/lib/orderQuotation';
+import { runAutoReview, sendOrderBookedConfirmation } from '@/lib/autoReview';
 import { upsertDesignItemsInOrder } from '@/lib/orderDesignItems';
 import { normalizeIntakeImage, type NormalizedIntakeImage } from '@/lib/intakeImage';
 import type { CustomDesign, Order, Party, PricingConfig } from '@/types';
@@ -161,6 +162,9 @@ async function createOrderFromWhatsAppEvent(event: WhatsAppMessageEvent) {
         const pendingOrder = findPendingConfirmationOrder(orders, 'whatsapp', event.message.from);
         if (pendingOrder) {
             const { invoiceId } = await approveAndInvoiceOrder(pendingOrder);
+            // Written confirmation of what was just booked (no-op unless
+            // automatic review is switched on in Settings).
+            await sendOrderBookedConfirmation(pendingOrder);
             return {
                 messageId,
                 status: 'auto_approved_from_reply',
@@ -218,6 +222,7 @@ async function createOrderFromWhatsAppEvent(event: WhatsAppMessageEvent) {
         matchedLines: resolvedLines,
         source: 'WhatsApp Business webhook',
     });
+    await runAutoReview(order);
 
     return {
         messageId,
@@ -276,6 +281,7 @@ async function createDraftFromWhatsAppImage(event: WhatsAppMessageEvent, caption
                 matchedLines: resolvedLines,
                 source: 'WhatsApp image order',
             });
+            await runAutoReview(order);
 
             return {
                 messageId: event.message.id,
@@ -307,7 +313,8 @@ async function createDraftFromWhatsAppImage(event: WhatsAppMessageEvent, caption
     const customer = await getOrCreateCustomer(event, parties);
     const order = await createReviewOrderForImage(event, customer, analysis, caption);
     const design = await createDesignDraftForImage(order, customer, analysis, event.message.id, caption, normalized?.stored);
-    await priceIntakeDesignOrder(order, design);
+    const pricedOrder = await priceIntakeDesignOrder(order, design);
+    await runAutoReview(pricedOrder);
 
     return {
         messageId: event.message.id,
@@ -506,7 +513,7 @@ async function createDesignDraftForImage(
 // save, so the review order is quotable the moment it arrives. Intake never
 // fails on this: any pricing problem just leaves the order in the old
 // zero-item state for manual completion.
-async function priceIntakeDesignOrder(order: Order, design: CustomDesign): Promise<void> {
+async function priceIntakeDesignOrder(order: Order, design: CustomDesign): Promise<Order> {
     try {
         const pricing = await db.settings.getPricing();
         const thicknessPricing = await db.settings.getThicknessPricing();
@@ -520,8 +527,10 @@ async function priceIntakeDesignOrder(order: Order, design: CustomDesign): Promi
         if (estimatedCost > 0) {
             await designsDb.update({ ...design, estimatedCost });
         }
+        return updatedOrder;
     } catch (error) {
         console.error('Failed to price intake design order:', error);
+        return order;
     }
 }
 

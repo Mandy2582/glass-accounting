@@ -394,6 +394,20 @@ export interface PricingConfig {
 export type GSTType = 'intra_state' | 'inter_state' | 'none';
 
 // Business Configuration
+// Controls whether incoming WhatsApp/email orders are quoted automatically
+// or held for staff review. Off by default -- automation only starts once
+// someone deliberately turns it on in Settings.
+export interface AutomationConfig {
+    autoReviewEnabled: boolean;
+    // Orders quoting above this rupee amount always go to staff even when
+    // auto-review is on. 0 disables the ceiling.
+    autoReviewMaxOrderValue: number;
+    // Drawing/design orders only auto-quote when every hole and cut position
+    // was read cleanly from the photo. Any amber-flagged position means the
+    // price could be wrong, so it goes to a human instead.
+    autoReviewRequireCleanDrawing: boolean;
+}
+
 export interface BusinessConfig {
     businessName: string;
     tagline?: string;

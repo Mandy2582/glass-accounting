@@ -28,8 +28,7 @@ import {
     TrendingUp,
     UserCheck,
     Users,
-    WalletCards,
-} from 'lucide-react';
+    WalletCards, Bot } from 'lucide-react';
 import { useState } from 'react';
 import styles from './Layout.module.css';
 import { supabase } from '@/lib/supabase';
@@ -111,6 +110,7 @@ const sections: NavSection[] = [
             { label: 'Tally Integration', href: '/tally-sync', icon: RefreshCw },
             { label: 'Company Details', href: '/settings/company', icon: Building2 },
             { label: 'Pricing', href: '/settings/pricing', icon: DollarSign },
+            { label: 'Order Automation', href: '/settings/automation', icon: Bot },
             { label: 'Items Configuration', href: '/settings/items', icon: Tags },
             { label: 'Users & Roles', href: '/settings/users', icon: Users },
             { label: 'Terms & Conditions', href: '/settings/terms', icon: FileText },
