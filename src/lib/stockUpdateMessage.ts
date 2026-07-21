@@ -1,5 +1,7 @@
 import type { GlassItem } from '@/types';
 import { matchGlassGroup, matchHardwareItem, extractTrailingNumber, extractSizeMatch, sizeMatchesItem, sizeLabel } from '@/lib/catalogMatch';
+import { extractUnit } from '@/lib/whatsappOrders';
+import { convertQuantityForItemUnit } from '@/lib/units';
 
 // Lets an authorized WhatsApp number correct a stock count in one message,
 // e.g. "STOCK 12mm Saint Gobain Clear 4x6ft 50" for glass (unlike a rate,
@@ -8,9 +10,20 @@ import { matchGlassGroup, matchHardwareItem, extractTrailingNumber, extractSizeM
 // Fitting 40" for hardware. This is a plain correction (e.g. after a
 // physical stock count) -- for a real purchase received from a supplier,
 // use the PURCHASE command instead, which also updates cost accounting.
+//
+// The number in the message is a count of whatever unit staff actually
+// mean by it -- almost always sheets for glass, not the item's own
+// internal stock-tracking unit (sqft). Defaulting to the raw number here
+// previously set stock directly in sqft terms whenever no unit was named,
+// silently shrinking it by roughly the sheet's own area (a 4x6ft sheet is
+// 24 sqft, so "50" meant as 50 sheets became 50 sqft instead -- about 2
+// sheets). extractUnit already defaults to 'sheets' for a glass
+// line with a WxH size and no other unit keyword, matching how staff
+// actually write these messages; convertQuantityForItemUnit then converts
+// that into the item's own stock unit before it's ever stored.
 
 export type StockUpdateResult =
-    | { ok: true; item: GlassItem; label: string; stock: number }
+    | { ok: true; item: GlassItem; label: string; inputQuantity: number; inputUnit: string; stock: number }
     | { ok: false; reason: string };
 
 export function parseAndApplyStockUpdate(text: string, catalogItems: GlassItem[]): StockUpdateResult {
@@ -41,15 +54,27 @@ export function parseAndApplyStockUpdate(text: string, catalogItems: GlassItem[]
             };
         }
 
-        const stock = extractTrailingNumber(trimmed, [groupResult.thicknessRawMatch, sizeMatch.raw]);
-        if (stock == null || stock < 0) {
+        const item = sized[0];
+        const inputQuantity = extractTrailingNumber(trimmed, [groupResult.thicknessRawMatch, sizeMatch.raw]);
+        if (inputQuantity == null || inputQuantity < 0) {
             return { ok: false, reason: 'Could not find a stock count in your message (e.g. "... 50").' };
         }
+        const inputUnit = extractUnit(trimmed, item);
+        const stock = convertQuantityForItemUnit({
+            quantity: inputQuantity,
+            fromUnit: inputUnit,
+            toUnit: item.unit,
+            width: item.width,
+            height: item.height,
+            conversionFactor: item.conversionFactor,
+        });
 
         return {
             ok: true,
-            item: sized[0],
-            label: `${groupResult.makes.join('/')} ${groupResult.descriptor} ${groupResult.thickness}mm ${sizeLabel(sized[0])}`,
+            item,
+            label: `${groupResult.makes.join('/')} ${groupResult.descriptor} ${groupResult.thickness}mm ${sizeLabel(item)}`,
+            inputQuantity,
+            inputUnit,
             stock,
         };
     }
@@ -58,8 +83,8 @@ export function parseAndApplyStockUpdate(text: string, catalogItems: GlassItem[]
     const hwResult = matchHardwareItem(trimmed, hardwareItems);
     if (!hwResult.ok) return hwResult;
 
-    const stock = extractTrailingNumber(trimmed);
-    if (stock == null || stock < 0) {
+    const inputQuantity = extractTrailingNumber(trimmed);
+    if (inputQuantity == null || inputQuantity < 0) {
         return { ok: false, reason: 'Could not find a stock count in your message (e.g. "... 40").' };
     }
 
@@ -67,7 +92,9 @@ export function parseAndApplyStockUpdate(text: string, catalogItems: GlassItem[]
         ok: true,
         item: hwResult.item,
         label: `${hwResult.item.make ? hwResult.item.make + ' ' : ''}${hwResult.item.name}`,
-        stock,
+        inputQuantity,
+        inputUnit: 'nos',
+        stock: inputQuantity,
     };
 }
 
@@ -75,5 +102,11 @@ export function formatStockUpdateReply(result: StockUpdateResult): string {
     if (!result.ok) {
         return `Stock update not applied.\n${result.reason}`;
     }
-    return `Stock updated: ${result.label} -> ${result.stock} ${result.item.unit || 'nos'}`;
+    // Shows both the unit staff actually typed and the item's own stock
+    // unit, so a misread (e.g. sheets vs sqft) is obvious immediately in
+    // the reply rather than only discoverable later in Inventory.
+    if (result.inputUnit === (result.item.unit || 'nos')) {
+        return `Stock updated: ${result.label} -> ${result.stock} ${result.inputUnit}`;
+    }
+    return `Stock updated: ${result.label} -> ${result.inputQuantity} ${result.inputUnit} (${result.stock} ${result.item.unit || 'nos'} in inventory)`;
 }
