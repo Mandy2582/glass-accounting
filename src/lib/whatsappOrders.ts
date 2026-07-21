@@ -382,7 +382,11 @@ function normalize(value: string): string {
 
 // Shop-floor slang for catalogue terms customers actually type, none of
 // which appear anywhere in the catalogue's own naming (item name/type/make
-// use "Clear Float"/"Standard Clear" etc., never "plain").
+// use "Clear Float"/"Standard Clear" etc., never "plain"). "ref"/"r" cover
+// how customers actually abbreviate Reflective glass -- they always name it
+// explicitly, just never spell it out. "black" covers dark grey glass
+// commonly called "black" by customers even though there's no separate
+// black product -- the catalogue's own colour term is "grey".
 const CATALOGUE_SYNONYMS: Record<string, string> = {
     plain: 'clear',
     plane: 'clear',
@@ -391,6 +395,10 @@ const CATALOGUE_SYNONYMS: Record<string, string> = {
     tuffen: 'toughened',
     tempered: 'toughened',
     mirror: 'mirror',
+    ref: 'reflective',
+    refl: 'reflective',
+    r: 'reflective',
+    black: 'grey',
 };
 
 function tokenize(value: string): string[] {
@@ -399,6 +407,12 @@ function tokenize(value: string): string[] {
         .map(token => CATALOGUE_SYNONYMS[token] || token)
         .filter(token => token.length > 1 && !['mm', 'the', 'and', 'for', 'pcs', 'nos', 'set'].includes(token));
 }
+
+// Colour words that appear across the Tinted/Reflective catalogue. Used
+// only to detect "the customer named a colour but no category" -- see
+// preferTinted in findCandidateItems below.
+const KNOWN_GLASS_COLOURS = ['grey', 'gray', 'bronze', 'brown', 'gold', 'golden', 'blue', 'green', 'silver', 'aqua', 'ocean', 'pearl', 'royal', 'white'];
+const GLASS_CATEGORY_TOKENS = ['reflective', 'tinted', 'mirror', 'toughened', 'clear', 'fluted', 'frosted'];
 
 // Returns every catalogue item that plausibly matches the line, best score
 // first. When the line states an explicit size and at least one match at
@@ -411,12 +425,28 @@ function findCandidateItems(line: string, items: GlassItem[]): Array<{ item: Gla
 
     const dims = extractDimensionPair(line);
 
+    // Unlike Reflective (always named explicitly, if only as "ref"/"r"),
+    // customers ordering Tinted glass almost never say "tinted" -- they
+    // just name the colour ("grey", "bronze"). Without help, a bare colour
+    // scores identically against the Tinted and the Reflective item
+    // sharing that colour (colour + thickness match either way), leaving
+    // the tie to resolve arbitrarily. preferTinted only applies a small
+    // fractional bonus (below the smallest possible real-token-match gap
+    // of 1) so it can settle an exact tie between equally-plausible
+    // candidates, but can never outweigh an actual colour mismatch (e.g. a
+    // customer asking for "gold", which only exists as Reflective, must
+    // never fall back to a same-thickness Tinted Bronze item just because
+    // of this bonus).
+    const preferTinted = !lineTokens.some(token => GLASS_CATEGORY_TOKENS.includes(token))
+        && lineTokens.some(token => KNOWN_GLASS_COLOURS.includes(token));
+
     const ranked = items
         .map(item => {
             const haystack = tokenize(`${item.name} ${item.type || ''} ${item.make || ''} ${item.model || ''} ${item.thickness || ''}mm`);
             const matches = haystack.filter(token => lineTokens.includes(token)).length;
             const exactName = normalize(line).includes(normalize(item.name));
-            return { item, score: matches + (exactName ? 5 : 0) };
+            const tintedTieBreak = preferTinted && haystack.includes('tinted') ? 0.5 : 0;
+            return { item, score: matches + (exactName ? 5 : 0) + tintedTieBreak };
         })
         .filter(entry => entry.score >= 2)
         .sort((a, b) => b.score - a.score);
