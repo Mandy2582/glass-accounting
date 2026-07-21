@@ -188,6 +188,13 @@ export interface Order {
     supplierDeliveryDate?: string; // When supplier delivered
     customerDeliveryDate?: string; // When delivered to customer
 
+    // Real creation/update instants (Postgres timestamptz, set once at
+    // insert time) -- unlike `date`, which is a date-only field staff can
+    // edit and which several same-day orders share identically. Used to
+    // give notifications an actual time and a correct newest-first order.
+    createdAt?: string;
+    updatedAt?: string;
+
     // Quantities tracking for partial deliveries
     deliveredToUs?: number; // Total sqft delivered by supplier
     deliveredToCustomer?: number; // Total sqft delivered to customer

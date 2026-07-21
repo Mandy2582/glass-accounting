@@ -121,7 +121,11 @@ export async function evaluateNotifications(): Promise<AppNotification[]> {
                             : `${intake.from || order.partyName} sent an order via ${sourceLabel}, but items need staff review. Fill in the items, then send a quotation before this can be approved.`,
                     type: 'order_approval',
                     severity: intake.hasItems ? 'warning' : 'error',
-                    timestamp: order.date,
+                    // order.date is a date-only field several same-day
+                    // orders share identically -- createdAt is a real
+                    // timestamp, so notifications actually sort and display
+                    // by when the order arrived, not just its calendar day.
+                    timestamp: order.createdAt || order.date,
                     read: false,
                     orderId: order.id,
                     estimateSent: alreadySent,
@@ -166,7 +170,7 @@ export async function evaluateNotifications(): Promise<AppNotification[]> {
                         message: `${isOnlineOrder ? 'New online order' : isOnlineRequest ? 'New online request' : 'Order'} #${order.number} for ${order.partyName} is active in stage '${order.status}'${roundedDays > 0 ? ` for ${roundedDays} days` : ''}.`,
                         type: 'pending_order',
                         severity: daysPending > 10 ? 'error' : 'warning',
-                        timestamp: order.date,
+                        timestamp: order.createdAt || order.date,
                         read: false,
                         link: `/orders/${order.id}`
                     });
@@ -181,7 +185,7 @@ export async function evaluateNotifications(): Promise<AppNotification[]> {
                     message: `${order.partyName} sent a ${isCancelRequest ? 'cancellation' : 'support'} request for order #${order.number}. Review order notes.`,
                     type: 'pending_order',
                     severity: 'warning',
-                    timestamp: order.date,
+                    timestamp: order.updatedAt || order.createdAt || order.date,
                     read: false,
                     link: `/orders/${order.id}`
                 });

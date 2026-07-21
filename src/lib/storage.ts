@@ -949,7 +949,9 @@ export const db = {
                 generalNumber: o.general_number,
                 soNumber: o.so_number,
                 poNumber: o.po_number,
-                requiresDesign: o.requires_design
+                requiresDesign: o.requires_design,
+                createdAt: o.created_at,
+                updatedAt: o.updated_at
             } as Order));
         },
 
