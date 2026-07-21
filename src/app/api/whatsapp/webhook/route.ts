@@ -144,6 +144,21 @@ function extractMessageEvents(payload: any): WhatsAppMessageEvent[] {
 
 async function createOrderFromWhatsAppEvent(event: WhatsAppMessageEvent) {
     const messageId = event.message.id;
+
+    // WhatsApp redelivers the same webhook message if this endpoint doesn't
+    // ack within its own timeout -- a real risk here since a drawing photo
+    // goes through a vision API call that can take 15-30+ seconds. Without
+    // this guard, several retries all arrive while the first delivery is
+    // still mid-flight (before any order/design row exists yet for
+    // findExistingWhatsAppOrder below to find), and each one independently
+    // creates its own duplicate order. This check-and-set is synchronous
+    // (no `await` in between), so it's race-free across concurrent requests
+    // on this single Node process -- see claimMessageId's own comment for
+    // why an in-memory guard is enough here instead of a DB-level one.
+    if (!claimMessageId(messageId)) {
+        return { messageId, status: 'duplicate_delivery' };
+    }
+
     const body = event.message.text?.body?.trim() || event.message.image?.caption?.trim() || '';
 
     // Rate-update numbers are staff/owner phones the shop explicitly
@@ -581,6 +596,29 @@ async function findExistingWhatsAppOrder(messageId: string): Promise<Order | nul
     const marker = `WhatsApp Message ID: ${messageId}`;
     const orders = await db.orders.getAll();
     return orders.find(order => order.notes?.includes(marker)) || null;
+}
+
+// In-memory idempotency guard against WhatsApp's own webhook retries. This
+// app runs as a single Node process (PM2 fork mode, not clustered), so a
+// module-level Map is enough -- no DB table or cross-process coordination
+// needed. The check-and-set in claimMessageId is synchronous (no `await`
+// in between reading and writing the Map), so two retries landing on the
+// same event-loop process can never both pass the check, unlike
+// findExistingWhatsAppOrder above (which only starts finding a match once
+// an order has actually been saved, several seconds into processing).
+// Entries expire after MESSAGE_ID_TTL_MS purely to bound memory -- WhatsApp
+// retries stop well before that.
+const recentlyClaimedMessageIds = new Map<string, number>();
+const MESSAGE_ID_TTL_MS = 10 * 60 * 1000;
+
+function claimMessageId(messageId: string): boolean {
+    const now = Date.now();
+    for (const [id, claimedAt] of recentlyClaimedMessageIds) {
+        if (now - claimedAt > MESSAGE_ID_TTL_MS) recentlyClaimedMessageIds.delete(id);
+    }
+    if (recentlyClaimedMessageIds.has(messageId)) return false;
+    recentlyClaimedMessageIds.set(messageId, now);
+    return true;
 }
 
 async function getOrCreateCustomer(event: WhatsAppMessageEvent, parties: Party[]): Promise<Party> {
