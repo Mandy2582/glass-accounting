@@ -101,6 +101,10 @@ export const createOrderItemsFromDesign = (
     const pieces = getFallbackPieces(design);
     const taxMultiplier = 1 + ((Number(taxRate) || 0) / 100);
     const inclusiveTotals: number[] = [];
+    // thicknessRate/holeCharge/cutCharge/hardware.rate are all GST-inclusive
+    // (confirmed by the business owner 2026-07-21) -- each lineTotal below is
+    // computed directly from qty*rate, and amount (pre-tax) is backed out via
+    // taxMultiplier, matching calculateLineAmounts() in units.ts.
 
     const rows: InvoiceItem[] = pieces.map((piece, index) => {
         const pieceCount = Math.max(1, Number(piece.quantity) || 1);
@@ -113,8 +117,8 @@ export const createOrderItemsFromDesign = (
         const billableArea = roundCurrency(Number(piece.netArea ?? piece.area ?? 0) || 0);
         const areaPerPiece = roundCurrency(billableArea / pieceCount);
         const thicknessRate = getPieceThicknessRate(piece, pricingConfig);
-        const amount = roundCurrency(billableArea * thicknessRate);
-        const lineTotal = roundCurrency(amount * taxMultiplier);
+        const lineTotal = roundCurrency(billableArea * thicknessRate);
+        const amount = roundCurrency(lineTotal / taxMultiplier);
         inclusiveTotals.push(lineTotal);
         const pieceType = piece.type || 'Custom Glass';
         const thicknessText = piece.thickness ? `${piece.thickness}mm` : 'custom thickness';
@@ -161,8 +165,8 @@ export const createOrderItemsFromDesign = (
 
         if (holes > 0 && holeCharge > 0) {
             const quantity = holes;
-            const amount = roundCurrency(quantity * holeCharge);
-            const lineTotal = roundCurrency(amount * taxMultiplier);
+            const lineTotal = roundCurrency(quantity * holeCharge);
+            const amount = roundCurrency(lineTotal / taxMultiplier);
             inclusiveTotals.push(lineTotal);
             rows.push({
                 id: crypto.randomUUID(),
@@ -187,8 +191,8 @@ export const createOrderItemsFromDesign = (
 
         if (cuts > 0 && cutCharge > 0) {
             const quantity = cuts;
-            const amount = roundCurrency(quantity * cutCharge);
-            const lineTotal = roundCurrency(amount * taxMultiplier);
+            const lineTotal = roundCurrency(quantity * cutCharge);
+            const amount = roundCurrency(lineTotal / taxMultiplier);
             inclusiveTotals.push(lineTotal);
             rows.push({
                 id: crypto.randomUUID(),
@@ -250,8 +254,8 @@ export const createOrderItemsFromDesign = (
     });
 
     hardwareMap.forEach(hardware => {
-        const amount = roundCurrency(hardware.rate * hardware.quantity);
-        const lineTotal = roundCurrency(amount * taxMultiplier);
+        const lineTotal = roundCurrency(hardware.rate * hardware.quantity);
+        const amount = roundCurrency(lineTotal / taxMultiplier);
         inclusiveTotals.push(lineTotal);
         rows.push({
             id: crypto.randomUUID(),

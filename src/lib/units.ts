@@ -391,13 +391,14 @@ export function calculateLineAmounts(input: {
         })
         : rawRate;
     const taxRate = Number(input.taxRate) || 0;
-    // rate is always the pre-tax unit price -- amount (the subtotal) comes
-    // first, and GST is added on top to get lineTotal. This was previously
-    // inverted (lineTotal computed directly as quantity * rate, then amount
-    // derived by *removing* tax from it), which silently absorbed GST into
-    // the entered rate instead of adding it on top.
-    const amount = roundCurrency(measurement.billingQuantity * rate);
-    const lineTotal = roundCurrency(amount * (1 + taxRate / 100));
+    // rate is the GST-INCLUSIVE, customer-facing unit price (confirmed by the
+    // business owner 2026-07-21) -- quantity * rate IS the line total already,
+    // and the pre-tax amount/subtotal is backed out of it. This reverses
+    // commit 45c5709 (2026-07-10), which flipped this the other way believing
+    // rate was pre-tax. It has now been changed both ways -- do not invert
+    // this again without checking with the business owner directly.
+    const lineTotal = roundCurrency(measurement.billingQuantity * rate);
+    const amount = roundCurrency(lineTotal / (1 + taxRate / 100));
 
     return {
         sqft: measurement.sqft,
