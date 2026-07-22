@@ -2077,6 +2077,113 @@ export const db = {
 
             return `${prefix}/${fyLabel}/${String(nextNumber).padStart(3, '0')}`;
         }
+    },
+
+    // Audit/revert log for the WhatsApp catalogue commands (RATE/STOCK/
+    // PURCHASE) -- Phase 1 of a system-wide log the owner asked for.
+    // Revert is dispatched by command_type and must be semantically
+    // correct, not a raw field restore: a purchase revert reuses
+    // db.invoices.delete() (already correctly reverses stock_batches,
+    // warehouse_stock, weighted avg cost, and party balance), while rate/
+    // stock revert restore the exact prior per-item values captured at
+    // the time the command ran.
+    catalogueLog: {
+        async add(entry: {
+            commandType: 'rate' | 'stock' | 'purchase';
+            fromPhone: string;
+            rawMessage: string;
+            summary: string;
+            beforeState?: any;
+            afterState?: any;
+            invoiceId?: string;
+        }): Promise<void> {
+            const { error } = await supabase.from('catalogue_command_log').insert({
+                command_type: entry.commandType,
+                from_phone: entry.fromPhone,
+                raw_message: entry.rawMessage,
+                summary: entry.summary,
+                before_state: entry.beforeState ?? null,
+                after_state: entry.afterState ?? null,
+                invoice_id: entry.invoiceId ?? null,
+            });
+            if (error) console.error('Failed to write catalogue command log entry:', error.message);
+        },
+
+        async getAll(): Promise<Array<{
+            id: string;
+            createdAt: string;
+            commandType: 'rate' | 'stock' | 'purchase';
+            fromPhone: string;
+            rawMessage: string;
+            summary: string;
+            beforeState: any;
+            afterState: any;
+            invoiceId: string | null;
+            reverted: boolean;
+            revertedAt: string | null;
+        }>> {
+            const { data, error } = await supabase
+                .from('catalogue_command_log')
+                .select('*')
+                .order('created_at', { ascending: false });
+            handleSupabaseError(error);
+            return (data || []).map(row => ({
+                id: row.id,
+                createdAt: row.created_at,
+                commandType: row.command_type,
+                fromPhone: row.from_phone,
+                rawMessage: row.raw_message,
+                summary: row.summary,
+                beforeState: row.before_state,
+                afterState: row.after_state,
+                invoiceId: row.invoice_id,
+                reverted: row.reverted,
+                revertedAt: row.reverted_at,
+            }));
+        },
+
+        async revert(id: string): Promise<void> {
+            const { data: row, error: fetchError } = await supabase
+                .from('catalogue_command_log')
+                .select('*')
+                .eq('id', id)
+                .single();
+            if (fetchError || !row) throw new Error(fetchError?.message || 'Log entry not found.');
+            if (row.reverted) throw new Error('This entry has already been reverted.');
+
+            if (row.command_type === 'purchase') {
+                if (!row.invoice_id) throw new Error('No invoice recorded for this entry -- cannot revert.');
+                await db.invoices.delete(row.invoice_id);
+            } else if (row.command_type === 'rate') {
+                const items: Array<{ id: string; rate: number; rateUnit: string }> = row.before_state?.items || [];
+                for (const item of items) {
+                    const { error } = await supabase
+                        .from('items')
+                        .update({ rate: item.rate, rate_unit: item.rateUnit })
+                        .eq('id', item.id);
+                    handleSupabaseError(error);
+                }
+            } else if (row.command_type === 'stock') {
+                const before = row.before_state as { itemId: string; stock: number; warehouseStock: Record<string, number> } | null;
+                if (!before) throw new Error('No prior stock recorded for this entry -- cannot revert.');
+                const { error } = await supabase
+                    .from('items')
+                    .update({ stock: before.stock, warehouse_stock: before.warehouseStock })
+                    .eq('id', before.itemId);
+                handleSupabaseError(error);
+            }
+
+            const { error: markError } = await supabase
+                .from('catalogue_command_log')
+                .update({ reverted: true, reverted_at: new Date().toISOString() })
+                .eq('id', id);
+            handleSupabaseError(markError);
+        },
+
+        async remove(id: string): Promise<void> {
+            const { error } = await supabase.from('catalogue_command_log').delete().eq('id', id);
+            handleSupabaseError(error);
+        },
     }
 };
 

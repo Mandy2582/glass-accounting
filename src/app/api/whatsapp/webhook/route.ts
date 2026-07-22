@@ -600,7 +600,19 @@ async function applyRateUpdate(fromPhone: string, body: string): Promise<{ statu
         const catalog = await db.items.getAll();
         const result = parseAndApplyRateUpdate(body, catalog);
         if (result.ok) {
+            // Snapshot each item's own prior rate BEFORE applying -- matched
+            // items aren't guaranteed to have started at the same rate, so
+            // revert must restore each one individually, not a single value.
+            const beforeItems = result.matched.map(item => ({ id: item.id, rate: item.rate, rateUnit: item.rateUnit || 'sqft' }));
             await db.items.bulkUpdateRate(result.matched.map(item => item.id), result.rate, result.rateUnit);
+            await logCatalogueCommand({
+                commandType: 'rate',
+                fromPhone,
+                rawMessage: body,
+                summary: `${result.label} -> Rs ${result.rate}${result.rateUnit === 'nos' ? ' each' : '/sqft'} (${result.matched.length} item${result.matched.length === 1 ? '' : 's'})`,
+                beforeState: { items: beforeItems },
+                afterState: { rate: result.rate, rateUnit: result.rateUnit },
+            });
         }
         await sendWhatsAppText(fromPhone, formatRateUpdateReply(result));
         return result.ok
@@ -619,7 +631,16 @@ async function applyStockUpdate(fromPhone: string, body: string): Promise<{ stat
         const catalog = await db.items.getAll();
         const result = parseAndApplyStockUpdate(body, catalog);
         if (result.ok) {
+            const before = { itemId: result.item.id, stock: result.item.stock, warehouseStock: result.item.warehouseStock || {} };
             await db.items.bulkUpdateStock(result.item.id, result.stock);
+            await logCatalogueCommand({
+                commandType: 'stock',
+                fromPhone,
+                rawMessage: body,
+                summary: `${result.label} -> ${result.inputQuantity} ${result.inputUnit}`,
+                beforeState: before,
+                afterState: { stock: result.stock },
+            });
         }
         await sendWhatsAppText(fromPhone, formatStockUpdateReply(result));
         return result.ok ? { status: 'stock_update_applied' } : { status: 'stock_update_rejected', reason: result.reason };
@@ -628,6 +649,24 @@ async function applyStockUpdate(fromPhone: string, body: string): Promise<{ stat
         const message = error instanceof Error ? error.message : 'Unknown error';
         await sendWhatsAppText(fromPhone, `Stock update failed: ${message}`).catch(() => {});
         return { status: 'stock_update_error', reason: message };
+    }
+}
+
+// A logging failure must never block the actual command from applying and
+// replying -- this is a secondary audit trail, not the source of truth.
+async function logCatalogueCommand(entry: {
+    commandType: 'rate' | 'stock' | 'purchase';
+    fromPhone: string;
+    rawMessage: string;
+    summary: string;
+    beforeState?: unknown;
+    afterState?: unknown;
+    invoiceId?: string;
+}): Promise<void> {
+    try {
+        await db.catalogueLog.add(entry);
+    } catch (error) {
+        console.error('[catalogue-log] failed to record entry:', error);
     }
 }
 
@@ -709,6 +748,19 @@ async function applyPurchaseEntry(fromPhone: string, body: string): Promise<{ st
         };
 
         await db.invoices.add(invoice);
+
+        // No before_state needed -- reverting a purchase means deleting the
+        // whole invoice (db.invoices.delete already correctly reverses
+        // stock_batches/warehouse_stock/avg cost/party balance), not
+        // restoring individual item fields.
+        await logCatalogueCommand({
+            commandType: 'purchase',
+            fromPhone,
+            rawMessage: body,
+            summary: `${invoice.number} from ${supplier.name}: ${okLines.length} item${okLines.length === 1 ? '' : 's'}, Rs ${invoice.total}`,
+            afterState: { supplier: supplier.name, items: okLines.map(line => ({ item: line.item.name, quantity: line.quantity, unit: line.unit, rate: line.rate })) },
+            invoiceId: invoice.id,
+        });
 
         const lineSummary = okLines.map(line => `- ${line.item.name}: ${line.quantity} ${line.unit} @${line.rate}`).join('\n');
         await sendWhatsAppText(fromPhone, `Purchase recorded: ${invoice.number} from ${supplier.name}\n${lineSummary}\nTotal: Rs ${invoice.total}`);
