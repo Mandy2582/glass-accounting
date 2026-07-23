@@ -19,7 +19,13 @@ export async function sendQuotationForOrder(order: Order): Promise<SendQuotation
         ? (await designsDb.getAll()).filter(design => design.orderId === order.id)
         : [];
 
-    if (order.requiresDesign && !designs.some(design => design.estimatedCost > 0)) {
+    // requiresDesign also covers orders like a WhatsApp Toughened Glass
+    // dimension list -- priced immediately from the parsed pieces, with no
+    // sketch and so no CustomDesign row ever created for it. Only block on
+    // a missing priced design when the order's own items are still the
+    // zero-value placeholder a freshly-intaken drawing order starts as.
+    const hasPricedItems = order.items.some(item => Number(item.lineTotal ?? item.amount) > 0);
+    if (order.requiresDesign && !hasPricedItems && !designs.some(design => design.estimatedCost > 0)) {
         return { ok: false, reason: 'This order needs a priced design before a quotation can be sent. Finish the drawing in the design editor first.' };
     }
 
