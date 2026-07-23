@@ -376,6 +376,12 @@ export interface CustomDesign {
 export interface ThicknessPricing {
     thickness: number; // in mm (e.g., 3.5, 4, 5, 6, 8, 10, 12, 15, 19)
     ratePerSqft: number; // Direct rate per sqft for this thickness
+    // Optional colour/type this rate applies to (e.g. "Clear", "Brown") --
+    // mainly for Toughened Glass, which is priced by thickness AND colour
+    // rather than matched against a fixed-size catalogue item. Left unset,
+    // a row is a generic rate for that thickness (existing behaviour for
+    // every non-toughened custom design piece, unchanged).
+    glassType?: string;
 }
 
 export interface PricingConfig {

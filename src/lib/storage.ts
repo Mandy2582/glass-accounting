@@ -1754,10 +1754,10 @@ export const db = {
          * Get thickness-based pricing rates
          * @returns Array of thickness pricing configurations
          */
-        async getThicknessPricing(): Promise<Array<{ thickness: number; ratePerSqft: number }>> {
+        async getThicknessPricing(): Promise<Array<{ thickness: number; ratePerSqft: number; glassType?: string }>> {
             const { data, error } = await supabase
                 .from('thickness_pricing')
-                .select('thickness, rate_per_sqft')
+                .select('thickness, rate_per_sqft, glass_type')
                 .order('thickness');
 
             if (error) {
@@ -1792,7 +1792,8 @@ export const db = {
 
             return data.map(item => ({
                 thickness: Number(item.thickness),
-                ratePerSqft: roundCurrency(item.rate_per_sqft)
+                ratePerSqft: roundCurrency(item.rate_per_sqft),
+                glassType: item.glass_type || undefined
             }));
         },
 
@@ -1800,7 +1801,7 @@ export const db = {
          * Update thickness-based pricing rates
          * @param thicknessPricing - Array of thickness pricing configurations to save
          */
-        async updateThicknessPricing(thicknessPricing: Array<{ thickness: number; ratePerSqft: number }>): Promise<void> {
+        async updateThicknessPricing(thicknessPricing: Array<{ thickness: number; ratePerSqft: number; glassType?: string }>): Promise<void> {
             try {
                 // Delete all existing thickness pricing
                 const { error: deleteError } = await supabase
@@ -1819,7 +1820,8 @@ export const db = {
                         .from('thickness_pricing')
                         .insert(thicknessPricing.map(item => ({
                             thickness: item.thickness,
-                            rate_per_sqft: roundCurrency(item.ratePerSqft)
+                            rate_per_sqft: roundCurrency(item.ratePerSqft),
+                            glass_type: item.glassType?.trim() || null
                         })));
 
                     if (insertError) {

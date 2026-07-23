@@ -17,7 +17,7 @@ export default function PricingSettingsPage() {
     });
     const [pricingLoading, setPricingLoading] = useState(true);
     const [savingPricing, setSavingPricing] = useState(false);
-    const [thicknessPricing, setThicknessPricing] = useState<Array<{ thickness: number; ratePerSqft: number }>>([]);
+    const [thicknessPricing, setThicknessPricing] = useState<Array<{ thickness: number; ratePerSqft: number; glassType?: string }>>([]);
     const [savingThickness, setSavingThickness] = useState(false);
 
     const [businessConfig, setBusinessConfig] = useState<BusinessConfig>(db.businessConfig.getDefaults());
@@ -123,6 +123,12 @@ export default function PricingSettingsPage() {
         setThicknessPricing(updated);
     };
 
+    const handleThicknessTypeChange = (index: number, value: string) => {
+        const updated = [...thicknessPricing];
+        updated[index] = { ...updated[index], glassType: value };
+        setThicknessPricing(updated);
+    };
+
     const handleAddThickness = () => {
         setThicknessPricing([...thicknessPricing, { thickness: 6, ratePerSqft: 0 }]);
     };
@@ -168,6 +174,9 @@ export default function PricingSettingsPage() {
                                         <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.25rem' }}>Thickness-Wise Glass Rates</h3>
                                         <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', margin: 0 }}>
                                             Used for custom design glass cost as: area × rate for selected thickness.
+                                            Leave Glass Type blank for a generic rate at that thickness. For Toughened Glass,
+                                            add one row per colour (e.g. 12mm + Clear, 12mm + Brown) so a WhatsApp order for
+                                            a specific colour is priced correctly.
                                         </p>
                                     </div>
                                     <button type="button" className="btn" onClick={handleAddThickness}>
@@ -181,7 +190,7 @@ export default function PricingSettingsPage() {
                                             key={`${item.thickness}-${index}`}
                                             style={{
                                                 display: 'grid',
-                                                gridTemplateColumns: 'minmax(140px, 1fr) minmax(180px, 1fr) auto',
+                                                gridTemplateColumns: 'minmax(120px, 1fr) minmax(160px, 1fr) minmax(160px, 1fr) auto',
                                                 gap: '0.75rem',
                                                 alignItems: 'end'
                                             }}
@@ -195,6 +204,16 @@ export default function PricingSettingsPage() {
                                                     onChange={(e) => handleThicknessChange(index, 'thickness', parseFloat(e.target.value) || 0)}
                                                     min="0"
                                                     step="0.5"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="form-label">Glass Type (optional)</label>
+                                                <input
+                                                    type="text"
+                                                    className="form-input"
+                                                    value={item.glassType || ''}
+                                                    onChange={(e) => handleThicknessTypeChange(index, e.target.value)}
+                                                    placeholder="e.g. Clear, Brown"
                                                 />
                                             </div>
                                             <div>

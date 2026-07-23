@@ -20,6 +20,7 @@ import { formatStockUpdateReply, parseAndApplyStockUpdate } from '@/lib/stockUpd
 import { parsePurchaseMessage, type ParsedPurchaseLine } from '@/lib/purchaseMessage';
 import { calculateLineAmounts, defaultUnitsForItem } from '@/lib/units';
 import { upsertDesignItemsInOrder } from '@/lib/orderDesignItems';
+import { looksLikeCustomGlassOrder, parseCustomGlassOrder, buildCustomGlassOrderItems, type CustomGlassOrderResult } from '@/lib/customGlassOrder';
 import { normalizeIntakeImage, type NormalizedIntakeImage } from '@/lib/intakeImage';
 import type { CustomDesign, Invoice, InvoiceItem, Order, Party, PricingConfig } from '@/types';
 
@@ -213,6 +214,9 @@ async function createOrderFromWhatsAppEvent(event: WhatsAppMessageEvent) {
         return await createDraftFromWhatsAppImage(event, body);
     }
 
+    const customGlassResult = await handleCustomGlassOrderText(event, body, 'WhatsApp Business webhook');
+    if (customGlassResult) return customGlassResult;
+
     const items = await withAvailableStock(await db.items.getAll());
     const parsedLines = parseWhatsAppOrderText(body, items);
     // A resolved line has a catalogue item attached, whether the stock for
@@ -299,6 +303,10 @@ async function createDraftFromWhatsAppImage(event: WhatsAppMessageEvent, caption
             analysis.extractedText,
             ...analysis.orderLines.map(line => `${line.quantity || 1} ${line.unit || ''} ${line.description}`.trim()),
         ].filter(Boolean).join('\n');
+
+        const customGlassResult = await handleCustomGlassOrderText(event, orderText, 'WhatsApp image order');
+        if (customGlassResult) return customGlassResult;
+
         const items = await withAvailableStock(await db.items.getAll());
         const parsedLines = parseWhatsAppOrderText(orderText, items);
         const resolvedLines = parsedLines.filter(line => line.item);
@@ -406,6 +414,150 @@ async function saveWhatsAppOrder(input: {
 
     await db.orders.add(order);
     return order;
+}
+
+// Toughened Glass custom-dimension orders: items are already fully built
+// (buildCustomGlassOrderItems), so totals here are summed from those items
+// rather than re-derived from parsed lines/getWhatsAppOrderTotals like
+// saveWhatsAppOrder does. requiresDesign is set so the existing "Create PO"
+// flow (isCustomDesignOrderItem in orders/[id]/page.tsx) picks these items up
+// automatically, even though there's no CustomDesign/sketch row behind them.
+async function saveCustomGlassOrder(input: {
+    customer: Party;
+    messageId: string;
+    from: string;
+    originalMessage: string;
+    items: InvoiceItem[];
+    parsed: Extract<CustomGlassOrderResult, { ok: true }>;
+    source: string;
+}): Promise<Order> {
+    const subtotal = roundCurrency(input.items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0));
+    const total = roundCurrency(input.items.reduce((sum, item) => sum + (Number(item.lineTotal) || 0), 0));
+    const taxAmount = roundCurrency(total - subtotal);
+    const pieceCount = input.parsed.pieces.reduce((sum, piece) => sum + piece.quantity, 0);
+
+    const orderNumber = await db.orders.generateNextOrderNumber('sale_order');
+    const generalNumber = await db.orders.generateNextGeneralNumber();
+    const order: Order = {
+        id: generateUUID(),
+        type: 'sale_order',
+        number: orderNumber,
+        generalNumber,
+        soNumber: orderNumber,
+        date: new Date().toISOString().slice(0, 10),
+        partyId: input.customer.id,
+        partyName: input.customer.name,
+        items: input.items,
+        subtotal,
+        taxRate: 18,
+        taxAmount,
+        total,
+        status: 'pending',
+        requiresDesign: true,
+        notes: withNeedsApproval(withOrderSource([
+            `Created automatically from ${input.source}.`,
+            `WhatsApp Message ID: ${input.messageId}`,
+            `WhatsApp From: ${input.from}`,
+            '',
+            `Toughened Glass, custom sizes -- ${input.parsed.thickness}mm ${input.parsed.glassType}, ${input.items.length} size(s), ${pieceCount} pcs total. Taken exactly as written (not catalogue-matched) -- made to order via supplier purchase order.`,
+            '',
+            'Original message:',
+            input.originalMessage,
+        ].join('\n'), 'whatsapp')),
+        paidAmount: 0,
+        paymentStatus: 'unpaid',
+    };
+
+    await db.orders.add(order);
+    return order;
+}
+
+// Entry point for both WhatsApp text-order call sites (plain text message,
+// and OCR'd text from an image). Returns null when the message doesn't look
+// like a Toughened Glass order at all, so the caller falls through to its
+// normal catalogue-matching flow unchanged. When it DOES look like one but
+// fails to parse, this deliberately still creates an order (empty items,
+// failure reason in the notes) instead of returning null -- letting it fall
+// through to catalogue matching is exactly the "only fetched the first item"
+// bug this path exists to prevent.
+async function handleCustomGlassOrderText(event: WhatsAppMessageEvent, orderText: string, source: string) {
+    if (!looksLikeCustomGlassOrder(orderText)) return null;
+
+    const parsed = parseCustomGlassOrder(orderText);
+    const parties = await db.parties.getAll();
+    const customer = await getOrCreateCustomer(event, parties);
+
+    if (!parsed.ok) {
+        const orderNumber = await db.orders.generateNextOrderNumber('sale_order');
+        const generalNumber = await db.orders.generateNextGeneralNumber();
+        const order: Order = {
+            id: generateUUID(),
+            type: 'sale_order',
+            number: orderNumber,
+            generalNumber,
+            soNumber: orderNumber,
+            date: new Date().toISOString().slice(0, 10),
+            partyId: customer.id,
+            partyName: customer.name,
+            items: [],
+            subtotal: 0,
+            taxRate: 18,
+            taxAmount: 0,
+            total: 0,
+            status: 'pending',
+            requiresDesign: true,
+            notes: withNeedsApproval(withOrderSource([
+                `Created automatically from ${source}.`,
+                `WhatsApp Message ID: ${event.message.id}`,
+                `WhatsApp From: ${event.message.from}`,
+                '',
+                `This looks like a custom Toughened Glass order but could not be parsed automatically: ${parsed.reason}`,
+                'Please add the dimensions/pricing manually.',
+                '',
+                'Original message:',
+                orderText,
+            ].join('\n'), 'whatsapp')),
+            paidAmount: 0,
+            paymentStatus: 'unpaid',
+        };
+        await db.orders.add(order);
+        return {
+            messageId: event.message.id,
+            status: 'custom_glass_review_created',
+            orderId: order.id,
+            orderNumber: order.number,
+            customerId: customer.id,
+            customerName: customer.name,
+            reason: parsed.reason,
+        };
+    }
+
+    const pricing = await db.settings.getPricing();
+    const thicknessPricing = await db.settings.getThicknessPricing();
+    const pricingConfig: PricingConfig = { ...pricing, thicknessPricing };
+    const items = buildCustomGlassOrderItems(parsed, pricingConfig, 18);
+
+    const order = await saveCustomGlassOrder({
+        customer,
+        messageId: event.message.id,
+        from: event.message.from,
+        originalMessage: orderText,
+        items,
+        parsed,
+        source,
+    });
+    await runAutoReview(order);
+
+    return {
+        messageId: event.message.id,
+        status: 'custom_glass_order_created',
+        orderId: order.id,
+        orderNumber: order.number,
+        customerId: customer.id,
+        customerName: customer.name,
+        matchedRows: items.length,
+        total: order.total,
+    };
 }
 
 async function createReviewOrderForWhatsAppText(

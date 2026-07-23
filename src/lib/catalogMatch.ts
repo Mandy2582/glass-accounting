@@ -209,4 +209,30 @@ export function extractSizeMatch(text: string): { dims: { a: number; b: number }
     return { dims: { a: Number(m[1]), b: Number(m[2]) }, raw: m[0] };
 }
 
+// Resolves a per-sqft rate from Settings' thickness-pricing rows for a
+// given thickness + optional type/colour (e.g. Toughened Glass, priced by
+// thickness AND Clear-vs-colour rather than matched against a fixed-size
+// catalogue item). Prefers a row whose glassType token-overlaps the
+// requested type (so "toughened brown" matches a "Brown" row); falls back
+// to a thickness-matching row with no glassType set (today's existing
+// generic-rate behaviour, unchanged for every non-toughened caller); then
+// null, leaving the final fallback (e.g. baseRatePerSqft) to the caller.
+export function resolveThicknessRate(
+    rows: Array<{ thickness: number; ratePerSqft: number; glassType?: string }> | undefined,
+    thickness: number,
+    typeText?: string | null,
+): number | null {
+    const sameThickness = (rows || []).filter(row => Number(row.thickness) === thickness);
+    if (sameThickness.length === 0) return null;
+
+    if (typeText) {
+        const typeTokens = tokenize(typeText);
+        const typed = sameThickness.find(row => row.glassType && tokenize(row.glassType).some(t => typeTokens.includes(t)));
+        if (typed) return typed.ratePerSqft;
+    }
+
+    const generic = sameThickness.find(row => !row.glassType);
+    return generic ? generic.ratePerSqft : null;
+}
+
 export { extractSizePair, sizeMatchesItem };

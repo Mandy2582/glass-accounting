@@ -1,6 +1,7 @@
 import { CustomDesign, InvoiceItem, Order, PricingConfig } from '@/types';
 import { roundCurrency } from '@/lib/utils';
 import { calculateLineMeasurement } from '@/lib/units';
+import { resolveThicknessRate } from '@/lib/catalogMatch';
 
 type DesignPiece = {
     id?: string;
@@ -41,8 +42,13 @@ type HardwareRowInput = {
 
 const getPieceThicknessRate = (piece: DesignPiece, pricingConfig: PricingConfig): number => {
     const thickness = Number(piece.thickness) || 6;
-    const exactMatch = pricingConfig.thicknessPricing?.find(item => Number(item.thickness) === thickness);
-    return roundCurrency(Number(exactMatch?.ratePerSqft ?? pricingConfig.baseRatePerSqft ?? 0) || 0);
+    // Prefers a rate row matching this piece's own type/colour (e.g. a
+    // Toughened Brown sketch picks the Brown-specific rate over a generic
+    // thickness-only one) -- resolveThicknessRate falls back to a generic
+    // thickness row when no type-specific one exists, so this is a no-op
+    // for every existing (non-toughened) piece/rate row.
+    const rate = resolveThicknessRate(pricingConfig.thicknessPricing, thickness, piece.type);
+    return roundCurrency(Number(rate ?? pricingConfig.baseRatePerSqft ?? 0) || 0);
 };
 
 const isDesignOrderItem = (item: InvoiceItem): boolean => (
