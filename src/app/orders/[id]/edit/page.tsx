@@ -11,7 +11,7 @@ import NumericInput from '@/components/NumericInput';
 import PartyModal from '@/components/parties/PartyModal';
 import ItemModal from '@/components/inventory/ItemModal';
 import { generateUUID, roundCurrency } from '@/lib/utils';
-import { calculateLineAmounts, convertRateForItemUnit, defaultUnitsForItem, UNIT_OPTIONS_BY_GROUP } from '@/lib/units';
+import { calculateDimensionAreaSqft, calculateLineAmounts, convertRateForItemUnit, defaultUnitsForItem, UNIT_OPTIONS_BY_GROUP } from '@/lib/units';
 import { splitInternalNotes } from '@/lib/orderNotes';
 import { normalizeDesignItemBillingFields } from '@/lib/orderDesignItems';
 
@@ -128,7 +128,8 @@ export default function EditOrderPage() {
                 lineTotal: item.lineTotal,
                 sourceType: item.sourceType,
                 designId: item.designId,
-                designPieceId: item.designPieceId
+                designPieceId: item.designPieceId,
+                pieceCount: item.pieceCount
             })));
         } catch (error) {
             console.error('Error loading order data:', error);
@@ -235,6 +236,20 @@ export default function EditOrderPage() {
     const updateItem = (index: number, field: string, value: any) => {
         const updated = [...orderItems];
         const previousRateUnit = updated[index].rateUnit || updated[index].unit || 'nos';
+
+        // For a piece-count-bearing design item (e.g. a Toughened Glass
+        // custom order), the QTY field the user is editing is the piece
+        // count, not sqft -- quantity itself must stay numerically equal to
+        // sqft (normalizeDesignItemBillingFields enforces this), so
+        // translate the typed piece count into its equivalent sqft before
+        // falling into the normal quantity-handling path below.
+        if (field === 'quantity' && updated[index].pieceCount != null) {
+            const pieces = value === '' ? 0 : Number(value);
+            const recalculatedSqft = calculateDimensionAreaSqft(updated[index].width, updated[index].height, pieces);
+            updated[index] = { ...updated[index], pieceCount: pieces };
+            value = recalculatedSqft;
+        }
+
         const item = { ...updated[index], [field]: value };
 
         // If selecting from catalog
@@ -614,27 +629,36 @@ export default function EditOrderPage() {
                                         <td>
                                             <NumericInput
                                                 className="input"
-                                                value={item.quantity}
+                                                value={item.pieceCount ?? item.quantity}
                                                 onChange={val => updateItem(index, 'quantity', val)}
                                                 min={1}
                                                 style={{ fontSize: '0.875rem', width: '100%' }}
                                             />
                                         </td>
                                         <td>
-                                            <select
-                                                className="input"
-                                                value={item.unit || 'sqft'}
-                                                onChange={(e) => updateItem(index, 'unit', e.target.value)}
-                                                style={{ fontSize: '0.875rem', width: '100%' }}
-                                            >
-                                                {UNIT_OPTIONS_BY_GROUP.map(group => (
-                                                    <optgroup key={group.label} label={group.label}>
-                                                        {group.units.map(unit => (
-                                                            <option key={unit.value} value={unit.value}>{unit.label}</option>
-                                                        ))}
-                                                    </optgroup>
-                                                ))}
-                                            </select>
+                                            {item.pieceCount != null ? (
+                                                // Billing unit is fixed to sqft for a piece-count-bearing
+                                                // design item (its rate is always per sqft) -- show that
+                                                // plainly rather than an editable dropdown that could
+                                                // otherwise be switched away from the unit the sqft/rate
+                                                // math above actually assumes.
+                                                <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>pcs</span>
+                                            ) : (
+                                                <select
+                                                    className="input"
+                                                    value={item.unit || 'sqft'}
+                                                    onChange={(e) => updateItem(index, 'unit', e.target.value)}
+                                                    style={{ fontSize: '0.875rem', width: '100%' }}
+                                                >
+                                                    {UNIT_OPTIONS_BY_GROUP.map(group => (
+                                                        <optgroup key={group.label} label={group.label}>
+                                                            {group.units.map(unit => (
+                                                                <option key={unit.value} value={unit.value}>{unit.label}</option>
+                                                            ))}
+                                                        </optgroup>
+                                                    ))}
+                                                </select>
+                                            )}
                                         </td>
                                         <td style={{ fontWeight: 600, fontSize: '0.85rem' }}>
                                             {getBillingLabel(item)}
