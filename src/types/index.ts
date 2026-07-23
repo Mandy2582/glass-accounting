@@ -120,6 +120,12 @@ export interface InvoiceItem {
     sourceType?: 'catalog' | 'text' | 'design';
     designId?: string;
     designPieceId?: string;
+    // Display-only piece count for an sqft-billed line whose `quantity`
+    // must stay equal to `sqft` (the design-item billing/delivery-tracking
+    // convention enforced by normalizeDesignItemBillingFields) -- e.g. a
+    // Toughened Glass line for "2 pcs of 84in x 31.5in". Leave unset for
+    // every other item; UI should fall back to `quantity` when absent.
+    pieceCount?: number;
 }
 
 export interface Invoice {

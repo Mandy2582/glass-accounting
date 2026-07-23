@@ -1,6 +1,7 @@
 import type { InvoiceItem, PricingConfig } from '@/types';
 import { generateUUID } from '@/lib/utils';
 import { resolveThicknessRate } from '@/lib/catalogMatch';
+import { calculateDimensionAreaSqft } from '@/lib/units';
 import { CATALOGUE_SYNONYMS } from '@/lib/whatsappOrders';
 
 // Toughened Glass isn't stocked -- it's made to order at whatever exact
@@ -141,13 +142,11 @@ export function buildCustomGlassOrderItems(
     const rate = resolveThicknessRate(pricingConfig.thicknessPricing, parsed.thickness, parsed.glassType) ?? Number(pricingConfig.baseRatePerSqft) ?? 0;
 
     return parsed.pieces.map((piece, index) => {
-        // Billing is by area (sqft) even though the order names a piece
-        // count per dimension (mostly 1, occasionally 2) -- quantity holds
-        // that pcs count for display, kept deliberately separate from the
-        // sqft used to bill, matching how the rest of the app already
-        // treats sqft-unit lines (e.g. the PO rate editor bills off
-        // item.sqft, not item.quantity, for exactly this reason).
-        const areaSqft = Math.round((piece.width / 12) * (piece.height / 12) * piece.quantity * 100) / 100;
+        // Toughened glass is cut with a rounding allowance -- each edge is
+        // rounded up to the next even inch before the area is computed
+        // (same convention the custom-design pipeline already uses via
+        // calculateDimensionAreaSqft), not the raw width x height.
+        const areaSqft = calculateDimensionAreaSqft(piece.width, piece.height, piece.quantity);
         const lineTotal = Math.round(areaSqft * rate * 100) / 100;
         const amount = Math.round((lineTotal / (1 + taxRate / 100)) * 100) / 100;
 
@@ -159,7 +158,12 @@ export function buildCustomGlassOrderItems(
             type: 'Toughened Glass',
             width: piece.width,
             height: piece.height,
-            quantity: piece.quantity,
+            // quantity must stay equal to sqft for an sqft-unit design item --
+            // normalizeDesignItemBillingFields (orderDesignItems.ts) enforces
+            // that invariant whenever the order is opened in New/Edit Order,
+            // silently overwriting anything else. pieceCount instead carries
+            // the real piece count (mostly 1, occasionally 2) for display.
+            quantity: areaSqft,
             unit: 'sqft' as const,
             sqft: areaSqft,
             rate,
@@ -168,6 +172,7 @@ export function buildCustomGlassOrderItems(
             lineTotal,
             sourceType: 'design' as const,
             designPieceId: `custom-toughened-${index + 1}`,
+            pieceCount: piece.quantity,
         };
     });
 }

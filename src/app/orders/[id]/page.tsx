@@ -567,7 +567,7 @@ export default function OrderDetailPage() {
                 const details = [
                     item.description,
                     sizeText,
-                    `${Number(item.quantity) || 0} ${item.unit || 'nos'}`,
+                    item.pieceCount != null ? `${item.pieceCount} pcs` : `${Number(item.quantity) || 0} ${item.unit || 'nos'}`,
                     item.unit === 'sqft' ? `${Number(item.sqft || 0).toFixed(2)} sqft` : undefined,
                     `@ ₹${Number(item.rate || 0).toFixed(2)}`
                 ].filter(Boolean).join(' | ');
@@ -1865,7 +1865,7 @@ export default function OrderDetailPage() {
                                     <tr key={index}>
                                         <td>{item.description || item.itemName}</td>
                                         <td>{item.width && item.height ? `${formatInchesToFraction(item.width)}" × ${formatInchesToFraction(item.height)}"` : '-'}</td>
-                                        <td>{item.quantity}</td>
+                                        <td>{item.pieceCount ?? item.quantity}</td>
                                         <td>{item.sqft.toFixed(2)}</td>
                                         {order.type === 'purchase_order' && (
                                             <>
@@ -2343,7 +2343,7 @@ function CreatePOModal({
                                             <td>{item.type || 'Glass'}</td>
                                             <td>{item.description || item.itemName}</td>
                                             <td>{item.width && item.height ? `${formatInchesToFraction(item.width)}" × ${formatInchesToFraction(item.height)}"` : '-'}</td>
-                                            <td>{item.quantity}</td>
+                                            <td>{item.pieceCount ?? item.quantity}</td>
                                             <td>{item.sqft.toFixed(2)}</td>
                                             <td>
                                                 <input

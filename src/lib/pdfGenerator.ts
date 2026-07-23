@@ -1152,8 +1152,12 @@ export async function generateOrderPDF(
 
         const desc = item.description || item.itemName || 'N/A';
         const sizeStr = (item.width && item.height) ? `${formatInchesToFraction(item.width)}" x ${formatInchesToFraction(item.height)}"` : '-';
-        const qtyStr = String(item.quantity);
-        const unitStr = item.unit || 'sqft';
+        // pieceCount (when set) is the real piece count for an sqft-billed
+        // line whose quantity must stay numerically equal to sqft -- show
+        // that instead of the sqft-duplicate quantity, with "pcs" rather
+        // than the billing unit so it doesn't read as "49.79 sqft" pieces.
+        const qtyStr = String(item.pieceCount ?? item.quantity);
+        const unitStr = item.pieceCount != null ? 'pcs' : (item.unit || 'sqft');
         const sqftStr = (Number(item.sqft) || 0).toFixed(2);
 
         pdf.text(desc, colX[0], yPos);
