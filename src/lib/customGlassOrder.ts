@@ -1,6 +1,5 @@
 import type { InvoiceItem, PricingConfig } from '@/types';
 import { generateUUID } from '@/lib/utils';
-import { calculateLineAmounts } from '@/lib/units';
 import { resolveThicknessRate } from '@/lib/catalogMatch';
 import { CATALOGUE_SYNONYMS } from '@/lib/whatsappOrders';
 
@@ -142,16 +141,15 @@ export function buildCustomGlassOrderItems(
     const rate = resolveThicknessRate(pricingConfig.thicknessPricing, parsed.thickness, parsed.glassType) ?? Number(pricingConfig.baseRatePerSqft) ?? 0;
 
     return parsed.pieces.map((piece, index) => {
+        // Billing is by area (sqft) even though the order names a piece
+        // count per dimension (mostly 1, occasionally 2) -- quantity holds
+        // that pcs count for display, kept deliberately separate from the
+        // sqft used to bill, matching how the rest of the app already
+        // treats sqft-unit lines (e.g. the PO rate editor bills off
+        // item.sqft, not item.quantity, for exactly this reason).
         const areaSqft = Math.round((piece.width / 12) * (piece.height / 12) * piece.quantity * 100) / 100;
-        const calculated = calculateLineAmounts({
-            width: piece.width,
-            height: piece.height,
-            quantity: areaSqft,
-            unit: 'sqft',
-            rate,
-            rateUnit: 'sqft',
-            taxRate,
-        });
+        const lineTotal = Math.round(areaSqft * rate * 100) / 100;
+        const amount = Math.round((lineTotal / (1 + taxRate / 100)) * 100) / 100;
 
         return {
             id: generateUUID(),
@@ -161,13 +159,13 @@ export function buildCustomGlassOrderItems(
             type: 'Toughened Glass',
             width: piece.width,
             height: piece.height,
-            quantity: areaSqft,
+            quantity: piece.quantity,
             unit: 'sqft' as const,
             sqft: areaSqft,
             rate,
             rateUnit: 'sqft' as const,
-            amount: calculated.amount,
-            lineTotal: calculated.lineTotal,
+            amount,
+            lineTotal,
             sourceType: 'design' as const,
             designPieceId: `custom-toughened-${index + 1}`,
         };
