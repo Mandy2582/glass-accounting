@@ -599,7 +599,7 @@ function AssignOperationModal({
 
     return (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-            <div className="card" style={{ width: '100%', maxWidth: '520px', padding: '1.5rem' }}>
+            <div className="card" style={{ width: '100%', maxWidth: '520px', maxHeight: '90vh', overflowY: 'auto', padding: '1.5rem' }}>
                 <h2 style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: '1rem' }}>
                     Assign {getWorkTypeLabel(type)}
                 </h2>
@@ -750,7 +750,7 @@ function CompleteWorkModal({
 
     return (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-            <div className="card" style={{ width: '100%', maxWidth: '560px', padding: '1.5rem' }}>
+            <div className="card" style={{ width: '100%', maxWidth: '560px', maxHeight: '90vh', overflowY: 'auto', padding: '1.5rem' }}>
                 <h2 style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     {task.assignment.type === 'transport' ? <PackageCheck size={19} /> : <CheckCircle size={19} />}
                     Complete {getWorkTypeLabel(task.assignment.type)}
