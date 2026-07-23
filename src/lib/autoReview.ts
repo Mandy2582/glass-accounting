@@ -70,9 +70,11 @@ const money = (value: number | undefined) => `₹${(Number(value) || 0).toFixed(
 
 export function buildQuotationMessage(order: Order, businessName: string): string {
     const lines = (order.items || []).map(item => {
-        const qty = Number(item.quantity) || 0;
-        const unit = item.unit || '';
-        return `• ${item.itemName} -- ${qty} ${unit} @ ${money(item.rate)} = ${money(item.lineTotal ?? item.amount)}`;
+        // pieceCount (when set) is the real piece count for an sqft-billed
+        // line whose quantity must stay numerically equal to sqft -- show
+        // that instead, so this doesn't read as e.g. "49.79 sqft".
+        const qtyText = item.pieceCount != null ? `${item.pieceCount} pcs` : `${Number(item.quantity) || 0} ${item.unit || ''}`;
+        return `• ${item.itemName} -- ${qtyText} @ ${money(item.rate)} = ${money(item.lineTotal ?? item.amount)}`;
     });
 
     return [
@@ -91,8 +93,8 @@ export function buildQuotationMessage(order: Order, businessName: string): strin
 
 export function buildOrderConfirmationMessage(order: Order, businessName: string): string {
     const lines = (order.items || []).map(item => {
-        const qty = Number(item.quantity) || 0;
-        return `• ${item.itemName} -- ${qty} ${item.unit || ''}`;
+        const qtyText = item.pieceCount != null ? `${item.pieceCount} pcs` : `${Number(item.quantity) || 0} ${item.unit || ''}`;
+        return `• ${item.itemName} -- ${qtyText}`;
     });
 
     return [

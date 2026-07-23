@@ -74,7 +74,13 @@ export function buildQuotationPdfBase64(order: Order, business: BusinessConfig, 
         const name = sanitize(item.itemName || '');
         const wrapped = doc.splitTextToSize(name, 92) as string[];
         doc.text(wrapped[0] || '', cols.desc + 1, y);
-        doc.text(`${Number(item.quantity) || 0} ${sanitize(item.unit || '')}`.trim(), cols.qty, y, { align: 'right' });
+        // pieceCount (when set) is the real piece count for an sqft-billed
+        // line whose quantity must stay numerically equal to sqft -- show
+        // that instead, so this doesn't print as e.g. "49.79 sqft" pieces.
+        const qtyText = item.pieceCount != null
+            ? `${item.pieceCount} pcs`
+            : `${Number(item.quantity) || 0} ${sanitize(item.unit || '')}`.trim();
+        doc.text(qtyText, cols.qty, y, { align: 'right' });
         doc.text(money(item.rate).replace('Rs. ', ''), cols.rate, y, { align: 'right' });
         doc.text(money(item.lineTotal ?? item.amount).replace('Rs. ', ''), cols.amount - 1, y, { align: 'right' });
 

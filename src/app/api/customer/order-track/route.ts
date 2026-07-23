@@ -139,6 +139,7 @@ export async function POST(request: Request) {
                     description: item.description || '',
                     quantity: roundCurrency(Number(item.quantity) || 0),
                     unit: item.unit || 'nos',
+                    pieceCount: item.pieceCount ?? null,
                     sqft: roundCurrency(Number(item.sqft) || 0),
                     rate: roundCurrency(Number(item.rate) || 0),
                     amount: roundCurrency(Number(item.lineTotal || item.amount) || 0),

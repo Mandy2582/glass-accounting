@@ -33,6 +33,7 @@ type TrackedOrder = {
         description: string;
         quantity: number;
         unit: string;
+        pieceCount?: number | null;
         sqft: number;
         rate: number;
         amount: number;
@@ -434,7 +435,7 @@ export default function TrackOrderPage() {
                                         <span>
                                             {item.width > 0 && item.height > 0 ? `${item.width}" x ${item.height}" • ` : ''}
                                             {item.sqft > 0 ? `${item.sqft.toFixed(2)} sqft • ` : ''}
-                                            {item.quantity} {item.unit}
+                                            {item.pieceCount != null ? `${item.pieceCount} pcs` : `${item.quantity} ${item.unit}`}
                                         </span>
                                     </div>
                                     <em>{formatIndianCurrency(item.amount)}</em>
