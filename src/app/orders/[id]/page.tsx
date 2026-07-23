@@ -22,6 +22,7 @@ import {
 import { estimateSent, getOrderIntakeDetails, getOrderSource, needsApproval } from '@/lib/orderNotes';
 import { approveAndInvoiceOrder, sendQuotationForOrder } from '@/lib/orderQuotation';
 import { useRole } from '@/components/RoleContext';
+import { GST_STATE_CODES } from '@/lib/gstStateCodes';
 
 const isCustomDesignOrderItem = (item: InvoiceItem): boolean => {
     return item.sourceType === 'design' || !!item.designId || !!item.designPieceId;
@@ -124,6 +125,7 @@ export default function OrderDetailPage() {
     const [showDeliveryModal, setShowDeliveryModal] = useState(false);
     const [showPaymentModal, setShowPaymentModal] = useState(false);
     const [showWorkModal, setShowWorkModal] = useState(false);
+    const [showEwbModal, setShowEwbModal] = useState(false);
 
     const [deliveryType, setDeliveryType] = useState<'supplier' | 'customer'>('supplier');
 
@@ -1357,6 +1359,11 @@ export default function OrderDetailPage() {
                         <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem', marginTop: '0.25rem' }}>
                             {order.type === 'sale_order' ? 'Customer Order' : 'Supplier Order'} • {order.partyName}
                         </p>
+                        {order.ewayBillNumber && (
+                            <p style={{ color: '#1d4ed8', fontSize: '0.85rem', marginTop: '0.35rem', fontWeight: 600 }}>
+                                E-Way Bill: {order.ewayBillNumber} (valid until {order.ewayBillValidUpto ? new Date(order.ewayBillValidUpto).toLocaleString() : 'N/A'})
+                            </p>
+                        )}
                     </div>
                     <div style={{ textAlign: 'right' }}>
                         <div style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>Payment Status</div>
@@ -1646,6 +1653,19 @@ export default function OrderDetailPage() {
                     >
                         <Route size={16} />
                         Assign Work
+                    </button>
+                )}
+
+                {/* GST e-Way Bill -- needs a tax invoice to reference, so
+                    only shown once the order has one; hidden again once an
+                    EBN already exists (shown as a badge instead below). */}
+                {order.invoiceId && !order.ewayBillNumber && (
+                    <button
+                        onClick={() => setShowEwbModal(true)}
+                        className="btn"
+                        style={{ background: '#1d4ed8', color: 'white', border: 'none', cursor: 'pointer' }}
+                    >
+                        Generate E-Way Bill
                     </button>
                 )}
 
@@ -2006,6 +2026,158 @@ export default function OrderDetailPage() {
                     onSubmit={handleAssignWork}
                 />
             )}
+
+            {showEwbModal && (
+                <EwayBillModal
+                    onClose={() => setShowEwbModal(false)}
+                    onSubmit={async (input) => {
+                        try {
+                            const authHeaders = await getAuthHeaders();
+                            const res = await fetch('/api/eway-bill/generate', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', ...authHeaders },
+                                body: JSON.stringify({ orderId: order.id, ...input }),
+                            });
+                            const data = await res.json();
+                            if (!res.ok || !data.success) {
+                                alert(data.error || 'Failed to generate e-Way Bill.');
+                                return;
+                            }
+                            setShowEwbModal(false);
+                            loadOrder();
+                            alert(`E-Way Bill generated: ${data.ewbNo}`);
+                        } catch (error) {
+                            console.error('E-Way Bill generation error:', error);
+                            alert('Failed to generate e-Way Bill.');
+                        }
+                    }}
+                />
+            )}
+        </div>
+    );
+}
+
+function EwayBillModal({
+    onClose,
+    onSubmit,
+}: {
+    onClose: () => void;
+    onSubmit: (input: {
+        distance: number;
+        transMode: '1' | '2' | '3' | '4';
+        transporterId: string;
+        transporterName: string;
+        vehicleNo: string;
+        vehicleType: 'R' | 'O';
+        subSupplyType: string;
+        toPincode: string;
+        toStateCode: string;
+    }) => Promise<void>;
+}) {
+    const [distance, setDistance] = useState<number>(0);
+    const [transMode, setTransMode] = useState<'1' | '2' | '3' | '4'>('1');
+    const [transporterId, setTransporterId] = useState('');
+    const [transporterName, setTransporterName] = useState('');
+    const [vehicleNo, setVehicleNo] = useState('');
+    const [vehicleType, setVehicleType] = useState<'R' | 'O'>('R');
+    const [subSupplyType, setSubSupplyType] = useState('1');
+    const [toPincode, setToPincode] = useState('');
+    const [toStateCode, setToStateCode] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+
+    const handleSubmit = async () => {
+        if (!distance || distance <= 0) { alert('Enter the transport distance in km.'); return; }
+        if (!toPincode || toPincode.length !== 6) { alert('Enter the destination pincode (6 digits).'); return; }
+        if (!toStateCode) { alert('Select the destination state.'); return; }
+        if (transMode === '1' && !vehicleNo) { alert('Enter the vehicle number for road transport.'); return; }
+
+        setSubmitting(true);
+        try {
+            await onSubmit({ distance, transMode, transporterId, transporterName, vehicleNo, vehicleType, subSupplyType, toPincode, toStateCode });
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    return (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+            <div className="card" style={{ width: '100%', maxWidth: '520px', maxHeight: '90vh', overflowY: 'auto', padding: '1.5rem' }}>
+                <h2 style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: '1rem' }}>Generate E-Way Bill</h2>
+                <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginBottom: '1rem' }}>
+                    Transport details -- not stored on the order, only used to generate this e-Way Bill.
+                </p>
+                <div style={{ display: 'grid', gap: '1rem' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Destination Pincode *</label>
+                            <input className="input" value={toPincode} onChange={e => setToPincode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="e.g. 160001" />
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Destination State *</label>
+                            <select className="input" value={toStateCode} onChange={e => setToStateCode(e.target.value)}>
+                                <option value="">Select state</option>
+                                {GST_STATE_CODES.map(s => (
+                                    <option key={s.code} value={s.code}>{s.name} ({s.code})</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Distance (km) *</label>
+                            <input className="input" type="number" min={1} value={distance || ''} onChange={e => setDistance(Number(e.target.value))} />
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Transport Mode</label>
+                            <select className="input" value={transMode} onChange={e => setTransMode(e.target.value as typeof transMode)}>
+                                <option value="1">Road</option>
+                                <option value="2">Rail</option>
+                                <option value="3">Air</option>
+                                <option value="4">Ship</option>
+                            </select>
+                        </div>
+                    </div>
+                    {transMode === '1' && (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Vehicle Number *</label>
+                                <input className="input" value={vehicleNo} onChange={e => setVehicleNo(e.target.value.toUpperCase())} placeholder="e.g. PB10AB1234" />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Vehicle Type</label>
+                                <select className="input" value={vehicleType} onChange={e => setVehicleType(e.target.value as typeof vehicleType)}>
+                                    <option value="R">Regular</option>
+                                    <option value="O">Over Dimensional Cargo</option>
+                                </select>
+                            </div>
+                        </div>
+                    )}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Transporter Name (optional)</label>
+                            <input className="input" value={transporterName} onChange={e => setTransporterName(e.target.value)} />
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Transporter GSTIN/ID (optional)</label>
+                            <input className="input" value={transporterId} onChange={e => setTransporterId(e.target.value.toUpperCase())} />
+                        </div>
+                    </div>
+                    <div>
+                        <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Sub Supply Type</label>
+                        <select className="input" value={subSupplyType} onChange={e => setSubSupplyType(e.target.value)}>
+                            <option value="1">Supply</option>
+                            <option value="3">Job Work</option>
+                            <option value="8">Others</option>
+                        </select>
+                    </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1.5rem' }}>
+                    <button className="btn" onClick={onClose} disabled={submitting}>Cancel</button>
+                    <button className="btn btn-primary" onClick={handleSubmit} disabled={submitting}>
+                        {submitting ? 'Generating...' : 'Generate'}
+                    </button>
+                </div>
+            </div>
         </div>
     );
 }

@@ -126,6 +126,10 @@ export interface InvoiceItem {
     // Toughened Glass line for "2 pcs of 84in x 31.5in". Leave unset for
     // every other item; UI should fall back to `quantity` when absent.
     pieceCount?: number;
+    // HSN code for GST e-Way Bill / e-Invoice item lines. Catalogue items
+    // carry their own (GlassItem.hsnCode); custom/design line items have no
+    // catalogue link and fall back to BusinessConfig.defaultGlassHsnCode.
+    hsnCode?: string;
 }
 
 export interface Invoice {
@@ -211,6 +215,11 @@ export interface Order {
     // Payment tracking
     paidAmount?: number;
     paymentStatus?: 'unpaid' | 'partially_paid' | 'paid';
+
+    // GST e-Way Bill (NIC Direct API) -- set once generation succeeds.
+    ewayBillNumber?: string;
+    ewayBillDate?: string;
+    ewayBillValidUpto?: string;
 }
 
 export interface Employee {
@@ -482,6 +491,11 @@ export interface BusinessConfig {
     tallyConsecutiveFailures?: number;
     employeeConfigs?: Record<string, EmployeeConfig>;
     customAccounts?: LedgerAccount[];
+
+    // Fallback HSN code for order line items with no catalogue link (custom
+    // design/Toughened Glass pieces) when generating a GST e-Way Bill --
+    // catalogue items use their own GlassItem.hsnCode instead.
+    defaultGlassHsnCode?: string;
 }
 
 export interface UnitPreferences {

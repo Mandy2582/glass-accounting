@@ -1,9 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Save, Building2, AlertCircle } from 'lucide-react';
+import { Save, Building2, AlertCircle, Truck } from 'lucide-react';
 import { db } from '@/lib/storage';
 import { BusinessConfig, GSTType } from '@/types';
+import { GST_STATE_CODES } from '@/lib/gstStateCodes';
+import { getAuthHeaders } from '@/lib/auth';
 
 export default function CompanySettingsPage() {
     const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
@@ -149,13 +151,23 @@ export default function CompanySettingsPage() {
                                 </div>
                                 <div>
                                     <label style={{ display: 'block', marginBottom: '0.375rem', fontWeight: 500, fontSize: '0.875rem' }}>State</label>
-                                    <input
-                                        type="text"
+                                    <select
                                         className="input"
-                                        value={businessConfig.state}
-                                        onChange={(e) => setBusinessConfig({ ...businessConfig, state: e.target.value })}
-                                        placeholder="Punjab"
-                                    />
+                                        value={businessConfig.stateCode || ''}
+                                        onChange={(e) => {
+                                            const code = e.target.value;
+                                            const name = GST_STATE_CODES.find(s => s.code === code)?.name || businessConfig.state;
+                                            setBusinessConfig({ ...businessConfig, stateCode: code, state: name });
+                                        }}
+                                    >
+                                        <option value="">Select state</option>
+                                        {GST_STATE_CODES.map(s => (
+                                            <option key={s.code} value={s.code}>{s.name} ({s.code})</option>
+                                        ))}
+                                    </select>
+                                    <small style={{ color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>
+                                        The GST state code is needed for e-Way Bill/e-Invoice generation.
+                                    </small>
                                 </div>
                                 <div>
                                     <label style={{ display: 'block', marginBottom: '0.375rem', fontWeight: 500, fontSize: '0.875rem' }}>Pincode</label>
@@ -319,8 +331,25 @@ export default function CompanySettingsPage() {
                                         <option value={4}>April (Indian FY)</option>
                                     </select>
                                 </div>
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '0.375rem', fontWeight: 500, fontSize: '0.875rem' }}>Default Glass HSN Code</label>
+                                    <input
+                                        type="text"
+                                        className="input"
+                                        value={businessConfig.defaultGlassHsnCode || ''}
+                                        onChange={(e) => setBusinessConfig({ ...businessConfig, defaultGlassHsnCode: e.target.value })}
+                                        placeholder="7005"
+                                        maxLength={8}
+                                    />
+                                    <small style={{ color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>
+                                        Used for e-Way Bill/e-Invoice on custom/design order lines with no catalogue item (e.g. Toughened Glass). Catalogue items use their own HSN code instead.
+                                    </small>
+                                </div>
                             </div>
                         </div>
+
+                        {/* GST e-Way Bill Integration */}
+                        <EwayBillStatusSection />
 
                         {/* Tally Prime Integration */}
                         <div style={{ marginBottom: '2rem' }}>
@@ -389,6 +418,52 @@ export default function CompanySettingsPage() {
                             </button>
                         </div>
                     </>
+                )}
+            </div>
+        </div>
+    );
+}
+
+// Credentials themselves live in server env vars (EWB_BASE_URL/EWB_GSTIN/
+// EWB_USERNAME/EWB_PASSWORD/EWB_CLIENT_ID), not this page -- same pattern as
+// the WhatsApp/SMTP integrations, which are also server-only secrets. This
+// just shows whether they're configured and lets you check connectivity
+// before relying on them from an order.
+function EwayBillStatusSection() {
+    const [status, setStatus] = useState<{ ok: boolean; reason?: string } | null>(null);
+    const [testing, setTesting] = useState(false);
+
+    const runTest = async () => {
+        setTesting(true);
+        setStatus(null);
+        try {
+            const authHeaders = await getAuthHeaders();
+            const res = await fetch('/api/eway-bill/test', { headers: authHeaders });
+            const data = await res.json();
+            setStatus(data);
+        } catch (error) {
+            setStatus({ ok: false, reason: 'Could not reach the server to test the connection.' });
+        } finally {
+            setTesting(false);
+        }
+    };
+
+    return (
+        <div style={{ marginBottom: '2rem' }}>
+            <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Truck size={16} /> GST e-Way Bill
+            </h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: '0.75rem' }}>
+                Credentials (EWB_BASE_URL, EWB_GSTIN, EWB_USERNAME, EWB_PASSWORD, EWB_CLIENT_ID) are set on the server, not here -- once they're in place, use this to confirm the connection before generating a real e-Way Bill from an order.
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <button type="button" className="btn" onClick={runTest} disabled={testing}>
+                    {testing ? 'Testing...' : 'Test Connection'}
+                </button>
+                {status && (
+                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: status.ok ? '#166534' : '#991b1b' }}>
+                        {status.ok ? 'Connected successfully' : status.reason}
+                    </span>
                 )}
             </div>
         </div>

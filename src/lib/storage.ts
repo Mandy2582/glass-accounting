@@ -989,7 +989,10 @@ export const db = {
                 poNumber: o.po_number,
                 requiresDesign: o.requires_design,
                 createdAt: o.created_at,
-                updatedAt: o.updated_at
+                updatedAt: o.updated_at,
+                ewayBillNumber: o.eway_bill_number || undefined,
+                ewayBillDate: o.eway_bill_date || undefined,
+                ewayBillValidUpto: o.eway_bill_valid_upto || undefined
             } as Order));
         },
 
@@ -1060,7 +1063,10 @@ export const db = {
                 deliveries: order.deliveries || [],
                 notes: order.notes || null,
                 paid_amount: order.paidAmount || 0,
-                payment_status: order.paymentStatus || 'unpaid'
+                payment_status: order.paymentStatus || 'unpaid',
+                eway_bill_number: order.ewayBillNumber || null,
+                eway_bill_date: order.ewayBillDate || null,
+                eway_bill_valid_upto: order.ewayBillValidUpto || null
             };
             console.log('Updating order:', dbOrder);
             const { error } = await supabase.from('orders').update(dbOrder).eq('id', order.id);
@@ -1963,6 +1969,7 @@ export const db = {
                 tallySyncInterval: 60, // 1 hour
                 tallyLastSyncTime: '',
                 tallySyncLogs: [],
+                defaultGlassHsnCode: '',
                 customAccounts: [
                     { id: '12345678-1111-1111-1111-111111111111', name: 'Salary Expense', type: 'expense' },
                     { id: '12345678-2222-2222-2222-222222222222', name: 'Rent Expense', type: 'expense' },
