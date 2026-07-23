@@ -1123,17 +1123,20 @@ export async function generateOrderPDF(
     pdf.setFontSize(9);
     pdf.setFont('helvetica', 'bold');
     
-    const colX = options.excludePricing 
-        ? [margin, margin + 70, margin + 110, margin + 130, margin + 155]
+    // The supplier-facing PO PDF (excludePricing) drops the Sqft/Area column
+    // entirely -- suppliers cut to the given dimensions and piece count,
+    // they don't need our own area/costing figure.
+    const colX = options.excludePricing
+        ? [margin, margin + 75, margin + 125, margin + 150]
         : [margin, margin + 55, margin + 85, margin + 100, margin + 115, margin + 135, margin + 155];
 
     pdf.text('Description', colX[0], yPos);
     pdf.text('Size (in)', colX[1], yPos);
     pdf.text('Qty', colX[2], yPos);
     pdf.text('Unit', colX[3], yPos);
-    pdf.text('Sqft', colX[4], yPos);
-    
+
     if (!options.excludePricing) {
+        pdf.text('Sqft', colX[4], yPos);
         pdf.text('Rate', colX[5], yPos);
         pdf.text('Amount', colX[6], yPos);
     }
@@ -1158,17 +1161,17 @@ export async function generateOrderPDF(
         // than the billing unit so it doesn't read as "49.79 sqft" pieces.
         const qtyStr = String(item.pieceCount ?? item.quantity);
         const unitStr = item.pieceCount != null ? 'pcs' : (item.unit || 'sqft');
-        const sqftStr = (Number(item.sqft) || 0).toFixed(2);
 
         pdf.text(desc, colX[0], yPos);
         pdf.text(sizeStr, colX[1], yPos);
         pdf.text(qtyStr, colX[2], yPos);
         pdf.text(unitStr, colX[3], yPos);
-        pdf.text(sqftStr, colX[4], yPos);
 
         if (!options.excludePricing) {
+            const sqftStr = (Number(item.sqft) || 0).toFixed(2);
             const rateStr = `₹${(Number(item.rate) || 0).toFixed(2)}`;
             const amtStr = `₹${(Number(item.amount) || 0).toFixed(2)}`;
+            pdf.text(sqftStr, colX[4], yPos);
             pdf.text(rateStr, colX[5], yPos);
             pdf.text(amtStr, colX[6], yPos);
         }

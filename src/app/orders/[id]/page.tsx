@@ -528,6 +528,20 @@ export default function OrderDetailPage() {
         setOrder(updatedOrder);
     };
 
+    const markPOPlacedSilently = async () => {
+        if (!order || isPOPlaced) return;
+        const updatedOrder = {
+            ...order,
+            status: order.status === 'pending' ? ('supplier_ordered' as const) : order.status,
+            notes: [
+                order.notes || '',
+                '[PO_PLACED:true]',
+            ].filter(Boolean).join('\n'),
+        };
+        await db.orders.update(updatedOrder);
+        setOrder(updatedOrder);
+    };
+
     const handleMarkEstimateApproved = async () => {
         if (!order) return;
         let notes = order.notes || '';
@@ -621,26 +635,66 @@ export default function OrderDetailPage() {
         if (!order) return;
         try {
             const { generateOrderPDF, generateEstimatePDF } = await import('@/lib/pdfGenerator');
-            
+
+            const messageText = excludePricing
+                ? `Hello, please find attached the drawings and purchase order details for Order ${order.number}. (Pricing and costs are excluded)`
+                : `Dear Customer, please find attached the estimate for your glass order: ${order.number}.`;
+            const phone = orderParty?.phone ? orderParty.phone.replace(/[^0-9]/g, '') : '';
+
+            // Send the PDF as a real WhatsApp document via the Business API
+            // (the same endpoint customer quotations already use) rather than
+            // just opening a wa.me chat with no way to attach a file -- falls
+            // back to that manual download+chat flow only if this fails (no
+            // API creds configured, outside the 24h messaging window, no
+            // phone on file, etc).
+            if (phone) {
+                let dataUri: string;
+                let filename: string;
+                if (order.type === 'sale_order' && linkedDesigns.length > 0) {
+                    const pdfOpts = await getEstimatePDFOptions(linkedDesigns[0], { outputType: 'datauristring' });
+                    dataUri = await generateEstimatePDF(linkedDesigns[0], null, pdfOpts) as string;
+                    filename = `estimate_${linkedDesigns[0].name.replace(/\s+/g, '_')}.pdf`;
+                } else {
+                    dataUri = await generateOrderPDF(order, { excludePricing, designs: linkedDesigns, outputType: 'datauristring' }) as string;
+                    filename = `${order.number.replace(/\s+/g, '_')}_${excludePricing ? 'drawings_' : ''}${new Date().toISOString().split('T')[0]}.pdf`;
+                }
+
+                try {
+                    const authHeaders = await getAuthHeaders();
+                    const res = await fetch('/api/whatsapp/send-document', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', ...authHeaders },
+                        body: JSON.stringify({ to: phone, pdfBase64: dataUri, filename, caption: messageText }),
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (res.ok && data.success) {
+                        if (!excludePricing && order.type === 'sale_order') {
+                            await markEstimateSentSilently();
+                        } else if (excludePricing && order.type === 'purchase_order') {
+                            await markPOPlacedSilently();
+                        }
+                        alert(`Sent via WhatsApp to ${orderParty?.phone}!`);
+                        return;
+                    }
+                    console.warn('WhatsApp document send failed, falling back to chat link:', data.error);
+                    alert(`Could not send the PDF directly via WhatsApp: ${data.error || 'unknown error'}.\n\nFalling back to opening a WhatsApp chat -- please attach the downloaded PDF manually.`);
+                } catch (sendErr) {
+                    console.error('WhatsApp document send error:', sendErr);
+                }
+            }
+
+            // Fallback: download the PDF locally and open a wa.me chat with
+            // just the caption text for manual attachment.
             if (order.type === 'sale_order' && linkedDesigns.length > 0) {
                 const pdfOpts = await getEstimatePDFOptions(linkedDesigns[0]);
                 await generateEstimatePDF(linkedDesigns[0], null, pdfOpts);
             } else {
                 await generateOrderPDF(order, { excludePricing, designs: linkedDesigns });
             }
-            
-            const messageText = excludePricing
-                ? `Hello, please find attached the drawings and purchase order details for Order ${order.number}. (Pricing and costs are excluded)`
-                : `Dear Customer, please find attached the estimate for your glass order: ${order.number}.`;
-                
-            const phone = orderParty?.phone ? orderParty.phone.replace(/[^0-9]/g, '') : '';
-            const waUrl = phone 
+            const waUrl = phone
                 ? `https://wa.me/${phone}?text=${encodeURIComponent(messageText)}`
                 : `https://wa.me/?text=${encodeURIComponent(messageText)}`;
             window.open(waUrl, '_blank');
-            if (!excludePricing && order.type === 'sale_order') {
-                await markEstimateSentSilently();
-            }
         } catch (e) {
             console.error(e);
             alert('Failed to generate WhatsApp share link');
@@ -702,6 +756,8 @@ export default function OrderDetailPage() {
             if (res.ok && data.success) {
                 if (!excludePricing && order.type === 'sale_order') {
                     await markEstimateSentSilently();
+                } else if (excludePricing && order.type === 'purchase_order') {
+                    await markPOPlacedSilently();
                 }
                 alert(`Email sent successfully via direct SMTP to ${email}!`);
             } else {
@@ -1869,8 +1925,16 @@ export default function OrderDetailPage() {
                                         <td>{item.sqft.toFixed(2)}</td>
                                         {order.type === 'purchase_order' && (
                                             <>
-                                                <td>{received.quantity} pcs<br /><small>{received.sqft.toFixed(2)} sqft</small></td>
-                                                <td style={{ fontWeight: 700, color: pendingQty > 0 ? '#b45309' : '#047857' }}>{pendingQty} pcs<br /><small>{pendingSqft.toFixed(2)} sqft</small></td>
+                                                <td>
+                                                    {item.pieceCount != null
+                                                        ? `${received.sqft.toFixed(2)} sqft`
+                                                        : <>{received.quantity} pcs<br /><small>{received.sqft.toFixed(2)} sqft</small></>}
+                                                </td>
+                                                <td style={{ fontWeight: 700, color: pendingQty > 0 ? '#b45309' : '#047857' }}>
+                                                    {item.pieceCount != null
+                                                        ? `${pendingSqft.toFixed(2)} sqft`
+                                                        : <>{pendingQty} pcs<br /><small>{pendingSqft.toFixed(2)} sqft</small></>}
+                                                </td>
                                             </>
                                         )}
                                         <td>₹{item.rate.toFixed(2)}</td>
@@ -2037,12 +2101,22 @@ function DeliveryModal({
                 orderItemId: getOrderItemTrackingKey(item),
                 itemId: item.itemId,
                 itemName: item.description || item.itemName,
+                // Real piece count for an sqft-billed line whose quantity is
+                // numerically the area, not a count -- see pieceCount on
+                // InvoiceItem. Undefined for every other item type, which
+                // already tracks a genuine piece/unit count in quantity.
+                pieceCount: item.pieceCount,
                 totalQty: Number(item.quantity) || 0,
                 totalSqft: Number(item.sqft) || 0,
                 alreadyDeliveredQty: delivered.quantity,
                 alreadyDeliveredSqft: delivered.sqft,
                 pendingQty,
                 pendingSqft,
+                // Checked by default (the common case is the full shipment
+                // arrived) -- unchecking a row excludes it from this receipt
+                // entirely instead of requiring the quantity field be zeroed
+                // out by hand.
+                selected: pendingQty > 0 || pendingSqft > 0,
                 deliveredQty: pendingQty,
                 deliveredSqft: pendingSqft
             };
@@ -2052,7 +2126,7 @@ function DeliveryModal({
 
     const handleSubmit = () => {
         const items = selectedItems
-            .filter(item => item.deliveredQty > 0)
+            .filter(item => item.selected && item.deliveredQty > 0)
             .map(item => ({
                 orderItemId: item.orderItemId,
                 itemId: item.itemId,
@@ -2090,6 +2164,7 @@ function DeliveryModal({
                     <table className="table">
                         <thead>
                             <tr>
+                                <th>Received?</th>
                                 <th>Item</th>
                                 <th>Ordered</th>
                                 <th>Received</th>
@@ -2100,11 +2175,38 @@ function DeliveryModal({
                         </thead>
                         <tbody>
                             {selectedItems.map((item, index) => (
-                                <tr key={index}>
+                                <tr key={index} style={{ opacity: item.selected ? 1 : 0.5 }}>
+                                    <td>
+                                        <input
+                                            type="checkbox"
+                                            checked={item.selected}
+                                            onChange={(e) => {
+                                                const updated = [...selectedItems];
+                                                const checked = e.target.checked;
+                                                updated[index].selected = checked;
+                                                updated[index].deliveredQty = checked ? item.pendingQty : 0;
+                                                updated[index].deliveredSqft = checked ? item.pendingSqft : 0;
+                                                setSelectedItems(updated);
+                                            }}
+                                            style={{ cursor: 'pointer', width: '18px', height: '18px' }}
+                                        />
+                                    </td>
                                     <td>{item.itemName}</td>
-                                    <td>{item.totalQty} pcs<br /><small>{item.totalSqft.toFixed(2)} sqft</small></td>
-                                    <td>{item.alreadyDeliveredQty} pcs<br /><small>{item.alreadyDeliveredSqft.toFixed(2)} sqft</small></td>
-                                    <td style={{ fontWeight: 700 }}>{item.pendingQty} pcs<br /><small>{item.pendingSqft.toFixed(2)} sqft</small></td>
+                                    <td>
+                                        {item.pieceCount != null
+                                            ? <>{item.pieceCount} pcs<br /><small>{item.totalSqft.toFixed(2)} sqft</small></>
+                                            : <>{item.totalQty} pcs<br /><small>{item.totalSqft.toFixed(2)} sqft</small></>}
+                                    </td>
+                                    <td>
+                                        {item.pieceCount != null
+                                            ? `${item.alreadyDeliveredSqft.toFixed(2)} sqft`
+                                            : <>{item.alreadyDeliveredQty} pcs<br /><small>{item.alreadyDeliveredSqft.toFixed(2)} sqft</small></>}
+                                    </td>
+                                    <td style={{ fontWeight: 700 }}>
+                                        {item.pieceCount != null
+                                            ? `${item.pendingSqft.toFixed(2)} sqft`
+                                            : <>{item.pendingQty} pcs<br /><small>{item.pendingSqft.toFixed(2)} sqft</small></>}
+                                    </td>
                                     <td>
                                         <input
                                             type="number"
@@ -2112,6 +2214,7 @@ function DeliveryModal({
                                             value={item.deliveredQty}
                                             max={item.pendingQty}
                                             min={0}
+                                            disabled={!item.selected}
                                             onChange={(e) => {
                                                 const updated = [...selectedItems];
                                                 const qty = Math.min(Number(e.target.value), item.pendingQty);
