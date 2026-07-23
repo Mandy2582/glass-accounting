@@ -17,7 +17,11 @@ import { CATALOGUE_SYNONYMS } from '@/lib/whatsappOrders';
 // re-parsed as more (wrong) pieces.
 
 const THICKNESS_REGEX = /(\d+(?:\.\d+)?)\s*mm\b/i;
-const TOUGHENED_REGEX = /\btoughened\b/i;
+// Matches "Toughen" and "Toughened" -- WhatsApp/OCR text frequently drops
+// the "-ed" suffix (e.g. "12MM Plain Toughen"), which the exact-word
+// "toughened" match previously missed entirely, silently falling through
+// to the catalogue-matching parser (the "only fetched the first item" bug).
+const TOUGHENED_REGEX = /\btoughen(?:ed)?\b/i;
 const SUMMARY_STOP_REGEX = /^\s*\d+(?:\.\d+)?\s*pcs\b/i;
 // Leading area figure (if present) is the source's own rough number, not
 // trusted -- area is recomputed from width x height instead. Width/height
@@ -25,12 +29,18 @@ const SUMMARY_STOP_REGEX = /^\s*\d+(?:\.\d+)?\s*pcs\b/i;
 // fraction ("59 6/8"); the trailing "-QTY" is optional (defaults to 1).
 const PIECE_LINE_REGEX = /^\s*(?:[\d.]+\s+)?(\d+(?:\.\d+)?(?:\s+\d+\/\d+)?)\s*x\s*(\d+(?:\.\d+)?(?:\s+\d+\/\d+)?)\s*(?:-\s*(\d+))?\s*$/i;
 
+// How many leading non-empty lines count as "up front" for both detection
+// and header parsing -- images are often captioned with something like
+// "DRAWING NO." before the actual "12mm Plain Toughen" line, so this can't
+// assume line 0 is always the header.
+const HEADER_SEARCH_WINDOW = 5;
+
 // True only when the message clearly names both a thickness and
-// "toughened" up front -- deliberately narrow (scoped to Toughened Glass
-// only, per the owner) rather than a fuzzy heuristic that might misfire on
-// an ordinary catalogue order.
+// "toughened"/"toughen" up front -- deliberately narrow (scoped to
+// Toughened Glass only, per the owner) rather than a fuzzy heuristic that
+// might misfire on an ordinary catalogue order.
 export function looksLikeCustomGlassOrder(text: string): boolean {
-    const firstLines = (text || '').split('\n').slice(0, 3).join(' ');
+    const firstLines = (text || '').split('\n').map(l => l.trim()).filter(Boolean).slice(0, HEADER_SEARCH_WINDOW).join(' ');
     return THICKNESS_REGEX.test(firstLines) && TOUGHENED_REGEX.test(firstLines);
 }
 
@@ -78,16 +88,19 @@ export function parseCustomGlassOrder(text: string): CustomGlassOrderResult {
     const rawLines = (text || '').split('\n').map(line => line.trim()).filter(Boolean);
     if (rawLines.length === 0) return { ok: false, reason: 'Empty message.' };
 
-    const headerLine = rawLines[0];
-    const thicknessMatch = headerLine.match(THICKNESS_REGEX);
-    if (!thicknessMatch) {
-        return { ok: false, reason: 'Could not find a thickness (e.g. "12mm") in the first line.' };
+    // Find the actual header line rather than assuming line 0 -- a caption
+    // like "DRAWING NO." often precedes the real "12mm Plain Toughen" line.
+    const headerIndex = rawLines.findIndex((line, idx) => idx < HEADER_SEARCH_WINDOW && THICKNESS_REGEX.test(line));
+    if (headerIndex === -1) {
+        return { ok: false, reason: 'Could not find a thickness (e.g. "12mm") near the top of the message.' };
     }
+    const headerLine = rawLines[headerIndex];
+    const thicknessMatch = headerLine.match(THICKNESS_REGEX)!;
     const thickness = Number(thicknessMatch[1]);
     const glassType = deriveGlassType(headerLine);
 
     const pieces: CustomGlassPiece[] = [];
-    for (let i = 1; i < rawLines.length; i++) {
+    for (let i = headerIndex + 1; i < rawLines.length; i++) {
         const line = rawLines[i];
         // A trailing duplicate summary list ("19 pcs" then a repeat of the
         // same pieces with no "-qty"/area prefix) starts here -- it would
