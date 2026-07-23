@@ -424,9 +424,9 @@ export default function CompanySettingsPage() {
     );
 }
 
-// Credentials themselves live in server env vars (EWB_BASE_URL/EWB_GSTIN/
-// EWB_USERNAME/EWB_PASSWORD/EWB_CLIENT_ID), not this page -- same pattern as
-// the WhatsApp/SMTP integrations, which are also server-only secrets. This
+// Credentials themselves live in server env vars (CLEARTAX_BASE_URL/
+// CLEARTAX_AUTH_TOKEN/EWB_GSTIN), not this page -- same pattern as the
+// WhatsApp/SMTP integrations, which are also server-only secrets. This
 // just shows whether they're configured and lets you check connectivity
 // before relying on them from an order.
 function EwayBillStatusSection() {
@@ -454,7 +454,7 @@ function EwayBillStatusSection() {
                 <Truck size={16} /> GST e-Way Bill
             </h3>
             <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: '0.75rem' }}>
-                Credentials (EWB_BASE_URL, EWB_GSTIN, EWB_USERNAME, EWB_PASSWORD, EWB_CLIENT_ID) are set on the server, not here -- once they're in place, use this to confirm the connection before generating a real e-Way Bill from an order.
+                Generated via ClearTax (acting as GSP, using your NIC e-Way Bill portal login stored against your ClearTax account). Credentials (CLEARTAX_BASE_URL, CLEARTAX_AUTH_TOKEN, EWB_GSTIN) are set on the server, not here -- once they're in place, use this to confirm the connection before generating a real e-Way Bill from an order.
             </p>
             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                 <button type="button" className="btn" onClick={runTest} disabled={testing}>

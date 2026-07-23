@@ -2064,36 +2064,39 @@ function EwayBillModal({
     onClose: () => void;
     onSubmit: (input: {
         distance: number;
-        transMode: '1' | '2' | '3' | '4';
+        transMode: 'ROAD' | 'RAIL' | 'AIR' | 'SHIP';
         transporterId: string;
         transporterName: string;
         vehicleNo: string;
-        vehicleType: 'R' | 'O';
+        vehicleType: 'REGULAR' | 'ODC';
         subSupplyType: string;
         toPincode: string;
         toStateCode: string;
+        toPlace: string;
     }) => Promise<void>;
 }) {
     const [distance, setDistance] = useState<number>(0);
-    const [transMode, setTransMode] = useState<'1' | '2' | '3' | '4'>('1');
+    const [transMode, setTransMode] = useState<'ROAD' | 'RAIL' | 'AIR' | 'SHIP'>('ROAD');
     const [transporterId, setTransporterId] = useState('');
     const [transporterName, setTransporterName] = useState('');
     const [vehicleNo, setVehicleNo] = useState('');
-    const [vehicleType, setVehicleType] = useState<'R' | 'O'>('R');
-    const [subSupplyType, setSubSupplyType] = useState('1');
+    const [vehicleType, setVehicleType] = useState<'REGULAR' | 'ODC'>('REGULAR');
+    const [subSupplyType, setSubSupplyType] = useState('SUPPLY');
     const [toPincode, setToPincode] = useState('');
     const [toStateCode, setToStateCode] = useState('');
+    const [toPlace, setToPlace] = useState('');
     const [submitting, setSubmitting] = useState(false);
 
     const handleSubmit = async () => {
         if (!distance || distance <= 0) { alert('Enter the transport distance in km.'); return; }
         if (!toPincode || toPincode.length !== 6) { alert('Enter the destination pincode (6 digits).'); return; }
         if (!toStateCode) { alert('Select the destination state.'); return; }
-        if (transMode === '1' && !vehicleNo) { alert('Enter the vehicle number for road transport.'); return; }
+        if (!toPlace) { alert('Enter the destination place/city.'); return; }
+        if (transMode === 'ROAD' && !vehicleNo) { alert('Enter the vehicle number for road transport.'); return; }
 
         setSubmitting(true);
         try {
-            await onSubmit({ distance, transMode, transporterId, transporterName, vehicleNo, vehicleType, subSupplyType, toPincode, toStateCode });
+            await onSubmit({ distance, transMode, transporterId, transporterName, vehicleNo, vehicleType, subSupplyType, toPincode, toStateCode, toPlace });
         } finally {
             setSubmitting(false);
         }
@@ -2109,18 +2112,22 @@ function EwayBillModal({
                 <div style={{ display: 'grid', gap: '1rem' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                         <div>
+                            <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Destination Place/City *</label>
+                            <input className="input" value={toPlace} onChange={e => setToPlace(e.target.value)} placeholder="e.g. Ludhiana" />
+                        </div>
+                        <div>
                             <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Destination Pincode *</label>
                             <input className="input" value={toPincode} onChange={e => setToPincode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="e.g. 160001" />
                         </div>
-                        <div>
-                            <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Destination State *</label>
-                            <select className="input" value={toStateCode} onChange={e => setToStateCode(e.target.value)}>
-                                <option value="">Select state</option>
-                                {GST_STATE_CODES.map(s => (
-                                    <option key={s.code} value={s.code}>{s.name} ({s.code})</option>
-                                ))}
-                            </select>
-                        </div>
+                    </div>
+                    <div>
+                        <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Destination State *</label>
+                        <select className="input" value={toStateCode} onChange={e => setToStateCode(e.target.value)}>
+                            <option value="">Select state</option>
+                            {GST_STATE_CODES.map(s => (
+                                <option key={s.code} value={s.code}>{s.name} ({s.code})</option>
+                            ))}
+                        </select>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                         <div>
@@ -2130,14 +2137,14 @@ function EwayBillModal({
                         <div>
                             <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Transport Mode</label>
                             <select className="input" value={transMode} onChange={e => setTransMode(e.target.value as typeof transMode)}>
-                                <option value="1">Road</option>
-                                <option value="2">Rail</option>
-                                <option value="3">Air</option>
-                                <option value="4">Ship</option>
+                                <option value="ROAD">Road</option>
+                                <option value="RAIL">Rail</option>
+                                <option value="AIR">Air</option>
+                                <option value="SHIP">Ship</option>
                             </select>
                         </div>
                     </div>
-                    {transMode === '1' && (
+                    {transMode === 'ROAD' && (
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                             <div>
                                 <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Vehicle Number *</label>
@@ -2146,8 +2153,8 @@ function EwayBillModal({
                             <div>
                                 <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Vehicle Type</label>
                                 <select className="input" value={vehicleType} onChange={e => setVehicleType(e.target.value as typeof vehicleType)}>
-                                    <option value="R">Regular</option>
-                                    <option value="O">Over Dimensional Cargo</option>
+                                    <option value="REGULAR">Regular</option>
+                                    <option value="ODC">Over Dimensional Cargo</option>
                                 </select>
                             </div>
                         </div>
@@ -2165,9 +2172,7 @@ function EwayBillModal({
                     <div>
                         <label style={{ display: 'block', marginBottom: '0.45rem', fontWeight: 600, fontSize: '0.85rem' }}>Sub Supply Type</label>
                         <select className="input" value={subSupplyType} onChange={e => setSubSupplyType(e.target.value)}>
-                            <option value="1">Supply</option>
-                            <option value="3">Job Work</option>
-                            <option value="8">Others</option>
+                            <option value="SUPPLY">Supply</option>
                         </select>
                     </div>
                 </div>

@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdminRequest } from '@/lib/serverAuth';
 import { db } from '@/lib/storage';
-import { generateEwayBill, isEwbConfigured, type EwbGenerateInput, type EwbItem } from '@/lib/ewayBill';
+import { generateEwayBill, isEwbConfigured, type EwbGenerateInput, type EwbItem, type EwbPartyDetails } from '@/lib/ewayBill';
 
-// Maps this app's internal unit strings to the NIC e-Way Bill unit-of-
-// measurement codes (a short fixed list, e.g. "NOS", "SQF", "KGS"). VERIFY
-// against your NIC API document's UQC code list if an order uses a unit not
-// covered here -- OTH is the safe "Others" fallback.
+// Maps this app's internal unit strings to ClearTax's 3-char UQC unit
+// codes. VERIFY against ClearTax's unit code list if an order uses a unit
+// not covered here -- OTH is the safe "Others" fallback.
 const UNIT_TO_UQC: Record<string, string> = {
     sqft: 'SQF',
     sqm: 'SQM',
@@ -35,7 +34,7 @@ export async function POST(request: NextRequest) {
     if (authError) return authError;
 
     if (!isEwbConfigured()) {
-        return NextResponse.json({ error: 'E-Way Bill API credentials are not configured on the server (EWB_BASE_URL/EWB_GSTIN/EWB_USERNAME/EWB_PASSWORD/EWB_CLIENT_ID).' }, { status: 501 });
+        return NextResponse.json({ error: 'ClearTax e-Way Bill credentials are not configured on the server (CLEARTAX_BASE_URL/CLEARTAX_AUTH_TOKEN/EWB_GSTIN).' }, { status: 501 });
     }
 
     try {
@@ -43,18 +42,19 @@ export async function POST(request: NextRequest) {
         const {
             orderId,
             distance,
-            transMode,
+            transMode, // 'ROAD' | 'RAIL' | 'AIR' | 'SHIP'
             transporterId,
             transporterName,
             vehicleNo,
-            vehicleType,
+            vehicleType, // 'REGULAR' | 'ODC'
             subSupplyType,
             toPincode,
             toStateCode,
+            toPlace,
         } = body;
 
-        if (!orderId || !distance || !transMode || !toPincode || !toStateCode) {
-            return NextResponse.json({ error: 'Missing required fields (orderId, distance, transMode, toPincode, toStateCode).' }, { status: 400 });
+        if (!orderId || !distance || !transMode || !toPincode || !toStateCode || !toPlace) {
+            return NextResponse.json({ error: 'Missing required fields (orderId, distance, transMode, toPincode, toStateCode, toPlace).' }, { status: 400 });
         }
 
         const [orders, parties, businessConfig, invoices, catalogItems] = await Promise.all([
@@ -91,19 +91,20 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Your own business GSTIN/state code is not set -- fill those in under Settings > Company Details first.' }, { status: 400 });
         }
 
+        const isIntraState = businessConfig.defaultGstType === 'intra_state';
+
         const itemList: EwbItem[] = order.items.map(item => {
             const catalogItem = catalogItems.find(i => i.id === item.itemId);
             const hsnCode = item.hsnCode || catalogItem?.hsnCode || businessConfig.defaultGlassHsnCode;
             if (!hsnCode) {
-                throw new Error(`"${item.description || item.itemName}" has no HSN code -- set Settings > Pricing > Default HSN Code, or add one to the catalogue item.`);
+                throw new Error(`"${item.description || item.itemName}" has no HSN code -- set Settings > Company Details > Default Glass HSN Code, or add one to the catalogue item.`);
             }
-            const isIntraState = businessConfig.defaultGstType === 'intra_state';
             return {
                 productName: item.itemName || item.description || 'Glass item',
                 productDesc: item.description,
                 hsnCode,
                 quantity: Number(item.pieceCount ?? item.quantity) || 1,
-                qtyUnit: UNIT_TO_UQC[item.unit] || 'OTH',
+                unit: UNIT_TO_UQC[item.unit] || 'OTH',
                 taxableAmount: Number(item.amount) || 0,
                 cgstRate: isIntraState ? (order.taxRate || 0) / 2 : 0,
                 sgstRate: isIntraState ? (order.taxRate || 0) / 2 : 0,
@@ -111,35 +112,48 @@ export async function POST(request: NextRequest) {
             };
         });
 
-        const isIntraState = businessConfig.defaultGstType === 'intra_state';
+        const ourDetails: EwbPartyDetails = {
+            gstin: businessConfig.gstin,
+            legalName: businessConfig.businessName,
+            addr1: businessConfig.address,
+            place: businessConfig.city,
+            pincode: Number(businessConfig.pincode),
+            stateCode: businessConfig.stateCode,
+        };
+        const partyDetails: EwbPartyDetails = {
+            gstin: party.gstin,
+            legalName: party.name,
+            addr1: party.address,
+            place: String(toPlace),
+            pincode: Number(toPincode),
+            stateCode: String(toStateCode),
+        };
+
+        // Goods flow outward from us on a sale order, inward to us on a
+        // purchase order -- SellerDtls/BuyerDtls (and supplyType) flip
+        // accordingly rather than always assuming "we are the seller".
+        const isSaleOrder = order.type === 'sale_order';
+
         const input: EwbGenerateInput = {
-            supplyType: order.type === 'sale_order' ? 'O' : 'I',
-            subSupplyType: subSupplyType || '1',
-            docType: 'INV',
-            docNo: invoice.number,
-            docDate: toDdMmYyyy(invoice.date),
-            fromGstin: businessConfig.gstin,
-            fromTrdName: businessConfig.businessName,
-            fromAddr1: businessConfig.address,
-            fromPlace: businessConfig.city,
-            fromPincode: businessConfig.pincode,
-            fromStateCode: Number(businessConfig.stateCode),
-            toGstin: party.gstin,
-            toTrdName: party.name,
-            toAddr1: party.address,
-            toPlace: party.address,
-            toPincode: String(toPincode),
-            toStateCode: Number(toStateCode),
-            totalValue: invoice.total,
-            cgstValue: isIntraState ? invoice.taxAmount / 2 : 0,
-            sgstValue: isIntraState ? invoice.taxAmount / 2 : 0,
-            igstValue: isIntraState ? 0 : invoice.taxAmount,
-            transMode,
-            transDistance: Number(distance),
+            documentNumber: invoice.number,
+            documentType: 'INV',
+            documentDate: toDdMmYyyy(invoice.date),
+            supplyType: isSaleOrder ? 'OUTWARD' : 'INWARD',
+            subSupplyType: subSupplyType || 'SUPPLY',
+            transactionType: 'Regular',
+            seller: isSaleOrder ? ourDetails : partyDetails,
+            buyer: isSaleOrder ? partyDetails : ourDetails,
+            totalInvoiceAmount: invoice.total,
+            totalCgstAmount: isIntraState ? invoice.taxAmount / 2 : 0,
+            totalSgstAmount: isIntraState ? invoice.taxAmount / 2 : 0,
+            totalIgstAmount: isIntraState ? 0 : invoice.taxAmount,
+            totalAssessableAmount: invoice.subtotal,
             transporterId,
             transporterName,
+            transMode,
+            distance: Number(distance),
             vehicleNo,
-            vehicleType: vehicleType || 'R',
+            vehicleType: vehicleType || 'REGULAR',
             itemList,
         };
 

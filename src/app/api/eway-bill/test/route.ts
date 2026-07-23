@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
     if (authError) return authError;
 
     if (!isEwbConfigured()) {
-        return NextResponse.json({ ok: false, reason: 'E-Way Bill API credentials are not configured (EWB_BASE_URL/EWB_GSTIN/EWB_USERNAME/EWB_PASSWORD/EWB_CLIENT_ID).' }, { status: 200 });
+        return NextResponse.json({ ok: false, reason: 'ClearTax e-Way Bill credentials are not configured (CLEARTAX_BASE_URL/CLEARTAX_AUTH_TOKEN/EWB_GSTIN).' }, { status: 200 });
     }
 
     const result = await testEwbConnection();
