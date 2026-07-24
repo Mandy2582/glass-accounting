@@ -86,7 +86,7 @@ const sections: NavSection[] = [
         ],
     },
     {
-        title: 'Accounting',
+        title: 'Accounting & Reports',
         icon: Landmark,
         items: [
             { label: 'Vouchers', href: '/vouchers', icon: Receipt },
@@ -95,29 +95,29 @@ const sections: NavSection[] = [
             { label: 'Bank Book', href: '/financials/bank-book', icon: Briefcase },
             { label: 'Ledgers', href: '/financials/ledgers', icon: BookOpen },
             { label: 'Chart of Accounts', href: '/financials/accounts', icon: BarChart3 },
-        ],
-    },
-    {
-        title: 'Reports',
-        icon: FileText,
-        items: [
             { label: 'Reports Centre', href: '/reports', icon: FileText },
         ],
     },
     {
-        title: 'Setup',
+        title: 'Settings',
         icon: Settings,
         items: [
-            { label: 'Tally Integration', href: '/tally-sync', icon: RefreshCw },
             { label: 'Company Details', href: '/settings/company', icon: Building2 },
             { label: 'Pricing', href: '/settings/pricing', icon: DollarSign },
-            { label: 'Order Automation', href: '/settings/automation', icon: Bot },
-            { label: 'Catalogue Commands (WhatsApp)', href: '/settings/rate-updates', icon: MessageSquare },
-            { label: 'Catalogue Command Log', href: '/settings/catalogue-log', icon: History },
             { label: 'Items Configuration', href: '/settings/items', icon: Tags },
             { label: 'Users & Roles', href: '/settings/users', icon: Users },
             { label: 'Terms & Conditions', href: '/settings/terms', icon: FileText },
             { label: 'Data & Backup', href: '/settings/data', icon: Database },
+        ],
+    },
+    {
+        title: 'Automation',
+        icon: Bot,
+        items: [
+            { label: 'Order Automation', href: '/settings/automation', icon: Bot },
+            { label: 'Catalogue Commands (WhatsApp)', href: '/settings/rate-updates', icon: MessageSquare },
+            { label: 'Catalogue Command Log', href: '/settings/catalogue-log', icon: History },
+            { label: 'Tally Integration', href: '/tally-sync', icon: RefreshCw },
         ],
     },
 ];
