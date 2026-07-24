@@ -47,8 +47,15 @@ export function evaluateAutoReview(
     // A drawing order is only as trustworthy as the geometry we read off the
     // photo. Any hole/cut we could not place (the amber flags shown in the
     // designer) means the area -- and therefore the price -- may be wrong,
-    // so those always go to a human.
-    if (order.requiresDesign || designs.length > 0) {
+    // so those always go to a human. Gated on item.designId (a real
+    // CustomDesign reference) rather than order.requiresDesign alone --
+    // custom-glass orders (Toughened Glass, etc.) also set requiresDesign:
+    // true to trigger the "Create PO" banner for made-to-order items, but
+    // have no sketch at all; their pieces come from typed dimensions,
+    // parsed deterministically, so requiring a CustomDesign row here was
+    // blocking their auto-quote entirely regardless of price/confidence.
+    const referencesCustomDesign = (order.items || []).some(item => !!item.designId);
+    if (referencesCustomDesign || designs.length > 0) {
         if (designs.length === 0) {
             return { eligible: false, reason: 'Order needs a design but none is attached yet.' };
         }
