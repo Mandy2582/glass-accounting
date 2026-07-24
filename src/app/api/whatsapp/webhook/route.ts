@@ -20,7 +20,7 @@ import { formatStockUpdateReply, parseAndApplyStockUpdate } from '@/lib/stockUpd
 import { parsePurchaseMessage, type ParsedPurchaseLine } from '@/lib/purchaseMessage';
 import { calculateLineAmounts, defaultUnitsForItem } from '@/lib/units';
 import { upsertDesignItemsInOrder } from '@/lib/orderDesignItems';
-import { looksLikeCustomGlassOrder, parseCustomGlassOrder, buildCustomGlassOrderItems, type CustomGlassOrderResult } from '@/lib/customGlassOrder';
+import { looksLikeCustomGlassOrder, parseCustomGlassOrder, buildCustomGlassOrderItems, buildPendingCustomGlassOrderItems, type CustomGlassOrderResult } from '@/lib/customGlassOrder';
 import { normalizeIntakeImage, type NormalizedIntakeImage } from '@/lib/intakeImage';
 import type { CustomDesign, Invoice, InvoiceItem, Order, Party, PricingConfig } from '@/types';
 
@@ -428,7 +428,7 @@ async function saveCustomGlassOrder(input: {
     from: string;
     originalMessage: string;
     items: InvoiceItem[];
-    parsed: Extract<CustomGlassOrderResult, { ok: true }>;
+    parsed: Extract<CustomGlassOrderResult, { ok: true }> & { thickness: number };
     source: string;
 }): Promise<Order> {
     const subtotal = roundCurrency(input.items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0));
@@ -472,20 +472,76 @@ async function saveCustomGlassOrder(input: {
     return order;
 }
 
+// Missing-thickness case: real pieces were understood but the message never
+// stated a thickness, so nothing can be priced yet. Records the exact
+// pieces (via buildPendingCustomGlassOrderItems, rate/total left at 0)
+// rather than guessing a thickness or dropping the order, and asks the
+// customer for the specific thing that's missing instead of leaving them to
+// wonder why nothing happened.
+async function savePendingCustomGlassOrder(input: {
+    customer: Party;
+    messageId: string;
+    from: string;
+    originalMessage: string;
+    items: InvoiceItem[];
+    parsed: Extract<CustomGlassOrderResult, { ok: true }> & { thickness: null };
+    source: string;
+}): Promise<Order> {
+    const pieceCount = input.parsed.pieces.reduce((sum, piece) => sum + piece.quantity, 0);
+
+    const orderNumber = await db.orders.generateNextOrderNumber('sale_order');
+    const generalNumber = await db.orders.generateNextGeneralNumber();
+    const order: Order = {
+        id: generateUUID(),
+        type: 'sale_order',
+        number: orderNumber,
+        generalNumber,
+        soNumber: orderNumber,
+        date: new Date().toISOString().slice(0, 10),
+        partyId: input.customer.id,
+        partyName: input.customer.name,
+        items: input.items,
+        subtotal: 0,
+        taxRate: 18,
+        taxAmount: 0,
+        total: 0,
+        status: 'pending',
+        requiresDesign: true,
+        notes: withNeedsApproval(withOrderSource([
+            `Created automatically from ${input.source}.`,
+            `WhatsApp Message ID: ${input.messageId}`,
+            `WhatsApp From: ${input.from}`,
+            '',
+            `Toughened Glass, custom sizes -- ${input.parsed.glassType}, ${input.items.length} size(s), ${pieceCount} pcs total. MISSING: glass thickness was not stated in the message, so items are recorded but not yet priced. A WhatsApp reply asking the customer for it was sent automatically.`,
+            '',
+            'Original message:',
+            input.originalMessage,
+        ].join('\n'), 'whatsapp')),
+        paidAmount: 0,
+        paymentStatus: 'unpaid',
+    };
+
+    await db.orders.add(order);
+    return order;
+}
+
 // Entry point for both WhatsApp text-order call sites (plain text message,
 // and OCR'd text from an image). Returns null when the message doesn't look
 // like a Toughened Glass order at all, so the caller falls through to its
 // normal catalogue-matching flow unchanged. When it DOES look like one but
-// fails to parse, this deliberately still creates an order (empty items,
-// failure reason in the notes) instead of returning null -- letting it fall
-// through to catalogue matching is exactly the "only fetched the first item"
-// bug this path exists to prevent.
+// something is missing or unreadable, this deliberately still creates an
+// order (capturing whatever was understood) instead of returning null --
+// letting it fall through to catalogue matching is exactly the "only
+// fetched the first item" bug this path exists to prevent -- and sends the
+// customer a WhatsApp reply naming specifically what's missing, rather than
+// leaving them to wonder why nothing happened.
 async function handleCustomGlassOrderText(event: WhatsAppMessageEvent, orderText: string, source: string) {
     if (!looksLikeCustomGlassOrder(orderText)) return null;
 
     const parsed = parseCustomGlassOrder(orderText);
     const parties = await db.parties.getAll();
     const customer = await getOrCreateCustomer(event, parties);
+    const fromPhone = event.message.from;
 
     if (!parsed.ok) {
         const orderNumber = await db.orders.generateNextOrderNumber('sale_order');
@@ -521,6 +577,10 @@ async function handleCustomGlassOrderText(event: WhatsAppMessageEvent, orderText
             paymentStatus: 'unpaid',
         };
         await db.orders.add(order);
+        await sendWhatsAppText(
+            fromPhone,
+            `Your order details look incomplete -- we couldn't read the piece sizes. Please resend each size as "WIDTH x HEIGHT - QTY" (e.g. "59 6/8 x 120 - 2"), one per line.`
+        ).catch(() => {});
         return {
             messageId: event.message.id,
             status: 'custom_glass_review_created',
@@ -532,21 +592,54 @@ async function handleCustomGlassOrderText(event: WhatsAppMessageEvent, orderText
         };
     }
 
+    if (parsed.thickness == null) {
+        const items = buildPendingCustomGlassOrderItems({ ...parsed, thickness: null });
+        const order = await savePendingCustomGlassOrder({
+            customer,
+            messageId: event.message.id,
+            from: fromPhone,
+            originalMessage: orderText,
+            items,
+            parsed: { ...parsed, thickness: null },
+            source,
+        });
+        const pieceCount = parsed.pieces.reduce((sum, piece) => sum + piece.quantity, 0);
+        await sendWhatsAppText(
+            fromPhone,
+            `Your order details look incomplete -- we received ${parsed.pieces.length} size(s) (${pieceCount} pcs) of ${parsed.glassType} Toughened Glass, but the glass thickness is missing. Please reply with the thickness (e.g. 5mm, 8mm, 10mm, or 12mm) so we can quote your order.`
+        ).catch(() => {});
+        return {
+            messageId: event.message.id,
+            status: 'custom_glass_missing_thickness',
+            orderId: order.id,
+            orderNumber: order.number,
+            customerId: customer.id,
+            customerName: customer.name,
+        };
+    }
+
     const pricing = await db.settings.getPricing();
     const thicknessPricing = await db.settings.getThicknessPricing();
     const pricingConfig: PricingConfig = { ...pricing, thicknessPricing };
-    const items = buildCustomGlassOrderItems(parsed, pricingConfig, 18);
+    const items = buildCustomGlassOrderItems({ ...parsed, thickness: parsed.thickness }, pricingConfig, 18);
 
     const order = await saveCustomGlassOrder({
         customer,
         messageId: event.message.id,
-        from: event.message.from,
+        from: fromPhone,
         originalMessage: orderText,
         items,
-        parsed,
+        parsed: { ...parsed, thickness: parsed.thickness },
         source,
     });
     await runAutoReview(order);
+
+    if (parsed.unparsedLines.length > 0) {
+        await sendWhatsAppText(
+            fromPhone,
+            `Your order for ${items.length} size(s) of ${parsed.thickness}mm ${parsed.glassType} Toughened Glass has been received, but we couldn't read ${parsed.unparsedLines.length} line(s) -- please confirm these separately:\n${parsed.unparsedLines.map(line => `- ${line}`).join('\n')}`
+        ).catch(() => {});
+    }
 
     return {
         messageId: event.message.id,

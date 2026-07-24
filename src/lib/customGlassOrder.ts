@@ -44,13 +44,19 @@ const PIECE_LINE_REGEX = /^\s*(?:[\d.]+\s+)?(\d+(?:\.\d+)?(?:\s+\d+\/\d+)?)\s*x\
 // assume line 0 is always the header.
 const HEADER_SEARCH_WINDOW = 5;
 
-// True only when the message clearly names both a thickness and
-// "toughened"/"toughen" up front -- deliberately narrow (scoped to
-// Toughened Glass only, per the owner) rather than a fuzzy heuristic that
-// might misfire on an ordinary catalogue order.
+// True whenever "toughened"/"tempered" is named up front -- deliberately
+// narrow to that one word (scoped to Toughened Glass only, per the owner)
+// rather than a fuzzy heuristic that might misfire on an ordinary catalogue
+// order. Does NOT require a thickness -- Toughened Glass is never stocked or
+// catalogue-matched regardless, and requiring a thickness here used to send
+// thickness-less messages straight into the catalogue matcher instead,
+// which silently matched only the first line and dropped the rest (the
+// original "only fetched the first item" bug). Missing thickness is instead
+// handled by parseCustomGlassOrder returning thickness: null, so the caller
+// can ask the customer for it rather than guessing or losing their pieces.
 export function looksLikeCustomGlassOrder(text: string): boolean {
     const firstLines = (text || '').split('\n').map(l => l.trim()).filter(Boolean).slice(0, HEADER_SEARCH_WINDOW).join(' ');
-    return THICKNESS_REGEX.test(firstLines) && TOUGHENED_REGEX.test(firstLines);
+    return TOUGHENED_REGEX.test(firstLines);
 }
 
 // Parses "120", "59.75", or "59 6/8" (whole number, optionally followed by
@@ -90,7 +96,12 @@ function deriveGlassType(headerLine: string): string {
 export type CustomGlassPiece = { width: number; height: number; quantity: number };
 
 export type CustomGlassOrderResult =
-    | { ok: true; thickness: number; glassType: string; pieces: CustomGlassPiece[] }
+    // thickness is null when the message never states one (e.g. just
+    // "Tempered Toughened" with no "Nmm") -- pieces/glassType are still
+    // fully parsed in that case, since neither depends on thickness; the
+    // caller decides how to handle the gap (ask the customer, in the
+    // webhook) rather than this module guessing a thickness.
+    | { ok: true; thickness: number | null; glassType: string; pieces: CustomGlassPiece[]; unparsedLines: string[] }
     | { ok: false; reason: string };
 
 export function parseCustomGlassOrder(text: string): CustomGlassOrderResult {
@@ -99,16 +110,23 @@ export function parseCustomGlassOrder(text: string): CustomGlassOrderResult {
 
     // Find the actual header line rather than assuming line 0 -- a caption
     // like "DRAWING NO." often precedes the real "12mm Plain Toughen" line.
-    const headerIndex = rawLines.findIndex((line, idx) => idx < HEADER_SEARCH_WINDOW && THICKNESS_REGEX.test(line));
+    // Anchored on the "toughened"/"tempered" word rather than a thickness,
+    // since the thickness may be missing entirely.
+    const headerIndex = rawLines.findIndex((line, idx) => idx < HEADER_SEARCH_WINDOW && TOUGHENED_REGEX.test(line));
     if (headerIndex === -1) {
-        return { ok: false, reason: 'Could not find a thickness (e.g. "12mm") near the top of the message.' };
+        return { ok: false, reason: 'Could not find "toughened"/"tempered" near the top of the message.' };
     }
     const headerLine = rawLines[headerIndex];
-    const thicknessMatch = headerLine.match(THICKNESS_REGEX)!;
-    const thickness = Number(thicknessMatch[1]);
+    // Thickness may appear on the header line itself or elsewhere in the
+    // search window (e.g. a separate "12MM" line right above/below it) --
+    // null when it's not stated anywhere up front.
+    const searchWindowText = rawLines.slice(0, HEADER_SEARCH_WINDOW).join(' ');
+    const thicknessMatch = searchWindowText.match(THICKNESS_REGEX);
+    const thickness = thicknessMatch ? Number(thicknessMatch[1]) : null;
     const glassType = deriveGlassType(headerLine);
 
     const pieces: CustomGlassPiece[] = [];
+    const unparsedLines: string[] = [];
     for (let i = headerIndex + 1; i < rawLines.length; i++) {
         const line = rawLines[i];
         // A trailing duplicate summary list ("19 pcs" then a repeat of the
@@ -119,12 +137,21 @@ export function parseCustomGlassOrder(text: string): CustomGlassOrderResult {
         if (SUMMARY_STOP_REGEX.test(line)) break;
 
         const match = line.match(PIECE_LINE_REGEX);
-        if (!match) continue; // an unrecognised line shouldn't lose every other piece
+        if (!match) {
+            // An unrecognised line shouldn't lose every other piece, but it's
+            // worth surfacing to the customer/office rather than silently
+            // dropping it -- it might be a size we misread, not just noise.
+            unparsedLines.push(line);
+            continue;
+        }
 
         const width = parseInchesWithFraction(match[1]);
         const height = parseInchesWithFraction(match[2]);
         const quantity = match[3] ? Number(match[3]) : 1;
-        if (width == null || height == null) continue;
+        if (width == null || height == null) {
+            unparsedLines.push(line);
+            continue;
+        }
 
         pieces.push({ width, height, quantity });
     }
@@ -133,7 +160,7 @@ export function parseCustomGlassOrder(text: string): CustomGlassOrderResult {
         return { ok: false, reason: 'Could not find any piece dimensions (e.g. "59 6/8 x 120 -1") in the message.' };
     }
 
-    return { ok: true, thickness, glassType, pieces };
+    return { ok: true, thickness, glassType, pieces, unparsedLines };
 }
 
 // Builds real order line items directly from the parsed pieces -- no
@@ -142,9 +169,12 @@ export function parseCustomGlassOrder(text: string): CustomGlassOrderResult {
 // "Create PO" flow and requires-design banner (isCustomDesignOrderItem in
 // orders/[id]/page.tsx) pick these up automatically, since Toughened Glass
 // always needs a supplier purchase order rather than being fulfilled from
-// stock.
+// stock. Requires a resolved (non-null) thickness -- the caller must check
+// parsed.thickness != null first and ask the customer for it otherwise
+// (see buildPendingCustomGlassOrderItems) rather than this function
+// guessing a thickness for pricing purposes.
 export function buildCustomGlassOrderItems(
-    parsed: Extract<CustomGlassOrderResult, { ok: true }>,
+    parsed: Extract<CustomGlassOrderResult, { ok: true }> & { thickness: number },
     pricingConfig: PricingConfig,
     taxRate: number,
 ): InvoiceItem[] {
@@ -179,6 +209,41 @@ export function buildCustomGlassOrderItems(
             rateUnit: 'sqft' as const,
             amount,
             lineTotal,
+            sourceType: 'design' as const,
+            designPieceId: `custom-toughened-${index + 1}`,
+            pieceCount: piece.quantity,
+        };
+    });
+}
+
+// Used when the message named real pieces but never stated a thickness --
+// records the exact sizes/quantities the customer asked for (so nothing is
+// lost while they're asked to clarify) with rate/amount/lineTotal left at 0
+// rather than guessing a thickness, since the shop's rates vary a lot by
+// thickness (e.g. ₹85-167/sqft) and guessing wrong would misprice a real
+// order. itemName omits "Nmm" to make the pending state visually obvious in
+// the order's item list.
+export function buildPendingCustomGlassOrderItems(
+    parsed: Extract<CustomGlassOrderResult, { ok: true }> & { thickness: null },
+): InvoiceItem[] {
+    return parsed.pieces.map((piece, index) => {
+        const areaSqft = calculateDimensionAreaSqft(piece.width, piece.height, piece.quantity);
+
+        return {
+            id: generateUUID(),
+            itemId: '',
+            itemName: `Toughened ${parsed.glassType} Glass (thickness pending)`,
+            description: `${piece.width}in x ${piece.height}in${piece.quantity > 1 ? ` x ${piece.quantity} pcs` : ''}`,
+            type: 'Toughened Glass',
+            width: piece.width,
+            height: piece.height,
+            quantity: areaSqft,
+            unit: 'sqft' as const,
+            sqft: areaSqft,
+            rate: 0,
+            rateUnit: 'sqft' as const,
+            amount: 0,
+            lineTotal: 0,
             sourceType: 'design' as const,
             designPieceId: `custom-toughened-${index + 1}`,
             pieceCount: piece.quantity,
