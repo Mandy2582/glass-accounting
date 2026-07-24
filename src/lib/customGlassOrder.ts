@@ -59,6 +59,22 @@ export function looksLikeCustomGlassOrder(text: string): boolean {
     return TOUGHENED_REGEX.test(firstLines);
 }
 
+// Loose "does this message contain at least one WIDTH x HEIGHT size line"
+// check -- used by the webhook to catch messages that give real dimensions
+// but never name a glass type/category at all (not Toughened, and nothing
+// that matched a catalogue item either), so the customer can be told what's
+// missing instead of the order silently landing in manual review with no
+// reply. Deliberately looser than PIECE_LINE_REGEX above (tolerates OCR
+// artifacts like stray inch-mark quotes, "=" instead of "-", a trailing
+// "PCS" instead of a bare number) since this is only a heuristic for
+// deciding whether to ask the customer, not something used to parse/price
+// real pieces.
+const LOOSE_DIMENSION_LINE_REGEX = /\d+(?:["']|\s)*(?:\d+\/\d+)?\s*x\s*\d+/i;
+
+export function containsUnidentifiedGlassDimensions(text: string): boolean {
+    return (text || '').split('\n').some(line => LOOSE_DIMENSION_LINE_REGEX.test(line));
+}
+
 // Parses "120", "59.75", or "59 6/8" (whole number, optionally followed by
 // a fraction) into a plain decimal number of inches.
 function parseInchesWithFraction(raw: string): number | null {

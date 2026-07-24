@@ -20,7 +20,7 @@ import { formatStockUpdateReply, parseAndApplyStockUpdate } from '@/lib/stockUpd
 import { parsePurchaseMessage, type ParsedPurchaseLine } from '@/lib/purchaseMessage';
 import { calculateLineAmounts, defaultUnitsForItem } from '@/lib/units';
 import { upsertDesignItemsInOrder } from '@/lib/orderDesignItems';
-import { looksLikeCustomGlassOrder, parseCustomGlassOrder, buildCustomGlassOrderItems, buildPendingCustomGlassOrderItems, type CustomGlassOrderResult } from '@/lib/customGlassOrder';
+import { looksLikeCustomGlassOrder, parseCustomGlassOrder, buildCustomGlassOrderItems, buildPendingCustomGlassOrderItems, containsUnidentifiedGlassDimensions, type CustomGlassOrderResult } from '@/lib/customGlassOrder';
 import { normalizeIntakeImage, type NormalizedIntakeImage } from '@/lib/intakeImage';
 import type { CustomDesign, Invoice, InvoiceItem, Order, Party, PricingConfig } from '@/types';
 
@@ -238,6 +238,19 @@ async function createOrderFromWhatsAppEvent(event: WhatsAppMessageEvent) {
         const parties = await db.parties.getAll();
         const customer = await getOrCreateCustomer(event, parties);
         const order = await createReviewOrderForWhatsAppText(event, customer, body, parsedLines);
+
+        // Real sizes, but no catalogue item matched anything -- most likely
+        // because the message never says what glass this even is (no type,
+        // no thickness). Tell the customer what's missing rather than
+        // leaving them to wonder why nothing happened, same as the
+        // Toughened-specific incomplete-order replies above.
+        if (containsUnidentifiedGlassDimensions(body)) {
+            await sendWhatsAppText(
+                event.message.from,
+                `Your order details look incomplete -- we found size(s) but couldn't tell what type of glass this is. Please reply with the glass type (e.g. Toughened, Clear Float, Frosted) and thickness (e.g. 5mm/8mm/10mm/12mm) so we can quote your order.`
+            ).catch(() => {});
+        }
+
         return {
             messageId,
             status: 'text_review_created',
@@ -357,6 +370,19 @@ async function createDraftFromWhatsAppImage(event: WhatsAppMessageEvent, caption
     const design = await createDesignDraftForImage(order, customer, analysis, event.message.id, caption, normalized?.stored);
     const pricedOrder = await priceIntakeDesignOrder(order, design);
     await runAutoReview(pricedOrder);
+
+    // A "text_order" classification with real size lines but no glass
+    // type/thickness named anywhere (handwritten notes like "74 5/8 x 25
+    // 4/8 = 4 PCS" with no product mentioned) falls all the way through to
+    // this generic drawing-review path with nothing matched. Tell the
+    // customer what's missing rather than leaving them to wonder why
+    // nothing happened.
+    if (analysis.classification === 'text_order' && containsUnidentifiedGlassDimensions(analysis.extractedText || caption)) {
+        await sendWhatsAppText(
+            event.message.from,
+            `Your order details look incomplete -- we found size(s) but couldn't tell what type of glass this is. Please reply with the glass type (e.g. Toughened, Clear Float, Frosted) and thickness (e.g. 5mm/8mm/10mm/12mm) so we can quote your order.`
+        ).catch(() => {});
+    }
 
     return {
         messageId: event.message.id,
