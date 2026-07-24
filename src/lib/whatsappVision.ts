@@ -104,6 +104,19 @@ export type WhatsAppImageAnalysis = {
             // an explicit distance label came out exactly right). Null when
             // the piece's location in the photo can't be told at all.
             imageRegion?: { xMin: number; yMin: number; xMax: number; yMax: number } | null;
+            // The model's own independent tally of holes by location,
+            // committed to as structured numbers BEFORE/separately from
+            // writing out holes[] -- top+bottom+left+right+interior should
+            // equal holes.length. The existing prompt already asks for this
+            // as a free-text self-check ("go section by section..."), but
+            // that's advisory only; capturing it as its own required field
+            // lets buildPieceShapes() programmatically verify the two counts
+            // actually agree, rather than trusting holes.length on faith.
+            // When they don't agree, every hole on this piece gets flagged
+            // estimated-fallback (same amber-review mechanism as an
+            // unplaceable position) -- a mismatched self-tally means the
+            // count itself is unreliable, not just where each hole sits.
+            holeEdgeCounts?: { top: number; bottom: number; left: number; right: number; interior: number } | null;
         }>;
     };
     // True only when the vision call itself errored/couldn't be parsed --
@@ -182,6 +195,29 @@ const CUT_SCHEMA_PROPERTIES = {
 } as const;
 const CUT_SCHEMA_REQUIRED = Object.keys(CUT_SCHEMA_PROPERTIES);
 
+// A structured, independently-committed hole tally -- see holeEdgeCounts'
+// comment on the piece type above for why this exists as its own schema
+// field rather than just a free-text self-check.
+const HOLE_EDGE_COUNTS_SCHEMA = {
+    type: 'object',
+    additionalProperties: false,
+    required: ['top', 'bottom', 'left', 'right', 'interior'],
+    properties: {
+        top: { type: 'number' },
+        bottom: { type: 'number' },
+        left: { type: 'number' },
+        right: { type: 'number' },
+        interior: { type: 'number' },
+    },
+} as const;
+
+const HOLE_EDGE_COUNTS_GUIDANCE = 'HOLE COUNT SELF-CHECK: Also report holeEdgeCounts -- your own independent tally of how many holes are along the top edge, bottom edge, left edge, right edge, and how many are elsewhere in the interior, counted BEFORE (and separately from) writing out the holes[] array. top + bottom + left + right + interior must equal the number of entries in holes[]. If, while double-checking, these two don\'t match, that means one of them is wrong -- go back and recount the actual circles in the photo, then make both holeEdgeCounts and holes[] agree with that real recount (never adjust holeEdgeCounts to artificially match a holes[] array you have not actually re-verified, and never adjust holes[] length without also fixing the edge counts).';
+
+function sumHoleEdgeCounts(counts: { top: number; bottom: number; left: number; right: number; interior: number } | null | undefined): number | null {
+    if (!counts) return null;
+    return (Number(counts.top) || 0) + (Number(counts.bottom) || 0) + (Number(counts.left) || 0) + (Number(counts.right) || 0) + (Number(counts.interior) || 0);
+}
+
 export async function analyzeWhatsAppImage(input: {
     imageDataUrl: string;
     caption?: string;
@@ -221,8 +257,8 @@ export async function analyzeWhatsAppImage(input: {
                                 'MULTI-PIECE DRAWINGS: A single photo may show more than one separate glass panel (e.g. a fixed panel + a door + a ventilator, or several unrelated pieces sketched on one page, or several adjoining sections cut from one continuous sheet like a shopfront or railing run). Treat each visually distinct panel/outline as its own entry in drawing.pieces -- do not merge multiple panels into one piece, and do not drop a panel just because some of its details are unclear or repetitive-looking. CHECK EVERY SINGLE SECTION for holes and cuts individually, even ones that look plain or identical to a neighboring section -- it is a common mistake to carefully read the two end sections of a multi-section run (which often have extra hardware markings) and then skip the plainer middle sections entirely; every section that has holes or cuts marked on it must have them reported, not just the ones with the most detail.',
                                 '  - If adjoining sections are cut from one continuous sheet (sharing one unbroken top and bottom edge, divided only by vertical cut lines, with a single overall width dimension spanning all of them), set connectedToPrevious to true on every section after the first one in that run, so they get drawn together on one shared canvas instead of separate tabs. Leave it null/false for genuinely separate, independent pieces (e.g. a door drawn apart from a fixed sidelite).',
                                 '',
-                                'COUNT EVERY HOLE INDIVIDUALLY: each small circle ("o") drawn on the glass is one hole. Scan methodically -- along the top edge, bottom edge, left edge, right edge and interior of EVERY section -- and report one holes[] entry per circle. Never compress repeats: if five sections each show 2 circles at the top and 2 at the bottom, that is 20 separate entries, not 5. Miscounting holes (both too few and too many) is the single most common mistake on these drawings; recount the circles before finalizing and make sure the holes array length matches your count.',
-                                'BEFORE writing the final answer, go section by section and, for each section, count the circles along each of its four edges separately (e.g. "section 3: top edge 2, bottom edge 2, left edge 0, right edge 0 = 4 total") and make sure that per-section total matches how many holes[] entries you actually write for that section -- a section is not "the same as its neighbor", each one must be counted from what is actually drawn on it, even if two sections look identical at a glance.',
+                                'COUNT EVERY HOLE INDIVIDUALLY: each small circle ("o") drawn on the glass is one hole. Scan methodically -- along the top edge, bottom edge, left edge, right edge and interior of EVERY section -- and report one holes[] entry per circle. Never compress repeats: if five sections each show 2 circles at the top and 2 at the bottom, that is 20 separate entries, not 5. Miscounting holes (both too few and too many) is the single most common mistake on these drawings; a section is not "the same as its neighbor" -- each one must be counted from what is actually drawn on it, even if two sections look identical at a glance.',
+                                HOLE_EDGE_COUNTS_GUIDANCE,
                                 '',
                                 HOLE_CUT_POSITION_GUIDANCE,
                                 '',
@@ -308,7 +344,7 @@ export async function analyzeWhatsAppImage(input: {
                                         items: {
                                             type: 'object',
                                             additionalProperties: false,
-                                            required: ['name', 'type', 'width', 'height', 'widthUnit', 'heightUnit', 'thickness', 'quantity', 'holes', 'cuts', 'tapers', 'connectedToPrevious', 'hardwareNotes', 'imageRegion'],
+                                            required: ['name', 'type', 'width', 'height', 'widthUnit', 'heightUnit', 'thickness', 'quantity', 'holes', 'cuts', 'tapers', 'connectedToPrevious', 'hardwareNotes', 'imageRegion', 'holeEdgeCounts'],
                                             properties: {
                                                 name: { type: 'string' },
                                                 type: { type: 'string' },
@@ -335,6 +371,10 @@ export async function analyzeWhatsAppImage(input: {
                                                         required: CUT_SCHEMA_REQUIRED,
                                                         properties: CUT_SCHEMA_PROPERTIES,
                                                     },
+                                                },
+                                                holeEdgeCounts: {
+                                                    ...HOLE_EDGE_COUNTS_SCHEMA,
+                                                    type: ['object', 'null'],
                                                 },
                                                 imageRegion: {
                                                     type: ['object', 'null'],
@@ -420,7 +460,7 @@ export async function analyzeWhatsAppImage(input: {
         result.drawing.pieces = result.drawing.pieces.map((piece, i) => {
             const outcome = verifications[i];
             if (outcome.status === 'fulfilled' && outcome.value) {
-                return { ...piece, holes: outcome.value.holes, cuts: outcome.value.cuts };
+                return { ...piece, holes: outcome.value.holes, cuts: outcome.value.cuts, holeEdgeCounts: outcome.value.holeEdgeCounts };
             }
             if (outcome.status === 'rejected') {
                 console.error(`[whatsapp-vision] Per-panel verification failed for "${piece.name}", keeping first-pass holes/cuts:`, outcome.reason);
@@ -487,7 +527,7 @@ async function cropImageRegion(imageDataUrl: string, region: { xMin: number; yMi
 async function verifyPieceHolesAndCuts(
     fullImageDataUrl: string,
     piece: WhatsAppImageAnalysis['drawing']['pieces'][number],
-): Promise<{ holes: VisionHole[]; cuts: VisionCut[] } | null> {
+): Promise<{ holes: VisionHole[]; cuts: VisionCut[]; holeEdgeCounts?: { top: number; bottom: number; left: number; right: number; interior: number } | null } | null> {
     if (!piece.imageRegion) return null;
 
     const apiKey = process.env.OPENAI_API_KEY;
@@ -516,7 +556,9 @@ async function verifyPieceHolesAndCuts(
                             text: [
                                 'This is a zoomed-in crop showing ONE glass panel from a larger hand-marked order drawing (other panels, if any, have been cropped out -- only count what is visible in THIS image). This crop may include a small sliver of a neighboring panel at its very edge (deliberate padding to avoid clipping) -- ignore anything that clearly belongs to a different panel outline, and only report holes/cuts that belong to the main panel filling most of this crop.',
                                 'Recount every hole (small circle, "o") visible in this crop, precisely and independently of any earlier reading.',
-                                'COUNT EVERY HOLE INDIVIDUALLY: scan methodically along the top edge, bottom edge, left edge, right edge, and interior, and report one holes[] entry per circle. Recount before finalizing and make sure the holes array length matches what is actually visible.',
+                                'COUNT EVERY HOLE INDIVIDUALLY: scan methodically along the top edge, bottom edge, left edge, right edge, and interior, and report one holes[] entry per circle.',
+                                '',
+                                HOLE_EDGE_COUNTS_GUIDANCE,
                                 '',
                                 HARDWARE_VS_CUT_GUIDANCE,
                                 '',
@@ -543,7 +585,7 @@ async function verifyPieceHolesAndCuts(
                     schema: {
                         type: 'object',
                         additionalProperties: false,
-                        required: ['holes', 'cuts'],
+                        required: ['holes', 'cuts', 'holeEdgeCounts'],
                         properties: {
                             holes: {
                                 type: 'array',
@@ -563,6 +605,7 @@ async function verifyPieceHolesAndCuts(
                                     properties: CUT_SCHEMA_PROPERTIES,
                                 },
                             },
+                            holeEdgeCounts: HOLE_EDGE_COUNTS_SCHEMA,
                         },
                     },
                     strict: true,
@@ -586,7 +629,7 @@ async function verifyPieceHolesAndCuts(
     if (!outputText) return null;
 
     try {
-        return JSON.parse(outputText) as { holes: VisionHole[]; cuts: VisionCut[] };
+        return JSON.parse(outputText) as { holes: VisionHole[]; cuts: VisionCut[]; holeEdgeCounts?: { top: number; bottom: number; left: number; right: number; interior: number } | null };
     } catch (error) {
         console.error(`[whatsapp-vision] Failed to parse per-panel verification JSON for "${piece.name}":`, error);
         return null;
@@ -755,6 +798,7 @@ type VisionPieceLike = {
     holes?: VisionHole[] | null;
     cuts?: VisionCut[] | null;
     tapers?: VisionCornerTaper[] | null;
+    holeEdgeCounts?: { top: number; bottom: number; left: number; right: number; interior: number } | null;
 };
 
 const CORNER_ORDER: Array<'top_left' | 'top_right' | 'bottom_right' | 'bottom_left'> = ['top_left', 'top_right', 'bottom_right', 'bottom_left'];
@@ -843,12 +887,21 @@ function buildPieceShapes(piece: VisionPieceLike): KonvaShape[] {
 
     const holes = piece.holes || [];
     const holePositions = resolvePositions(holes, rectX, rectY, rectWidth, rectHeight);
+    // A mismatch between the model's own independent edge tally and the
+    // holes[] array it actually wrote means the COUNT itself is unreliable
+    // (not just where a given hole sits) -- every hole on this piece is
+    // flagged for review in that case, even ones whose individual x/y was
+    // otherwise "confirmed" by an edge distance, since an extra/missing hole
+    // elsewhere on the same piece means none of them can be fully trusted
+    // until a human recounts against the photo.
+    const expectedHoleCount = sumHoleEdgeCounts(piece.holeEdgeCounts);
+    const holeCountUncertain = expectedHoleCount != null && expectedHoleCount !== holes.length;
     holes.forEach((hole, i) => {
         const pos = holePositions[i];
         const diameterUnits = hole.diameter != null ? toCanvasUnits(hole.diameter, hole.unit) : DEFAULT_HOLE_RADIUS_UNITS * 2;
         shapes.push({
             id: generateUUID(), type: 'hole', x: pos.x!, y: pos.y!, radius: diameterUnits / 2, parentId: rectId,
-            ...(pos.xConfirmed && pos.yConfirmed ? {} : { positionSource: 'estimated-fallback' as const }),
+            ...(pos.xConfirmed && pos.yConfirmed && !holeCountUncertain ? {} : { positionSource: 'estimated-fallback' as const }),
         });
     });
 
