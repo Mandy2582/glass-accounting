@@ -143,6 +143,16 @@ const HOLE_CUT_POSITION_GUIDANCE = [
 
 const HOLE_CUT_UNITS_GUIDANCE = 'UNITS: Shops often mix units on one drawing -- panel width/height are usually inches, but hole diameters and hole/cut distances are frequently marked in mm. Report a unit per hole/cut using whatever unit is actually written next to that number. If no unit is marked, leave it null rather than guessing.';
 
+// A hatched/shaded rectangle on these drawings is one of two very different
+// things, and confusing them is a real, observed failure mode (a focused
+// single-panel crop with no other context to fall back on is especially
+// prone to defaulting every hatch mark it sees into cuts[] instead of
+// correctly recognising plain hardware): hinge/patch/lock hardware markers
+// (small, often repeated at regular intervals near panel edges, e.g. at
+// top and bottom of a door) versus an actual glass cutout. The distinguishing
+// signal is a labeled dimension.
+const HARDWARE_VS_CUT_GUIDANCE = 'HARDWARE HATCHING IS NOT A CUT: A hatched/shaded rectangle is only a real cut/notch (cuts[] entry) if it has its own explicit width AND height dimension written directly against it (e.g. "cut 27 4/8" with a "19" beside it). A hatched mark with NO dimension numbers of its own -- especially small ones repeated near the top/bottom of a door or panel edge -- is hinge/patch/lock HARDWARE, not a cut and not a hole. Do not report undimensioned hardware hatching in cuts[] or holes[] at all; mention it in hardwareNotes instead if that field is available to you.';
+
 // Shared JSON-schema fragments for a single hole/cut entry -- reused by both
 // the main multi-piece schema and the single-panel verification schema so
 // the two response shapes can never drift apart.
@@ -216,9 +226,11 @@ export async function analyzeWhatsAppImage(input: {
                                 '',
                                 HOLE_CUT_POSITION_GUIDANCE,
                                 '',
+                                HARDWARE_VS_CUT_GUIDANCE,
+                                '',
                                 'PANEL SHAPE / TAPERED CORNERS: A panel is not always a plain rectangle. If one or more corners are drawn cut off at an angle instead of square (often labeled "Taper", common on railing glass following a staircase rake), add an entry to tapers for each such corner with corner set to which one. Many drawings only label this qualitatively with no measurement at all (the angle is matched on site, not on paper) -- in that case leave horizontalCut and verticalCut null, do not guess a size. Only fill in horizontalCut (how far the cut runs in along the horizontal edge from that corner) and verticalCut (how far it runs in along the vertical edge from that corner) when the drawing actually gives both of those two measurements for that corner.',
                                 '',
-                                'IMAGE REGION: For each piece, also report imageRegion -- the approximate bounding box of that specific panel within this photo, as fractions of the image\'s total width/height (0 = left/top edge of the photo, 1 = right/bottom edge), e.g. {"xMin": 0.05, "yMin": 0.2, "xMax": 0.35, "yMax": 0.9} for a panel occupying roughly the left third of the photo. This is used afterwards to zoom into just this panel for a careful hole/cut recount, so it should tightly bound that panel\'s own outline (not the whole photo, and not including neighboring panels). Leave it null only if you genuinely cannot tell where this piece is in the photo.',
+                                'IMAGE REGION: For each piece, also report imageRegion -- the approximate bounding box of that specific panel within this photo, as fractions of the image\'s total width/height (0 = left/top edge of the photo, 1 = right/bottom edge), e.g. {"xMin": 0.05, "yMin": 0.2, "xMax": 0.35, "yMax": 0.9}. This is used afterwards to zoom into just this panel for a careful hole/cut recount, so accuracy here matters a lot -- trace that panel\'s OWN drawn outline/boundary lines in the photo to find its real edges, do NOT assume multiple panels are evenly-sized thirds/halves of the photo just because there are 2 or 3 of them (real panels are very often uneven widths -- use the drawing\'s own width dimensions, if labeled, as a cross-check). The box should tightly bound that panel\'s own outline and nothing more -- not the whole photo, and not overlapping into a neighboring panel. Leave it null only if you genuinely cannot tell where this piece is in the photo.',
                                 '',
                                 `${HOLE_CUT_UNITS_GUIDANCE} Also report widthUnit/heightUnit for the panel itself the same way.`,
                                 '',
@@ -502,9 +514,11 @@ async function verifyPieceHolesAndCuts(
                         {
                             type: 'input_text',
                             text: [
-                                'This is a zoomed-in crop showing ONE glass panel from a larger hand-marked order drawing (other panels, if any, have been cropped out -- only count what is visible in THIS image).',
-                                'Recount every hole (small circle, "o") and every cut (small hatched/shaded rectangle) visible in this crop, precisely and independently of any earlier reading.',
-                                'COUNT EVERY HOLE INDIVIDUALLY: scan methodically along the top edge, bottom edge, left edge, right edge, and interior, and report one holes[] entry per circle. Do NOT count hatched/shaded rectangular marks as holes -- those are hardware (hinge/patch/lock) positions or cuts, not holes. Recount before finalizing and make sure the holes array length matches what is actually visible.',
+                                'This is a zoomed-in crop showing ONE glass panel from a larger hand-marked order drawing (other panels, if any, have been cropped out -- only count what is visible in THIS image). This crop may include a small sliver of a neighboring panel at its very edge (deliberate padding to avoid clipping) -- ignore anything that clearly belongs to a different panel outline, and only report holes/cuts that belong to the main panel filling most of this crop.',
+                                'Recount every hole (small circle, "o") visible in this crop, precisely and independently of any earlier reading.',
+                                'COUNT EVERY HOLE INDIVIDUALLY: scan methodically along the top edge, bottom edge, left edge, right edge, and interior, and report one holes[] entry per circle. Recount before finalizing and make sure the holes array length matches what is actually visible.',
+                                '',
+                                HARDWARE_VS_CUT_GUIDANCE,
                                 '',
                                 HOLE_CUT_POSITION_GUIDANCE,
                                 '',
