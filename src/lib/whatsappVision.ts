@@ -1,3 +1,4 @@
+import sharp from 'sharp';
 import { calculateDimensionAreaSqft } from '@/lib/units';
 import { generateUUID, roundCurrency } from '@/lib/utils';
 import type { DesignData, DesignItem, KonvaShape } from '@/types';
@@ -92,6 +93,17 @@ export type WhatsAppImageAnalysis = {
             // null/false.
             connectedToPrevious?: boolean | null;
             hardwareNotes?: string | null;
+            // Approximate bounding box of this piece within the photo, as
+            // fractions of the image's own width/height (0 = left/top edge,
+            // 1 = right/bottom edge). Used to crop a zoomed-in view of just
+            // this panel for a focused second-pass hole/cut recount --
+            // asking the model to divide attention across every panel in a
+            // busy multi-section photo at once is exactly where hole counts
+            // drift (confirmed against a real 3-panel drawing: two plainer
+            // panels were each over-counted by 2, while the one panel with
+            // an explicit distance label came out exactly right). Null when
+            // the piece's location in the photo can't be told at all.
+            imageRegion?: { xMin: number; yMin: number; xMax: number; yMax: number } | null;
         }>;
     };
     // True only when the vision call itself errored/couldn't be parsed --
@@ -113,6 +125,52 @@ const emptyAnalysis = (classification: WhatsAppImageAnalysis['classification'], 
     },
     analysisFailed,
 });
+
+// Shared position-reading rules for holes/cuts -- used verbatim by both the
+// main multi-piece analysis prompt and the single-panel verification prompt
+// below, so the two calls never drift out of sync on how a position is read.
+const HOLE_CUT_POSITION_GUIDANCE = [
+    'HOLE AND CUT POSITIONS: These drawings dimension hole/cut positions in different ways depending on the sketch -- read each one as it is actually drawn, using whichever of the following applies:',
+    '  - CUT SIZE vs CUT DISTANCE: a cut is usually drawn as a small shaded/hatched rectangle. Its SIZE is written against its own sides (width above or below it, height beside it -- e.g. "8" above and "8" beside it means an 8 x 8 cut). A number attached to an arrow running from a panel edge to the cut (e.g. 6" with an upward arrow from the bottom edge) is the cut\'s DISTANCE from that edge (fromBottom/fromLeft/etc.), NOT its width or height -- never use an edge-distance number as a cut dimension.',
+    '  - MOST COMMON: distance from one or two nearby edges (e.g. "20mm from left", "15mm from top"), or marked as centered on an axis (a centerline, or equal tick marks on both sides). Record fromLeft/fromRight/fromTop/fromBottom as the distance from that edge of the panel to the CENTER of the hole/cut -- only fill in the edges that are actually dimensioned, leave the rest null. If marked centered instead of a number, set centeredX and/or centeredY to true rather than guessing a number.',
+    '  - IMPORTANT -- determine fromTop vs fromBottom (and fromLeft vs fromRight) by which edge the dimension line actually starts from, NOT by which way its arrowhead points. A dimension line is very often drawn starting at the bottom edge with the arrow pointing upward toward the hole/cut -- that is still a distance FROM THE BOTTOM (fromBottom), even though the arrow points up. Trace the line back to the edge it touches to decide which field to fill in.',
+    '  - NO NUMBER, BUT NEAR AN EDGE: many drawings place a row or column of holes/cuts close to one edge of the panel with no distance written at all (e.g. a column of holes running down near the left edge). When you can see it is clearly aligned along one specific edge but no number dimensions that distance, set nearEdge to that edge ("left"/"right"/"top"/"bottom") instead of leaving every field null -- this is a real observation (which edge it is near), not a guessed number.',
+    '  - DIMENSIONED FROM ANOTHER HOLE/CUT, NOT AN EDGE: sometimes a single distance is written between two holes/cuts themselves (e.g. two holes stacked vertically with "200mm" written between them), rather than either one being dimensioned from a panel edge. For the second of the pair, set pitchFromIndex to the 0-based index of the other hole/cut in this same array (list the reference one first), set pitchDistance and pitchUnit to that written number, and set pitchAxis to "vertical" if they are stacked one above the other or "horizontal" if side by side.',
+    '  - If a hole or cut has no readable position at all by any of the above (no edge dimension, no visible edge alignment, no pitch to another hole/cut), still include it in the array (never drop it), but leave every position field null.',
+    '  - For a notch cut from a corner, set cutType to "corner_notch" and corner to which corner, plus its width/height. Otherwise use "edge_notch" for a notch cut into an edge (not a corner), or "through_cut" for an internal cutout.',
+    '  - DO NOT MERGE NEARBY CUTS: a section can have more than one separate hatched/shaded cut area near the same corner or edge (e.g. a small notch right at the corner AND a larger cut a few inches away from it). Each hatched shape is its own cuts[] entry with its own size and own position numbers -- never combine two different hatched shapes into a single entry, and never let one cut\'s size number bleed into another cut\'s position number just because they are drawn close together.',
+].join('\n');
+
+const HOLE_CUT_UNITS_GUIDANCE = 'UNITS: Shops often mix units on one drawing -- panel width/height are usually inches, but hole diameters and hole/cut distances are frequently marked in mm. Report a unit per hole/cut using whatever unit is actually written next to that number. If no unit is marked, leave it null rather than guessing.';
+
+// Shared JSON-schema fragments for a single hole/cut entry -- reused by both
+// the main multi-piece schema and the single-panel verification schema so
+// the two response shapes can never drift apart.
+const HOLE_SCHEMA_PROPERTIES = {
+    diameter: { type: ['number', 'null'] },
+    unit: { type: ['string', 'null'], enum: ['inch', 'mm', null] },
+    fromLeft: { type: ['number', 'null'] },
+    fromRight: { type: ['number', 'null'] },
+    fromTop: { type: ['number', 'null'] },
+    fromBottom: { type: ['number', 'null'] },
+    centeredX: { type: ['boolean', 'null'] },
+    centeredY: { type: ['boolean', 'null'] },
+    nearEdge: { type: ['string', 'null'], enum: ['left', 'right', 'top', 'bottom', null] },
+    pitchFromIndex: { type: ['number', 'null'] },
+    pitchDistance: { type: ['number', 'null'] },
+    pitchUnit: { type: ['string', 'null'], enum: ['inch', 'mm', null] },
+    pitchAxis: { type: ['string', 'null'], enum: ['horizontal', 'vertical', null] },
+} as const;
+const HOLE_SCHEMA_REQUIRED = Object.keys(HOLE_SCHEMA_PROPERTIES);
+
+const CUT_SCHEMA_PROPERTIES = {
+    cutType: { type: ['string', 'null'], enum: ['corner_notch', 'edge_notch', 'through_cut', null] },
+    corner: { type: ['string', 'null'], enum: ['top_left', 'top_right', 'bottom_left', 'bottom_right', null] },
+    width: { type: ['number', 'null'] },
+    height: { type: ['number', 'null'] },
+    ...HOLE_SCHEMA_PROPERTIES,
+} as const;
+const CUT_SCHEMA_REQUIRED = Object.keys(CUT_SCHEMA_PROPERTIES);
 
 export async function analyzeWhatsAppImage(input: {
     imageDataUrl: string;
@@ -153,22 +211,16 @@ export async function analyzeWhatsAppImage(input: {
                                 'MULTI-PIECE DRAWINGS: A single photo may show more than one separate glass panel (e.g. a fixed panel + a door + a ventilator, or several unrelated pieces sketched on one page, or several adjoining sections cut from one continuous sheet like a shopfront or railing run). Treat each visually distinct panel/outline as its own entry in drawing.pieces -- do not merge multiple panels into one piece, and do not drop a panel just because some of its details are unclear or repetitive-looking. CHECK EVERY SINGLE SECTION for holes and cuts individually, even ones that look plain or identical to a neighboring section -- it is a common mistake to carefully read the two end sections of a multi-section run (which often have extra hardware markings) and then skip the plainer middle sections entirely; every section that has holes or cuts marked on it must have them reported, not just the ones with the most detail.',
                                 '  - If adjoining sections are cut from one continuous sheet (sharing one unbroken top and bottom edge, divided only by vertical cut lines, with a single overall width dimension spanning all of them), set connectedToPrevious to true on every section after the first one in that run, so they get drawn together on one shared canvas instead of separate tabs. Leave it null/false for genuinely separate, independent pieces (e.g. a door drawn apart from a fixed sidelite).',
                                 '',
-                                'COUNT EVERY HOLE INDIVIDUALLY: each small circle ("o") drawn on the glass is one hole. Scan methodically -- along the top edge, bottom edge, left edge, right edge and interior of EVERY section -- and report one holes[] entry per circle. Never compress repeats: if five sections each show 2 circles at the top and 2 at the bottom, that is 20 separate entries, not 5. Under-counting holes is the single most common mistake on these drawings; recount the circles before finalizing and make sure the holes array length matches your count.',
+                                'COUNT EVERY HOLE INDIVIDUALLY: each small circle ("o") drawn on the glass is one hole. Scan methodically -- along the top edge, bottom edge, left edge, right edge and interior of EVERY section -- and report one holes[] entry per circle. Never compress repeats: if five sections each show 2 circles at the top and 2 at the bottom, that is 20 separate entries, not 5. Miscounting holes (both too few and too many) is the single most common mistake on these drawings; recount the circles before finalizing and make sure the holes array length matches your count.',
                                 'BEFORE writing the final answer, go section by section and, for each section, count the circles along each of its four edges separately (e.g. "section 3: top edge 2, bottom edge 2, left edge 0, right edge 0 = 4 total") and make sure that per-section total matches how many holes[] entries you actually write for that section -- a section is not "the same as its neighbor", each one must be counted from what is actually drawn on it, even if two sections look identical at a glance.',
                                 '',
-                                'HOLE AND CUT POSITIONS: These drawings dimension hole/cut positions in different ways depending on the sketch -- read each one as it is actually drawn, using whichever of the following applies:',
-                                '  - CUT SIZE vs CUT DISTANCE: a cut is usually drawn as a small shaded/hatched rectangle. Its SIZE is written against its own sides (width above or below it, height beside it -- e.g. "8" above and "8" beside it means an 8 x 8 cut). A number attached to an arrow running from a panel edge to the cut (e.g. 6" with an upward arrow from the bottom edge) is the cut\'s DISTANCE from that edge (fromBottom/fromLeft/etc.), NOT its width or height -- never use an edge-distance number as a cut dimension.',
-                                '  - MOST COMMON: distance from one or two nearby edges (e.g. "20mm from left", "15mm from top"), or marked as centered on an axis (a centerline, or equal tick marks on both sides). Record fromLeft/fromRight/fromTop/fromBottom as the distance from that edge of the panel to the CENTER of the hole/cut -- only fill in the edges that are actually dimensioned, leave the rest null. If marked centered instead of a number, set centeredX and/or centeredY to true rather than guessing a number.',
-                                '  - IMPORTANT -- determine fromTop vs fromBottom (and fromLeft vs fromRight) by which edge the dimension line actually starts from, NOT by which way its arrowhead points. A dimension line is very often drawn starting at the bottom edge with the arrow pointing upward toward the hole/cut -- that is still a distance FROM THE BOTTOM (fromBottom), even though the arrow points up. Trace the line back to the edge it touches to decide which field to fill in.',
-                                '  - NO NUMBER, BUT NEAR AN EDGE: many drawings place a row or column of holes/cuts close to one edge of the panel with no distance written at all (e.g. a column of holes running down near the left edge). When you can see it is clearly aligned along one specific edge but no number dimensions that distance, set nearEdge to that edge ("left"/"right"/"top"/"bottom") instead of leaving every field null -- this is a real observation (which edge it is near), not a guessed number.',
-                                '  - DIMENSIONED FROM ANOTHER HOLE/CUT, NOT AN EDGE: sometimes a single distance is written between two holes/cuts themselves (e.g. two holes stacked vertically with "200mm" written between them), rather than either one being dimensioned from a panel edge. For the second of the pair, set pitchFromIndex to the 0-based index of the other hole/cut in this same array (list the reference one first), set pitchDistance and pitchUnit to that written number, and set pitchAxis to "vertical" if they are stacked one above the other or "horizontal" if side by side.',
-                                '  - If a hole or cut has no readable position at all by any of the above (no edge dimension, no visible edge alignment, no pitch to another hole/cut), still include it in the array (never drop it), but leave every position field null.',
-                                '  - For a notch cut from a corner, set cutType to "corner_notch" and corner to which corner, plus its width/height. Otherwise use "edge_notch" for a notch cut into an edge (not a corner), or "through_cut" for an internal cutout.',
-                                '  - DO NOT MERGE NEARBY CUTS: a section can have more than one separate hatched/shaded cut area near the same corner or edge (e.g. a small notch right at the corner AND a larger cut a few inches away from it). Each hatched shape is its own cuts[] entry with its own size and own position numbers -- never combine two different hatched shapes into a single entry, and never let one cut\'s size number bleed into another cut\'s position number just because they are drawn close together.',
+                                HOLE_CUT_POSITION_GUIDANCE,
                                 '',
                                 'PANEL SHAPE / TAPERED CORNERS: A panel is not always a plain rectangle. If one or more corners are drawn cut off at an angle instead of square (often labeled "Taper", common on railing glass following a staircase rake), add an entry to tapers for each such corner with corner set to which one. Many drawings only label this qualitatively with no measurement at all (the angle is matched on site, not on paper) -- in that case leave horizontalCut and verticalCut null, do not guess a size. Only fill in horizontalCut (how far the cut runs in along the horizontal edge from that corner) and verticalCut (how far it runs in along the vertical edge from that corner) when the drawing actually gives both of those two measurements for that corner.',
                                 '',
-                                'UNITS: Shops often mix units on one drawing -- panel width/height are usually inches, but hole diameters and hole/cut distances are frequently marked in mm. Report widthUnit/heightUnit for the panel, and a separate unit per hole/cut, using whatever unit is actually written next to that number. If no unit is marked, leave it null rather than guessing.',
+                                'IMAGE REGION: For each piece, also report imageRegion -- the approximate bounding box of that specific panel within this photo, as fractions of the image\'s total width/height (0 = left/top edge of the photo, 1 = right/bottom edge), e.g. {"xMin": 0.05, "yMin": 0.2, "xMax": 0.35, "yMax": 0.9} for a panel occupying roughly the left third of the photo. This is used afterwards to zoom into just this panel for a careful hole/cut recount, so it should tightly bound that panel\'s own outline (not the whole photo, and not including neighboring panels). Leave it null only if you genuinely cannot tell where this piece is in the photo.',
+                                '',
+                                `${HOLE_CUT_UNITS_GUIDANCE} Also report widthUnit/heightUnit for the panel itself the same way.`,
                                 '',
                                 'Extract visible text, order lines, thickness, hardware notes, and customer name if visible.',
                                 'Do not invent dimensions, positions, or hardware that are not visibly marked.',
@@ -244,7 +296,7 @@ export async function analyzeWhatsAppImage(input: {
                                         items: {
                                             type: 'object',
                                             additionalProperties: false,
-                                            required: ['name', 'type', 'width', 'height', 'widthUnit', 'heightUnit', 'thickness', 'quantity', 'holes', 'cuts', 'tapers', 'connectedToPrevious', 'hardwareNotes'],
+                                            required: ['name', 'type', 'width', 'height', 'widthUnit', 'heightUnit', 'thickness', 'quantity', 'holes', 'cuts', 'tapers', 'connectedToPrevious', 'hardwareNotes', 'imageRegion'],
                                             properties: {
                                                 name: { type: 'string' },
                                                 type: { type: 'string' },
@@ -259,22 +311,8 @@ export async function analyzeWhatsAppImage(input: {
                                                     items: {
                                                         type: 'object',
                                                         additionalProperties: false,
-                                                        required: ['diameter', 'unit', 'fromLeft', 'fromRight', 'fromTop', 'fromBottom', 'centeredX', 'centeredY', 'nearEdge', 'pitchFromIndex', 'pitchDistance', 'pitchUnit', 'pitchAxis'],
-                                                        properties: {
-                                                            diameter: { type: ['number', 'null'] },
-                                                            unit: { type: ['string', 'null'], enum: ['inch', 'mm', null] },
-                                                            fromLeft: { type: ['number', 'null'] },
-                                                            fromRight: { type: ['number', 'null'] },
-                                                            fromTop: { type: ['number', 'null'] },
-                                                            fromBottom: { type: ['number', 'null'] },
-                                                            centeredX: { type: ['boolean', 'null'] },
-                                                            centeredY: { type: ['boolean', 'null'] },
-                                                            nearEdge: { type: ['string', 'null'], enum: ['left', 'right', 'top', 'bottom', null] },
-                                                            pitchFromIndex: { type: ['number', 'null'] },
-                                                            pitchDistance: { type: ['number', 'null'] },
-                                                            pitchUnit: { type: ['string', 'null'], enum: ['inch', 'mm', null] },
-                                                            pitchAxis: { type: ['string', 'null'], enum: ['horizontal', 'vertical', null] },
-                                                        },
+                                                        required: HOLE_SCHEMA_REQUIRED,
+                                                        properties: HOLE_SCHEMA_PROPERTIES,
                                                     },
                                                 },
                                                 cuts: {
@@ -282,25 +320,19 @@ export async function analyzeWhatsAppImage(input: {
                                                     items: {
                                                         type: 'object',
                                                         additionalProperties: false,
-                                                        required: ['cutType', 'corner', 'width', 'height', 'unit', 'fromLeft', 'fromRight', 'fromTop', 'fromBottom', 'centeredX', 'centeredY', 'nearEdge', 'pitchFromIndex', 'pitchDistance', 'pitchUnit', 'pitchAxis'],
-                                                        properties: {
-                                                            cutType: { type: ['string', 'null'], enum: ['corner_notch', 'edge_notch', 'through_cut', null] },
-                                                            corner: { type: ['string', 'null'], enum: ['top_left', 'top_right', 'bottom_left', 'bottom_right', null] },
-                                                            width: { type: ['number', 'null'] },
-                                                            height: { type: ['number', 'null'] },
-                                                            unit: { type: ['string', 'null'], enum: ['inch', 'mm', null] },
-                                                            fromLeft: { type: ['number', 'null'] },
-                                                            fromRight: { type: ['number', 'null'] },
-                                                            fromTop: { type: ['number', 'null'] },
-                                                            fromBottom: { type: ['number', 'null'] },
-                                                            centeredX: { type: ['boolean', 'null'] },
-                                                            centeredY: { type: ['boolean', 'null'] },
-                                                            nearEdge: { type: ['string', 'null'], enum: ['left', 'right', 'top', 'bottom', null] },
-                                                            pitchFromIndex: { type: ['number', 'null'] },
-                                                            pitchDistance: { type: ['number', 'null'] },
-                                                            pitchUnit: { type: ['string', 'null'], enum: ['inch', 'mm', null] },
-                                                            pitchAxis: { type: ['string', 'null'], enum: ['horizontal', 'vertical', null] },
-                                                        },
+                                                        required: CUT_SCHEMA_REQUIRED,
+                                                        properties: CUT_SCHEMA_PROPERTIES,
+                                                    },
+                                                },
+                                                imageRegion: {
+                                                    type: ['object', 'null'],
+                                                    additionalProperties: false,
+                                                    required: ['xMin', 'yMin', 'xMax', 'yMax'],
+                                                    properties: {
+                                                        xMin: { type: 'number' },
+                                                        yMin: { type: 'number' },
+                                                        xMax: { type: 'number' },
+                                                        yMax: { type: 'number' },
                                                     },
                                                 },
                                                 tapers: {
@@ -347,11 +379,203 @@ export async function analyzeWhatsAppImage(input: {
 
     if (!outputText) return emptyAnalysis('unknown', input.caption || '', true);
 
+    let result: WhatsAppImageAnalysis;
     try {
-        return JSON.parse(outputText) as WhatsAppImageAnalysis;
+        result = JSON.parse(outputText) as WhatsAppImageAnalysis;
     } catch (error) {
         console.error('Failed to parse image analysis JSON:', error);
         return emptyAnalysis('unknown', input.caption || '', true);
+    }
+
+    // Second pass: for each piece with real geometry and a usable image
+    // region, re-read its holes/cuts from a zoomed crop of just that panel
+    // instead of trusting the first pass's count across the whole (often
+    // multi-panel) photo. Confirmed against a real 3-panel drawing that this
+    // is exactly where counts drift: two plainer panels were each
+    // over-counted by 2 holes, while the one panel with an explicit distance
+    // label came out exactly right in the first pass already -- the model
+    // is accurate when it has something to anchor a count against, and
+    // drifts when it has to divide attention across a busy multi-panel
+    // photo with nothing but freehand circles to count. Runs in parallel so
+    // wall-clock latency stays close to one extra call rather than growing
+    // with piece count; any failure/timeout/missing-region on a given piece
+    // just keeps that piece's first-pass holes/cuts unchanged (fail-open --
+    // this is a verification step, never a reason to lose data).
+    if (result.classification === 'drawing' || result.classification === 'mixed') {
+        const verifications = await Promise.allSettled(
+            result.drawing.pieces.map(piece => verifyPieceHolesAndCuts(input.imageDataUrl, piece))
+        );
+        result.drawing.pieces = result.drawing.pieces.map((piece, i) => {
+            const outcome = verifications[i];
+            if (outcome.status === 'fulfilled' && outcome.value) {
+                return { ...piece, holes: outcome.value.holes, cuts: outcome.value.cuts };
+            }
+            if (outcome.status === 'rejected') {
+                console.error(`[whatsapp-vision] Per-panel verification failed for "${piece.name}", keeping first-pass holes/cuts:`, outcome.reason);
+            }
+            return piece;
+        });
+    }
+
+    return result;
+}
+
+// Crops the original photo down to one piece's imageRegion (padded so a
+// hole/cut sitting right at the panel's own edge isn't clipped), returning a
+// new data URL for the focused verification call. Returns null on any
+// failure (corrupt region, unreadable image, etc.) so the caller can fall
+// back to the first pass's reading instead of erroring the whole analysis.
+async function cropImageRegion(imageDataUrl: string, region: { xMin: number; yMin: number; xMax: number; yMax: number }): Promise<string | null> {
+    try {
+        const match = imageDataUrl.match(/^data:image\/\w+;base64,(.+)$/);
+        if (!match) return null;
+
+        const buffer = Buffer.from(match[1], 'base64');
+        const image = sharp(buffer);
+        const metadata = await image.metadata();
+        const width = metadata.width || 0;
+        const height = metadata.height || 0;
+        if (!width || !height) return null;
+
+        const regionWidth = region.xMax - region.xMin;
+        const regionHeight = region.yMax - region.yMin;
+        if (!(regionWidth > 0) || !(regionHeight > 0)) return null;
+
+        // 12% padding on each side -- generous enough that a hole/cut drawn
+        // close to the panel's own outline survives the crop, without
+        // pulling in so much of the neighboring panel that it reintroduces
+        // the same divided-attention problem this pass exists to avoid.
+        const padX = regionWidth * 0.12;
+        const padY = regionHeight * 0.12;
+        const xMin = Math.max(0, region.xMin - padX);
+        const yMin = Math.max(0, region.yMin - padY);
+        const xMax = Math.min(1, region.xMax + padX);
+        const yMax = Math.min(1, region.yMax + padY);
+
+        const left = Math.round(xMin * width);
+        const top = Math.round(yMin * height);
+        const cropWidth = Math.round((xMax - xMin) * width);
+        const cropHeight = Math.round((yMax - yMin) * height);
+        if (cropWidth <= 0 || cropHeight <= 0 || left + cropWidth > width || top + cropHeight > height) return null;
+
+        const cropped = await image.extract({ left, top, width: cropWidth, height: cropHeight }).jpeg({ quality: 92 }).toBuffer();
+        return `data:image/jpeg;base64,${cropped.toString('base64')}`;
+    } catch (error) {
+        console.error('[whatsapp-vision] Failed to crop image region:', error);
+        return null;
+    }
+}
+
+// Focused second-pass extraction: given a zoomed crop of ONE already-
+// identified panel, recount its holes/cuts in isolation. Reuses the exact
+// same position-reading rules and JSON schema as the main call (see
+// HOLE_CUT_POSITION_GUIDANCE/HOLE_SCHEMA_PROPERTIES/CUT_SCHEMA_PROPERTIES
+// above) so the two calls can never disagree on how a position is encoded --
+// only the framing differs (one panel in isolation, not several at once).
+async function verifyPieceHolesAndCuts(
+    fullImageDataUrl: string,
+    piece: WhatsAppImageAnalysis['drawing']['pieces'][number],
+): Promise<{ holes: VisionHole[]; cuts: VisionCut[] } | null> {
+    if (!piece.imageRegion) return null;
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) return null;
+
+    const croppedImageDataUrl = await cropImageRegion(fullImageDataUrl, piece.imageRegion);
+    if (!croppedImageDataUrl) return null;
+
+    const model = process.env.OPENAI_VISION_MODEL || 'gpt-4.1-mini';
+    const isReasoningModel = /^(gpt-5|o\d)/.test(model);
+
+    const response = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            model,
+            input: [
+                {
+                    role: 'user',
+                    content: [
+                        {
+                            type: 'input_text',
+                            text: [
+                                'This is a zoomed-in crop showing ONE glass panel from a larger hand-marked order drawing (other panels, if any, have been cropped out -- only count what is visible in THIS image).',
+                                'Recount every hole (small circle, "o") and every cut (small hatched/shaded rectangle) visible in this crop, precisely and independently of any earlier reading.',
+                                'COUNT EVERY HOLE INDIVIDUALLY: scan methodically along the top edge, bottom edge, left edge, right edge, and interior, and report one holes[] entry per circle. Do NOT count hatched/shaded rectangular marks as holes -- those are hardware (hinge/patch/lock) positions or cuts, not holes. Recount before finalizing and make sure the holes array length matches what is actually visible.',
+                                '',
+                                HOLE_CUT_POSITION_GUIDANCE,
+                                '',
+                                HOLE_CUT_UNITS_GUIDANCE,
+                                `This crop is of the panel named "${piece.name}".`,
+                            ].filter(Boolean).join('\n'),
+                        },
+                        {
+                            type: 'input_image',
+                            image_url: croppedImageDataUrl,
+                            detail: (process.env.OPENAI_VISION_DETAIL as 'low' | 'high' | 'auto' | undefined) || 'auto',
+                        },
+                    ],
+                },
+            ],
+            max_output_tokens: isReasoningModel ? 6000 : 1500,
+            ...(isReasoningModel ? { reasoning: { effort: 'medium' } } : {}),
+            text: {
+                format: {
+                    type: 'json_schema',
+                    name: 'whatsapp_panel_hole_cut_verification',
+                    schema: {
+                        type: 'object',
+                        additionalProperties: false,
+                        required: ['holes', 'cuts'],
+                        properties: {
+                            holes: {
+                                type: 'array',
+                                items: {
+                                    type: 'object',
+                                    additionalProperties: false,
+                                    required: HOLE_SCHEMA_REQUIRED,
+                                    properties: HOLE_SCHEMA_PROPERTIES,
+                                },
+                            },
+                            cuts: {
+                                type: 'array',
+                                items: {
+                                    type: 'object',
+                                    additionalProperties: false,
+                                    required: CUT_SCHEMA_REQUIRED,
+                                    properties: CUT_SCHEMA_PROPERTIES,
+                                },
+                            },
+                        },
+                    },
+                    strict: true,
+                },
+            },
+        }),
+    });
+
+    if (!response.ok) {
+        const detail = await response.text();
+        console.error(`[whatsapp-vision] Per-panel verification call failed for "${piece.name}":`, detail);
+        return null;
+    }
+
+    const data = await response.json();
+    if (data.usage) {
+        console.log(`[whatsapp-vision] Per-panel verification usage (${model}, "${piece.name}"):`, data.usage);
+    }
+    const outputText = data.output_text || data.output?.flatMap((item: any) => item.content || [])
+        .find((content: any) => content.type === 'output_text')?.text;
+    if (!outputText) return null;
+
+    try {
+        return JSON.parse(outputText) as { holes: VisionHole[]; cuts: VisionCut[] };
+    } catch (error) {
+        console.error(`[whatsapp-vision] Failed to parse per-panel verification JSON for "${piece.name}":`, error);
+        return null;
     }
 }
 
