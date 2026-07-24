@@ -12,6 +12,9 @@ export const INTERNAL_NOTE_MARKERS = [
     '[ORDER_WORK_ASSIGNMENTS_B64:',
     '[ORDER_SOURCE:',
     '[NEEDS_APPROVAL:',
+    '[NEEDS_CLARIFICATION:',
+    '[MISSING_INFO:',
+    '[PENDING_GLASS_TYPE:',
 ] as const;
 
 export type OrderSource = 'online' | 'whatsapp' | 'email' | 'manual';
@@ -56,6 +59,46 @@ export function estimateSent(notes: string | undefined): boolean {
     return (notes || '').includes('[ESTIMATE_SENT:true]');
 }
 
+export type MissingOrderInfo = 'thickness' | 'type_and_thickness';
+
+// Set on a Toughened Glass order created with real pieces but missing
+// thickness (and/or glass type), alongside the automatic WhatsApp reply
+// asking the customer for it -- lets the webhook recognise the customer's
+// next message as answering that question (see findPendingClarificationOrder)
+// rather than treating it as an unrelated new order.
+export function withNeedsClarification(notes: string, missing: MissingOrderInfo, pendingGlassType?: string): string {
+    return [
+        notes,
+        '[NEEDS_CLARIFICATION:true]',
+        `[MISSING_INFO:${missing}]`,
+        pendingGlassType ? `[PENDING_GLASS_TYPE:${pendingGlassType}]` : '',
+    ].filter(Boolean).join('\n');
+}
+
+export function needsClarification(notes: string | undefined): boolean {
+    return (notes || '').includes('[NEEDS_CLARIFICATION:true]');
+}
+
+export function getMissingInfo(notes: string | undefined): MissingOrderInfo | null {
+    const match = (notes || '').match(/\[MISSING_INFO:(thickness|type_and_thickness)\]/);
+    return match ? (match[1] as MissingOrderInfo) : null;
+}
+
+export function getPendingGlassType(notes: string | undefined): string | null {
+    const match = (notes || '').match(/\[PENDING_GLASS_TYPE:([^\]]+)\]/);
+    return match ? match[1] : null;
+}
+
+// Clears the clarification gate once the customer's reply completed the
+// order (or it was completed manually in the UI).
+export function withClarificationCleared(notes: string | undefined): string {
+    return (notes || '')
+        .replace(/\n?\[NEEDS_CLARIFICATION:(true|false)\]/g, '')
+        .replace(/\n?\[MISSING_INFO:[^\]]+\]/g, '')
+        .replace(/\n?\[PENDING_GLASS_TYPE:[^\]]+\]/g, '')
+        .trim();
+}
+
 export function withEstimateApproved(notes: string): string {
     return notes.includes('[ESTIMATE_APPROVED:true]') ? notes : [notes, '[ESTIMATE_APPROVED:true]'].filter(Boolean).join('\n');
 }
@@ -80,6 +123,35 @@ export function findPendingConfirmationOrder<T extends { notes?: string; date: s
             && notes.includes(senderIdentifierText);
     });
     return candidates.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+}
+
+// Finds this sender's most recent order still waiting on a clarification
+// reply (missing thickness and/or glass type), so their next message can be
+// treated as answering it rather than as an unrelated new order. Scoped to a
+// time window (default 24h, matching WhatsApp's own customer-service-window
+// convention already used elsewhere in this app) so a much later, genuinely
+// new order from the same number doesn't get mistaken for a stale answer.
+export function findPendingClarificationOrder<T extends { notes?: string; date: string; createdAt?: string; updatedAt?: string }>(
+    orders: T[],
+    source: OrderSource,
+    senderIdentifierText: string,
+    withinHours = 24
+): T | undefined {
+    if (!senderIdentifierText) return undefined;
+    const cutoff = Date.now() - withinHours * 60 * 60 * 1000;
+    const candidates = orders.filter(order => {
+        const notes = order.notes || '';
+        if (getOrderSource(notes) !== source || !needsClarification(notes) || !notes.includes(senderIdentifierText)) {
+            return false;
+        }
+        const timestamp = new Date(order.updatedAt || order.createdAt || order.date).getTime();
+        return Number.isFinite(timestamp) && timestamp >= cutoff;
+    });
+    return candidates.sort((a, b) => {
+        const aTime = new Date(a.updatedAt || a.createdAt || a.date).getTime();
+        const bTime = new Date(b.updatedAt || b.createdAt || b.date).getTime();
+        return bTime - aTime;
+    })[0];
 }
 
 // Markers are always appended after free-text notes, never interleaved, so the

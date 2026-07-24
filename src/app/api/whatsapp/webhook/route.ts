@@ -11,7 +11,16 @@ import { analyzeWhatsAppImage, buildDesignDataFromImageAnalysis, WhatsAppImageAn
 import { generateUUID, roundCurrency } from '@/lib/utils';
 import { withAvailableStock } from '@/lib/stockReservations';
 import { isAffirmativeReply, resolveImageOrderIntent, resolveOrderIntent } from '@/lib/orderIntent';
-import { findPendingConfirmationOrder, withNeedsApproval, withOrderSource } from '@/lib/orderNotes';
+import {
+    findPendingConfirmationOrder,
+    findPendingClarificationOrder,
+    getMissingInfo,
+    getPendingGlassType,
+    withClarificationCleared,
+    withNeedsApproval,
+    withNeedsClarification,
+    withOrderSource,
+} from '@/lib/orderNotes';
 import { approveAndInvoiceOrder } from '@/lib/orderQuotation';
 import { runAutoReview, sendOrderBookedConfirmation } from '@/lib/autoReview';
 import { sendWhatsAppText } from '@/lib/outboundMessaging';
@@ -20,7 +29,17 @@ import { formatStockUpdateReply, parseAndApplyStockUpdate } from '@/lib/stockUpd
 import { parsePurchaseMessage, type ParsedPurchaseLine } from '@/lib/purchaseMessage';
 import { calculateLineAmounts, defaultUnitsForItem } from '@/lib/units';
 import { upsertDesignItemsInOrder } from '@/lib/orderDesignItems';
-import { looksLikeCustomGlassOrder, parseCustomGlassOrder, buildCustomGlassOrderItems, buildPendingCustomGlassOrderItems, containsUnidentifiedGlassDimensions, type CustomGlassOrderResult } from '@/lib/customGlassOrder';
+import {
+    looksLikeCustomGlassOrder,
+    parseCustomGlassOrder,
+    buildCustomGlassOrderItems,
+    buildPendingCustomGlassOrderItems,
+    buildUnidentifiedGlassOrderItems,
+    containsUnidentifiedGlassDimensions,
+    parseDimensionOnlyLines,
+    parseReplyForMissingInfo,
+    type CustomGlassOrderResult,
+} from '@/lib/customGlassOrder';
 import { normalizeIntakeImage, type NormalizedIntakeImage } from '@/lib/intakeImage';
 import type { CustomDesign, Invoice, InvoiceItem, Order, Party, PricingConfig } from '@/types';
 
@@ -214,6 +233,21 @@ async function createOrderFromWhatsAppEvent(event: WhatsAppMessageEvent) {
         return await createDraftFromWhatsAppImage(event, body);
     }
 
+    // A customer with an order still waiting on a "what's missing" reply
+    // (glass type and/or thickness) may be answering it now -- but only
+    // treat it that way when this message itself doesn't introduce new
+    // dimensions (which would mean a fresh order, not an answer) and a
+    // candidate exists within the time window, so a genuinely new order
+    // from the same number never gets silently merged into a stale one.
+    if (!containsUnidentifiedGlassDimensions(body)) {
+        const orders = await db.orders.getAll();
+        const pendingClarification = findPendingClarificationOrder(orders, 'whatsapp', event.message.from);
+        if (pendingClarification) {
+            const clarificationResult = await tryCompleteClarification(pendingClarification, body, event.message.from);
+            if (clarificationResult) return { messageId, ...clarificationResult };
+        }
+    }
+
     const customGlassResult = await handleCustomGlassOrderText(event, body, 'WhatsApp Business webhook');
     if (customGlassResult) return customGlassResult;
 
@@ -237,20 +271,41 @@ async function createOrderFromWhatsAppEvent(event: WhatsAppMessageEvent) {
 
         const parties = await db.parties.getAll();
         const customer = await getOrCreateCustomer(event, parties);
-        const order = await createReviewOrderForWhatsAppText(event, customer, body, parsedLines);
 
         // Real sizes, but no catalogue item matched anything -- most likely
         // because the message never says what glass this even is (no type,
-        // no thickness). Tell the customer what's missing rather than
-        // leaving them to wonder why nothing happened, same as the
-        // Toughened-specific incomplete-order replies above.
-        if (containsUnidentifiedGlassDimensions(body)) {
+        // no thickness). Capture the real pieces now (rather than losing
+        // them to a zero-item review order) and ask the customer what's
+        // missing; their next reply is picked up by the pending-
+        // clarification check above and merged back into this same order.
+        const dimensionPieces = parseDimensionOnlyLines(body);
+        if (dimensionPieces.length > 0) {
+            const dimensionItems = buildUnidentifiedGlassOrderItems(dimensionPieces);
+            const pieceCount = dimensionPieces.reduce((sum, piece) => sum + piece.quantity, 0);
+            const order = await saveUnidentifiedGlassOrder({
+                customer,
+                messageId,
+                from: event.message.from,
+                originalMessage: body,
+                items: dimensionItems,
+                pieceCount,
+                source: 'WhatsApp Business webhook',
+            });
             await sendWhatsAppText(
                 event.message.from,
-                `Your order details look incomplete -- we found size(s) but couldn't tell what type of glass this is. Please reply with the glass type (e.g. Toughened, Clear Float, Frosted) and thickness (e.g. 5mm/8mm/10mm/12mm) so we can quote your order.`
+                `Your order details look incomplete -- we received ${dimensionPieces.length} size(s) (${pieceCount} pcs), but couldn't tell what type of glass this is. Please reply with the glass type (e.g. Toughened, Clear Float, Frosted) and thickness (e.g. 5mm/8mm/10mm/12mm) so we can quote your order.`
             ).catch(() => {});
+            return {
+                messageId,
+                status: 'custom_glass_missing_type',
+                orderId: order.id,
+                orderNumber: order.number,
+                customerId: customer.id,
+                customerName: customer.name,
+            };
         }
 
+        const order = await createReviewOrderForWhatsAppText(event, customer, body, parsedLines);
         return {
             messageId,
             status: 'text_review_created',
@@ -366,23 +421,49 @@ async function createDraftFromWhatsAppImage(event: WhatsAppMessageEvent, caption
 
     const parties = await db.parties.getAll();
     const customer = await getOrCreateCustomer(event, parties);
+
+    // A "text_order" classification with real size lines but no glass
+    // type/thickness named anywhere (handwritten notes like "74 5/8 x 25
+    // 4/8 = 4 PCS" with no product mentioned) would otherwise fall all the
+    // way through to the generic drawing-review path below with a zero-
+    // area placeholder piece -- the vision model has nothing to draw when
+    // there's no sketch, just numbers. Capture the real pieces directly
+    // instead, and ask what's missing; the reply is picked up by the
+    // pending-clarification check in createOrderFromWhatsAppEvent and
+    // merged back into this same order.
+    if (analysis.classification === 'text_order') {
+        const dimensionText = [caption, analysis.extractedText].filter(Boolean).join('\n');
+        const dimensionPieces = parseDimensionOnlyLines(dimensionText);
+        if (dimensionPieces.length > 0) {
+            const dimensionItems = buildUnidentifiedGlassOrderItems(dimensionPieces);
+            const pieceCount = dimensionPieces.reduce((sum, piece) => sum + piece.quantity, 0);
+            const order = await saveUnidentifiedGlassOrder({
+                customer,
+                messageId: event.message.id,
+                from: event.message.from,
+                originalMessage: dimensionText,
+                items: dimensionItems,
+                pieceCount,
+                source: 'WhatsApp image order',
+            });
+            await sendWhatsAppText(
+                event.message.from,
+                `Your order details look incomplete -- we received ${dimensionPieces.length} size(s) (${pieceCount} pcs), but couldn't tell what type of glass this is. Please reply with the glass type (e.g. Toughened, Clear Float, Frosted) and thickness (e.g. 5mm/8mm/10mm/12mm) so we can quote your order.`
+            ).catch(() => {});
+            return {
+                messageId: event.message.id,
+                status: 'custom_glass_missing_type',
+                orderId: order.id,
+                orderNumber: order.number,
+                customerId: customer.id,
+            };
+        }
+    }
+
     const order = await createReviewOrderForImage(event, customer, analysis, caption);
     const design = await createDesignDraftForImage(order, customer, analysis, event.message.id, caption, normalized?.stored);
     const pricedOrder = await priceIntakeDesignOrder(order, design);
     await runAutoReview(pricedOrder);
-
-    // A "text_order" classification with real size lines but no glass
-    // type/thickness named anywhere (handwritten notes like "74 5/8 x 25
-    // 4/8 = 4 PCS" with no product mentioned) falls all the way through to
-    // this generic drawing-review path with nothing matched. Tell the
-    // customer what's missing rather than leaving them to wonder why
-    // nothing happened.
-    if (analysis.classification === 'text_order' && containsUnidentifiedGlassDimensions(analysis.extractedText || caption)) {
-        await sendWhatsAppText(
-            event.message.from,
-            `Your order details look incomplete -- we found size(s) but couldn't tell what type of glass this is. Please reply with the glass type (e.g. Toughened, Clear Float, Frosted) and thickness (e.g. 5mm/8mm/10mm/12mm) so we can quote your order.`
-        ).catch(() => {});
-    }
 
     return {
         messageId: event.message.id,
@@ -533,7 +614,7 @@ async function savePendingCustomGlassOrder(input: {
         total: 0,
         status: 'pending',
         requiresDesign: true,
-        notes: withNeedsApproval(withOrderSource([
+        notes: withNeedsClarification(withNeedsApproval(withOrderSource([
             `Created automatically from ${input.source}.`,
             `WhatsApp Message ID: ${input.messageId}`,
             `WhatsApp From: ${input.from}`,
@@ -542,13 +623,131 @@ async function savePendingCustomGlassOrder(input: {
             '',
             'Original message:',
             input.originalMessage,
-        ].join('\n'), 'whatsapp')),
+        ].join('\n'), 'whatsapp')), 'thickness', input.parsed.glassType),
         paidAmount: 0,
         paymentStatus: 'unpaid',
     };
 
     await db.orders.add(order);
     return order;
+}
+
+// Generic case: real pieces were captured but the message named no glass
+// type/thickness at all (no Toughened/Tempered keyword either, so this
+// isn't the Toughened-specific path above). Same "record real pieces,
+// price nothing yet" approach, just via buildUnidentifiedGlassOrderItems
+// since there's no glassType to remember either.
+async function saveUnidentifiedGlassOrder(input: {
+    customer: Party;
+    messageId: string;
+    from: string;
+    originalMessage: string;
+    items: InvoiceItem[];
+    pieceCount: number;
+    source: string;
+}): Promise<Order> {
+    const orderNumber = await db.orders.generateNextOrderNumber('sale_order');
+    const generalNumber = await db.orders.generateNextGeneralNumber();
+    const order: Order = {
+        id: generateUUID(),
+        type: 'sale_order',
+        number: orderNumber,
+        generalNumber,
+        soNumber: orderNumber,
+        date: new Date().toISOString().slice(0, 10),
+        partyId: input.customer.id,
+        partyName: input.customer.name,
+        items: input.items,
+        subtotal: 0,
+        taxRate: 18,
+        taxAmount: 0,
+        total: 0,
+        status: 'pending',
+        requiresDesign: true,
+        notes: withNeedsClarification(withNeedsApproval(withOrderSource([
+            `Created automatically from ${input.source}.`,
+            `WhatsApp Message ID: ${input.messageId}`,
+            `WhatsApp From: ${input.from}`,
+            '',
+            `Custom glass order, ${input.items.length} size(s), ${input.pieceCount} pcs total. MISSING: glass type and thickness were not stated, so items are recorded but not yet priced. A WhatsApp reply asking the customer for it was sent automatically.`,
+            '',
+            'Original message:',
+            input.originalMessage,
+        ].join('\n'), 'whatsapp')), 'type_and_thickness'),
+        paidAmount: 0,
+        paymentStatus: 'unpaid',
+    };
+
+    await db.orders.add(order);
+    return order;
+}
+
+// Called when a customer's message might be answering a previous "what's
+// missing" question (see findPendingClarificationOrder). Returns null only
+// when the matched order turns out not to actually have a MISSING_INFO
+// marker (defensive -- shouldn't happen given the caller's filter); every
+// other outcome (info still missing, or successfully completed) returns a
+// result so the caller short-circuits normal order processing rather than
+// also creating an unrelated second order from the same message.
+async function tryCompleteClarification(
+    order: Order,
+    replyText: string,
+    fromPhone: string
+): Promise<{ status: string; orderId: string; orderNumber: string; total?: number } | null> {
+    const missing = getMissingInfo(order.notes);
+    if (!missing) return null;
+
+    const reply = parseReplyForMissingInfo(replyText);
+    const pendingGlassType = getPendingGlassType(order.notes);
+    const thickness = reply.thickness;
+    const glassType = reply.glassType || pendingGlassType || null;
+
+    if (thickness == null || !glassType) {
+        const stillNeeded = [
+            !glassType ? 'glass type (e.g. Toughened, Clear Float, Frosted)' : null,
+            thickness == null ? 'thickness (e.g. 5mm/8mm/10mm/12mm)' : null,
+        ].filter(Boolean).join(' and ');
+        await sendWhatsAppText(
+            fromPhone,
+            `Sorry, we still need the ${stillNeeded} for your order (${order.number}) to quote it. Please reply with that.`
+        ).catch(() => {});
+        return { status: 'clarification_reply_incomplete', orderId: order.id, orderNumber: order.number };
+    }
+
+    // Pieces are already fully captured on the order regardless of which
+    // pending path created it -- width/height/pieceCount are set on every
+    // item by both buildPendingCustomGlassOrderItems and
+    // buildUnidentifiedGlassOrderItems.
+    const pieces = order.items.map(item => ({
+        width: Number(item.width) || 0,
+        height: Number(item.height) || 0,
+        quantity: Number(item.pieceCount) || 1,
+    }));
+
+    const pricing = await db.settings.getPricing();
+    const thicknessPricing = await db.settings.getThicknessPricing();
+    const pricingConfig: PricingConfig = { ...pricing, thicknessPricing };
+    const items = buildCustomGlassOrderItems({ ok: true, thickness, glassType, pieces, unparsedLines: [] }, pricingConfig, 18);
+
+    const subtotal = roundCurrency(items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0));
+    const total = roundCurrency(items.reduce((sum, item) => sum + (Number(item.lineTotal) || 0), 0));
+    const taxAmount = roundCurrency(total - subtotal);
+
+    const updatedOrder: Order = {
+        ...order,
+        items,
+        subtotal,
+        taxAmount,
+        total,
+        notes: [
+            withClarificationCleared(order.notes),
+            `\nCompleted via WhatsApp reply: "${replyText}" -- ${thickness}mm ${glassType}.`,
+        ].join(''),
+    };
+    await db.orders.update(updatedOrder);
+    await runAutoReview(updatedOrder);
+
+    return { status: 'clarification_completed', orderId: updatedOrder.id, orderNumber: updatedOrder.number, total: updatedOrder.total };
 }
 
 // Entry point for both WhatsApp text-order call sites (plain text message,

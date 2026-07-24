@@ -18,19 +18,20 @@ import { CATALOGUE_SYNONYMS } from '@/lib/whatsappOrders';
 
 const THICKNESS_REGEX = /(\d+(?:\.\d+)?)\s*mm\b/i;
 // Matches "Toughen"/"Toughened" (WhatsApp/OCR text frequently drops the
-// "-ed" suffix, e.g. "12MM Plain Toughen") and "Tempered" (the same glass,
-// common alternate name customers actually use). Used both to detect these
-// orders and to strip the word back out when deriving the colour/type from
-// the header -- otherwise "Tempered Toughened" would leave "Tempered" behind
-// as a bogus "glass type", which then fails to match any thickness-pricing
-// row and silently falls back to the generic base rate.
-const TOUGHENED_REGEX = /\b(?:toughen(?:ed)?|tempered)\b/i;
+// "-ed" suffix, e.g. "12MM Plain Toughen"), "Toughned" (a real observed
+// customer typo dropping the "e" before "n"), and "Tempered" (the same
+// glass, common alternate name customers actually use). Used both to detect
+// these orders and to strip the word back out when deriving the colour/type
+// from the header -- otherwise "Tempered Toughened" would leave "Tempered"
+// behind as a bogus "glass type", which then fails to match any
+// thickness-pricing row and silently falls back to the generic base rate.
+const TOUGHENED_REGEX = /\b(?:toughen(?:ed)?|toughned|tempered)\b/i;
 // Same pattern, but with the "g" flag for stripping every occurrence out of
 // a header line (e.g. "Tempered Toughened" has two matches) -- kept as a
 // separate regex object from TOUGHENED_REGEX above, since a global regex's
 // `.test()` calls carry lastIndex state across calls and would otherwise
 // make looksLikeCustomGlassOrder's detection flicker between messages.
-const TOUGHENED_STRIP_REGEX = /\b(?:toughen(?:ed)?|tempered)\b/gi;
+const TOUGHENED_STRIP_REGEX = /\b(?:toughen(?:ed)?|toughned|tempered)\b/gi;
 const SUMMARY_STOP_REGEX = /^\s*\d+(?:\.\d+)?\s*pcs\b/i;
 // Leading area figure (if present) is the source's own rough number, not
 // trusted -- area is recomputed from width x height instead. Width/height
@@ -91,13 +92,14 @@ function parseInchesWithFraction(raw: string): number | null {
     return Number.isFinite(plain) && plain > 0 ? plain : null;
 }
 
-// Reduces the header line down to just the colour/type word(s) left after
-// removing "toughened", the thickness phrase, and "glass" -- e.g. "12MM
+// Reduces a line down to just the colour/type word(s) left after removing
+// "toughened"/"tempered", the thickness phrase, and "glass" -- e.g. "12MM
 // Plain Toughened" -> "Clear" (via the existing plain->clear synonym),
-// "Toughened Brown" -> "Brown". Defaults to "Clear" when nothing is left,
-// since that's the shop's default Toughened colour.
-function deriveGlassType(headerLine: string): string {
-    let remainder = headerLine.toLowerCase()
+// "Toughened Brown" -> "Brown", "8mm clear toughned" -> "Clear". Returns
+// null when nothing meaningful is left (e.g. the line was only a thickness),
+// so callers can tell "no type mentioned" apart from an actual colour.
+function deriveGlassTypeOrNull(line: string): string | null {
+    let remainder = line.toLowerCase()
         .replace(TOUGHENED_STRIP_REGEX, ' ')
         .replace(THICKNESS_REGEX, ' ')
         .replace(/\bglass\b/gi, ' ');
@@ -105,11 +107,73 @@ function deriveGlassType(headerLine: string): string {
         .split(/[^a-z]+/)
         .filter(Boolean)
         .map(word => CATALOGUE_SYNONYMS[word] || word);
-    if (words.length === 0) return 'Clear';
+    if (words.length === 0) return null;
     return words.map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 }
 
+// Same as deriveGlassTypeOrNull, but defaults to "Clear" when nothing is
+// left -- used for the original header line of a fully-parsed order, where
+// the shop's default Toughened colour is a safe assumption once we already
+// know it's a Toughened Glass order at all.
+function deriveGlassType(headerLine: string): string {
+    return deriveGlassTypeOrNull(headerLine) ?? 'Clear';
+}
+
+// Parses a short customer reply answering a "what's missing" prompt (e.g.
+// "8mm clear toughned", or just "8mm") -- thickness via the same regex used
+// for a full order header, glass type via the same word-stripping approach,
+// but returns null for whichever piece isn't actually present rather than
+// guessing or defaulting, since the caller needs to know if the reply still
+// didn't answer the question.
+export function parseReplyForMissingInfo(text: string): { thickness: number | null; glassType: string | null } {
+    const trimmed = (text || '').trim();
+    const thicknessMatch = trimmed.match(THICKNESS_REGEX);
+    return {
+        thickness: thicknessMatch ? Number(thicknessMatch[1]) : null,
+        glassType: deriveGlassTypeOrNull(trimmed),
+    };
+}
+
 export type CustomGlassPiece = { width: number; height: number; quantity: number };
+
+// Loosely matches OCR'd/handwritten dimension lines with formatting
+// PIECE_LINE_REGEX doesn't accept: stray inch-mark quotes ("74\" 5/8"), "="
+// instead of "-" before the quantity, and a trailing "PCS"/"pcs" word
+// instead of a bare number.
+function normalizeOcrDimensionLine(line: string): string {
+    return line
+        .replace(/["']/g, '')
+        .replace(/=/g, '-')
+        .replace(/\bpcs\b/gi, '')
+        .trim();
+}
+
+// Extracts piece sizes from a message that gives real dimensions but names
+// no glass type/category at all (so looksLikeCustomGlassOrder's Toughened-
+// keyword gate never fires and there's no header line to anchor on) --
+// unlike parseCustomGlassOrder, this has no header/thickness search, just
+// scans every line for something PIECE_LINE_REGEX (after OCR normalization)
+// recognises as a size. Used to capture real geometry immediately instead
+// of losing it to a zero-area "manual review" placeholder while the
+// customer is asked what type of glass this is.
+export function parseDimensionOnlyLines(text: string): CustomGlassPiece[] {
+    const pieces: CustomGlassPiece[] = [];
+    for (const rawLine of (text || '').split('\n')) {
+        const line = rawLine.trim();
+        if (!line || SUMMARY_STOP_REGEX.test(line)) continue;
+
+        const match = normalizeOcrDimensionLine(line).match(PIECE_LINE_REGEX);
+        if (!match) continue;
+
+        const width = parseInchesWithFraction(match[1]);
+        const height = parseInchesWithFraction(match[2]);
+        const quantity = match[3] ? Number(match[3]) : 1;
+        if (width == null || height == null) continue;
+
+        pieces.push({ width, height, quantity });
+    }
+    return pieces;
+}
 
 export type CustomGlassOrderResult =
     // thickness is null when the message never states one (e.g. just
@@ -262,6 +326,37 @@ export function buildPendingCustomGlassOrderItems(
             lineTotal: 0,
             sourceType: 'design' as const,
             designPieceId: `custom-toughened-${index + 1}`,
+            pieceCount: piece.quantity,
+        };
+    });
+}
+
+// Used when a message gives real dimensions but names no glass type at all
+// (parseDimensionOnlyLines, not the Toughened-specific header parser) --
+// same "record the real pieces, price nothing yet" approach as
+// buildPendingCustomGlassOrderItems, just with neither type nor thickness
+// known so itemName can't say "Toughened" either.
+export function buildUnidentifiedGlassOrderItems(pieces: CustomGlassPiece[]): InvoiceItem[] {
+    return pieces.map((piece, index) => {
+        const areaSqft = calculateDimensionAreaSqft(piece.width, piece.height, piece.quantity);
+
+        return {
+            id: generateUUID(),
+            itemId: '',
+            itemName: 'Custom Glass (type & thickness pending)',
+            description: `${piece.width}in x ${piece.height}in${piece.quantity > 1 ? ` x ${piece.quantity} pcs` : ''}`,
+            type: 'Custom Glass',
+            width: piece.width,
+            height: piece.height,
+            quantity: areaSqft,
+            unit: 'sqft' as const,
+            sqft: areaSqft,
+            rate: 0,
+            rateUnit: 'sqft' as const,
+            amount: 0,
+            lineTotal: 0,
+            sourceType: 'design' as const,
+            designPieceId: `custom-unidentified-${index + 1}`,
             pieceCount: piece.quantity,
         };
     });
