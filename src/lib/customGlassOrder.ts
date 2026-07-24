@@ -17,11 +17,20 @@ import { CATALOGUE_SYNONYMS } from '@/lib/whatsappOrders';
 // re-parsed as more (wrong) pieces.
 
 const THICKNESS_REGEX = /(\d+(?:\.\d+)?)\s*mm\b/i;
-// Matches "Toughen" and "Toughened" -- WhatsApp/OCR text frequently drops
-// the "-ed" suffix (e.g. "12MM Plain Toughen"), which the exact-word
-// "toughened" match previously missed entirely, silently falling through
-// to the catalogue-matching parser (the "only fetched the first item" bug).
-const TOUGHENED_REGEX = /\btoughen(?:ed)?\b/i;
+// Matches "Toughen"/"Toughened" (WhatsApp/OCR text frequently drops the
+// "-ed" suffix, e.g. "12MM Plain Toughen") and "Tempered" (the same glass,
+// common alternate name customers actually use). Used both to detect these
+// orders and to strip the word back out when deriving the colour/type from
+// the header -- otherwise "Tempered Toughened" would leave "Tempered" behind
+// as a bogus "glass type", which then fails to match any thickness-pricing
+// row and silently falls back to the generic base rate.
+const TOUGHENED_REGEX = /\b(?:toughen(?:ed)?|tempered)\b/i;
+// Same pattern, but with the "g" flag for stripping every occurrence out of
+// a header line (e.g. "Tempered Toughened" has two matches) -- kept as a
+// separate regex object from TOUGHENED_REGEX above, since a global regex's
+// `.test()` calls carry lastIndex state across calls and would otherwise
+// make looksLikeCustomGlassOrder's detection flicker between messages.
+const TOUGHENED_STRIP_REGEX = /\b(?:toughen(?:ed)?|tempered)\b/gi;
 const SUMMARY_STOP_REGEX = /^\s*\d+(?:\.\d+)?\s*pcs\b/i;
 // Leading area figure (if present) is the source's own rough number, not
 // trusted -- area is recomputed from width x height instead. Width/height
@@ -67,7 +76,7 @@ function parseInchesWithFraction(raw: string): number | null {
 // since that's the shop's default Toughened colour.
 function deriveGlassType(headerLine: string): string {
     let remainder = headerLine.toLowerCase()
-        .replace(TOUGHENED_REGEX, ' ')
+        .replace(TOUGHENED_STRIP_REGEX, ' ')
         .replace(THICKNESS_REGEX, ' ')
         .replace(/\bglass\b/gi, ' ');
     const words = remainder
