@@ -7,6 +7,7 @@ import { roundToNextEvenInch } from '@/lib/designCalculations';
 import { Stage, Layer, Rect, Circle, Transformer, Group, Text, Line, Arrow } from 'react-konva';
 import { db } from '@/lib/storage';
 import { GlassItem, KonvaShape, GlassPiece } from '@/types';
+import { generateGlassSystem, describeGlassSystem, type GlassSystemInput, type GlassSystemType } from '@/lib/glassSystemDesigner';
 
 // Dimension-line rendering offsets (renderRectDimensions/getPolygonSideDimensions/
 // getVertexAngleInfo below all divide these by the current drawingScale). Named
@@ -1121,6 +1122,11 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
     const [holeEdge, setHoleEdge] = useState<'top' | 'bottom' | 'left' | 'right' | 'corners'>('top');
     const [holeCountInput, setHoleCountInput] = useState<number | ''>(4);
     const [hardwareItems, setHardwareItems] = useState<GlassItem[]>([]);
+    const [showSystemModal, setShowSystemModal] = useState(false);
+    const [systemInput, setSystemInput] = useState<GlassSystemInput>({
+        systemType: 'swing_door', widthIn: 36, heightIn: 84, thickness: 12,
+        hingeSide: 'left', pivotStyle: 'hinges', hasLock: true, hasHandle: true, fixedPanelWidthIn: 24, fixingStyle: 'channel',
+    });
     const [copiedShapes, setCopiedShapes] = useState<{ main: KonvaShape[]; children: KonvaShape[] } | null>(null);
     const [photoDrafts, setPhotoDrafts] = useState<PhotoDraft[]>([]);
     // Legacy support for copiedShape
@@ -1941,6 +1947,26 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
         setSelectedShapeId(null);
     };
 
+    // Generates a full system (door/shower/panel/sliding/railing) with all
+    // hardware placed at standard positions and sourced from the shop's
+    // fitting catalogue, then drops the pieces on the canvas -- same add
+    // flow as a preset, but parametric on the entered size/options.
+    const addGeneratedSystem = () => {
+        saveHistory();
+        const { width: logicalWidth, height: logicalHeight } = getStageLogicalSize(drawingScale, stageViewportWidth);
+        const generated = generateGlassSystem(systemInput, hardwareItems);
+        const newPieces: GlassPiece[] = generated.map(piece => ({
+            id: generateUUID(),
+            ...piece,
+            shapes: centerPieceShapes(piece.shapes, logicalWidth, logicalHeight, drawingScale),
+        }));
+        if (newPieces.length === 0) return;
+        setPieces([...pieces, ...newPieces]);
+        setActivePieceId(newPieces[0].id);
+        setSelectedShapeId(null);
+        setShowSystemModal(false);
+    };
+
     const handlePhotoUpload = (files: FileList | null) => {
         if (!files || files.length === 0) return;
 
@@ -2699,6 +2725,17 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                         </option>
                                     ))}
                                 </select>
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>Generate by System</label>
+                                <button
+                                    type="button"
+                                    className="btn"
+                                    style={{ width: '100%', background: '#0e7490', color: 'white', border: 'none', fontWeight: 600 }}
+                                    onClick={() => setShowSystemModal(true)}
+                                >
+                                    Generate from system type…
+                                </button>
                             </div>
                         </div>
 
@@ -3692,6 +3729,115 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                 </div>
                 </section>
             </div>
+
+            {showSystemModal && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+                    <div className="card" style={{ width: '100%', maxWidth: '460px', maxHeight: '90vh', overflowY: 'auto', padding: '1.4rem' }}>
+                        <h2 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 0.35rem' }}>Generate from system type</h2>
+                        <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', margin: '0 0 1rem' }}>
+                            Places all hardware at standard positions, using your stocked fittings. Review and adjust on the canvas after.
+                        </p>
+
+                        <div style={{ display: 'grid', gap: '0.8rem' }}>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>System type</label>
+                                <select className="input" style={{ width: '100%' }} value={systemInput.systemType}
+                                    onChange={e => setSystemInput(s => ({ ...s, systemType: e.target.value as GlassSystemType }))}>
+                                    <option value="swing_door">Swing / pivot door</option>
+                                    <option value="shower_door">Shower enclosure</option>
+                                    <option value="fixed_panel">Fixed panel</option>
+                                    <option value="sliding_door">Sliding door</option>
+                                    <option value="railing">Railing</option>
+                                </select>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.6rem' }}>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>Width (in)</label>
+                                    <input className="input" type="number" min={6} step={0.125} value={systemInput.widthIn}
+                                        onChange={e => setSystemInput(s => ({ ...s, widthIn: parseFloat(e.target.value) || 0 }))} />
+                                </div>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>Height (in)</label>
+                                    <input className="input" type="number" min={6} step={0.125} value={systemInput.heightIn}
+                                        onChange={e => setSystemInput(s => ({ ...s, heightIn: parseFloat(e.target.value) || 0 }))} />
+                                </div>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>Thick (mm)</label>
+                                    <select className="input" value={systemInput.thickness}
+                                        onChange={e => setSystemInput(s => ({ ...s, thickness: parseInt(e.target.value, 10) }))}>
+                                        <option value={8}>8</option><option value={10}>10</option><option value={12}>12</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {(systemInput.systemType === 'swing_door' || systemInput.systemType === 'shower_door' || systemInput.systemType === 'sliding_door') && (
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>{systemInput.systemType === 'sliding_door' ? 'Handle side' : 'Hinge side'}</label>
+                                    <select className="input" style={{ width: '100%' }} value={systemInput.hingeSide}
+                                        onChange={e => setSystemInput(s => ({ ...s, hingeSide: e.target.value as 'left' | 'right' }))}>
+                                        <option value="left">Left</option><option value="right">Right</option>
+                                    </select>
+                                </div>
+                            )}
+
+                            {systemInput.systemType === 'swing_door' && (
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>Pivot</label>
+                                    <select className="input" style={{ width: '100%' }} value={systemInput.pivotStyle}
+                                        onChange={e => setSystemInput(s => ({ ...s, pivotStyle: e.target.value as 'patch' | 'hinges' }))}>
+                                        <option value="hinges">Wall hinges</option><option value="patch">Patch + floor spring</option>
+                                    </select>
+                                </div>
+                            )}
+
+                            {(systemInput.systemType === 'fixed_panel' || systemInput.systemType === 'railing') && (
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>Fixing</label>
+                                    <select className="input" style={{ width: '100%' }} value={systemInput.fixingStyle}
+                                        onChange={e => setSystemInput(s => ({ ...s, fixingStyle: e.target.value as 'channel' | 'spider' | 'standoff' }))}>
+                                        <option value="channel">Channel (no holes)</option>
+                                        {systemInput.systemType === 'fixed_panel' && <option value="spider">Spider bolts</option>}
+                                        <option value="standoff">Standoffs</option>
+                                    </select>
+                                </div>
+                            )}
+
+                            {(systemInput.systemType === 'shower_door' || systemInput.systemType === 'sliding_door') && (
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>Fixed panel width (in, 0 = none)</label>
+                                    <input className="input" type="number" min={0} step={0.5} value={systemInput.fixedPanelWidthIn ?? 0}
+                                        onChange={e => setSystemInput(s => ({ ...s, fixedPanelWidthIn: parseFloat(e.target.value) || 0 }))} />
+                                </div>
+                            )}
+
+                            <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap' }}>
+                                {systemInput.systemType !== 'fixed_panel' && systemInput.systemType !== 'railing' && (
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem' }}>
+                                        <input type="checkbox" checked={!!systemInput.hasLock} onChange={e => setSystemInput(s => ({ ...s, hasLock: e.target.checked }))} />
+                                        {systemInput.systemType === 'shower_door' ? 'Knob' : 'Lock'}
+                                    </label>
+                                )}
+                                {(systemInput.systemType === 'swing_door' || systemInput.systemType === 'sliding_door') && (
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem' }}>
+                                        <input type="checkbox" checked={!!systemInput.hasHandle} onChange={e => setSystemInput(s => ({ ...s, hasHandle: e.target.checked }))} />
+                                        Handle
+                                    </label>
+                                )}
+                            </div>
+
+                            <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', background: 'var(--color-surface-subtle, #f8fafb)', padding: '0.55rem 0.7rem', borderRadius: '8px' }}>
+                                {describeGlassSystem(systemInput, hardwareItems)}
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem', marginTop: '1.2rem' }}>
+                            <button className="btn" onClick={() => setShowSystemModal(false)}>Cancel</button>
+                            <button className="btn btn-primary" onClick={addGeneratedSystem}>Generate</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
