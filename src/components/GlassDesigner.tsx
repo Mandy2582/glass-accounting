@@ -3313,12 +3313,12 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                 <div ref={canvasFrameRef} className="designer-canvas-frame" style={{
                     width: '100%',
                     overflow: 'hidden',
-                    background: 'linear-gradient(135deg, #e2e8f0, #f8fafc)', 
-                    borderRadius: '14px', 
-                    border: '1px solid rgba(148, 163, 184, 0.35)', 
-                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.85), 0 18px 45px rgba(15, 23, 42, 0.08)',
+                    background: '#e8edf0',
+                    borderRadius: '14px',
+                    border: '1px solid rgba(14, 116, 144, 0.22)',
+                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.7), 0 18px 45px rgba(15, 23, 42, 0.08)',
                     padding: '0.65rem',
-                    height: `${stageViewportHeight + 22}px` 
+                    height: `${stageViewportHeight + 22}px`
                 }}>
                     <Stage 
                             width={stageViewportWidth} 
@@ -3330,13 +3330,13 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                             ref={stageRef}
                         >
                         <Layer>
-                            <Rect x={0} y={0} width={stageLogicalWidth} height={stageLogicalHeight} fill="#ffffff" listening={false} />
-                            {/* Render grid lines */}
+                            <Rect x={0} y={0} width={stageLogicalWidth} height={stageLogicalHeight} fill="#eef2f4" listening={false} />
+                            {/* Render grid lines (cyan-tinted drafting grid; every 5th line stronger) */}
                             {Array.from({ length: gridColumnCount }).map((_, i) => (
-                                <Rect key={`grid-v-${i}`} x={i * 20} y={0} width={1} height={stageLogicalHeight} fill={i % 5 === 0 ? '#dbeafe' : '#f1f5f9'} listening={false} />
+                                <Rect key={`grid-v-${i}`} x={i * 20} y={0} width={1} height={stageLogicalHeight} fill={i % 5 === 0 ? 'rgba(14,116,144,0.16)' : 'rgba(14,116,144,0.06)'} listening={false} />
                             ))}
                             {Array.from({ length: gridRowCount }).map((_, i) => (
-                                <Rect key={`grid-h-${i}`} x={0} y={i * 20} width={stageLogicalWidth} height={1} fill={i % 5 === 0 ? '#dbeafe' : '#f1f5f9'} listening={false} />
+                                <Rect key={`grid-h-${i}`} x={0} y={i * 20} width={stageLogicalWidth} height={1} fill={i % 5 === 0 ? 'rgba(14,116,144,0.16)' : 'rgba(14,116,144,0.06)'} listening={false} />
                             ))}
 
                             {/* Render glass pieces (flat 2D) */}
@@ -3352,9 +3352,9 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                     id: shape.id,
                                     x: shape.x,
                                     y: shape.y,
-                                    fill: shapeNeedsReview ? 'rgba(245, 158, 11, 0.2)' : 'rgba(59, 130, 246, 0.2)',
-                                    stroke: shapeNeedsReview ? '#f59e0b' : '#3b82f6',
-                                    strokeWidth: (isSelected ? 3 : 1) / drawingScale,
+                                    fill: shapeNeedsReview ? 'rgba(245, 158, 11, 0.18)' : 'rgba(14, 165, 233, 0.10)',
+                                    stroke: shapeNeedsReview ? '#f59e0b' : '#0e7490',
+                                    strokeWidth: (isSelected ? 3 : 1.5) / drawingScale,
                                     draggable: true,
                                     onClick: (e: any) => handleShapeClick(shape.id, e),
                                     onTap: (e: any) => handleShapeClick(shape.id, e),
@@ -3702,63 +3702,38 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                             });
                                         }}
                                     >
-                                        {/* Lock graphic */}
-                                        {shape.accessoryType === 'lock' && (
-                                            <Group>
-                                                <Circle x={12.5} y={12.5} radius={7.5} stroke="#ef4444" strokeWidth={1.5 / drawingScale} dash={[3, 3]} fill="rgba(239, 68, 68, 0.05)" listening={false} />
-                                                <Rect x={0} y={0} width={25} height={25} fill="#9ca3af" stroke="#4b5563" strokeWidth={1 / drawingScale} cornerRadius={4} />
-                                                <Circle x={12.5} y={12.5} radius={4} fill="#4b5563" stroke="#1f2937" strokeWidth={1 / drawingScale} />
-                                                <Rect x={11.5} y={12.5} width={2} height={4} fill="#1f2937" />
-                                                <Text x={-10 / drawingScale} y={-10 / drawingScale} text="Lock" fontSize={8 / drawingScale} fill="#ef4444" fontStyle="bold" align="center" width={45 / drawingScale} listening={false} />
-                                            </Group>
-                                        )}
-                                        {/* Connector graphic */}
-                                        {shape.accessoryType === 'connector' && (
-                                            <Group>
-                                                <Circle x={10} y={10} radius={3.5} stroke="#ef4444" strokeWidth={1.5 / drawingScale} dash={[2, 2]} fill="rgba(239, 68, 68, 0.05)" listening={false} />
-                                                <Circle x={30} y={10} radius={3.5} stroke="#ef4444" strokeWidth={1.5 / drawingScale} dash={[2, 2]} fill="rgba(239, 68, 68, 0.05)" listening={false} />
-                                                <Rect x={0} y={0} width={40} height={20} fill="#d1d5db" stroke="#6b7280" strokeWidth={1 / drawingScale} cornerRadius={2} />
-                                                <Line points={[20, 0, 20, 20]} stroke="#9ca3af" strokeWidth={1 / drawingScale} />
-                                                <Text x={-5 / drawingScale} y={-10 / drawingScale} text="L-Conn" fontSize={8 / drawingScale} fill="#ef4444" fontStyle="bold" align="center" width={50 / drawingScale} listening={false} />
-                                            </Group>
-                                        )}
-                                        {/* Hinge graphic */}
-                                        {shape.accessoryType === 'hinge' && (
-                                            <Group>
-                                                <Rect x={0} y={5} width={20} height={15} stroke="#ef4444" strokeWidth={1.5 / drawingScale} dash={[3, 3]} fill="rgba(239, 68, 68, 0.05)" listening={false} />
-                                                <Rect x={0} y={0} width={15} height={25} fill="#9ca3af" stroke="#4b5563" strokeWidth={1 / drawingScale} />
-                                                <Rect x={14} y={0} width={2} height={25} fill="#4b5563" />
-                                                <Rect x={16} y={0} width={14} height={25} fill="#d1d5db" stroke="#6b7280" strokeWidth={1 / drawingScale} />
-                                                <Text x={-10 / drawingScale} y={-10 / drawingScale} text="Hinge" fontSize={8 / drawingScale} fill="#ef4444" fontStyle="bold" align="center" width={50 / drawingScale} listening={false} />
-                                            </Group>
-                                        )}
-                                        {/* Profile graphic */}
-                                        {shape.accessoryType === 'profile' && (
-                                            <Group>
-                                                <Rect x={0} y={0} width={shape.width || 120} height={10} fill="#4b5563" stroke="#1f2937" strokeWidth={1 / drawingScale} />
-                                                <Rect x={0} y={3} width={shape.width || 120} height={4} fill="#e5e7eb" />
-                                                <Text x={0} y={-10 / drawingScale} text={`Profile (${formatInchesFraction(shape.width || 120)})`} fontSize={8 / drawingScale} fill="#374151" fontStyle="bold" align="center" width={shape.width || 120} listening={false} />
-                                            </Group>
-                                        )}
-                                        {/* Custom Hardware graphic */}
-                                        {shape.hardwareItemId && (
-                                            <Group>
-                                                <Rect x={0} y={0} width={30} height={30} fill="#f59e0b" stroke="#d97706" strokeWidth={1.5 / drawingScale} cornerRadius={6} />
-                                                <Circle x={15} y={15} radius={6} stroke="#fff" strokeWidth={2 / drawingScale} fill="rgba(255,255,255,0.2)" />
-                                                <Text x={0} y={11} text="HW" fontSize={8} fill="#fff" fontStyle="bold" align="center" width={30} listening={false} />
-                                                <Text 
-                                                    x={-35} 
-                                                    y={-10 / drawingScale} 
-                                                    text={shape.accessoryName || 'Hardware'} 
-                                                    fontSize={8 / drawingScale} 
-                                                    fill="#d97706" 
-                                                    fontStyle="bold" 
-                                                    align="center" 
-                                                    width={100} 
-                                                    listening={false} 
-                                                />
-                                            </Group>
-                                        )}
+                                        {/* Unified fabrication-style hardware marker: a colour-coded
+                                            fitting body with its real holes drawn as dots and cuts as
+                                            squares, plus the actual fitting name. Colours match the
+                                            Glass Systems Designer palette (hinge=blue, lock=red,
+                                            patch/channel=violet, connector/fixing=green). */}
+                                        {(() => {
+                                            const at = shape.accessoryType;
+                                            const pal = at === 'hinge' ? { c: '#2563eb', bg: 'rgba(37,99,235,0.15)' }
+                                                : at === 'lock' ? { c: '#d0402a', bg: 'rgba(208,64,42,0.15)' }
+                                                : at === 'profile' ? { c: '#7c3aed', bg: 'rgba(124,58,237,0.15)' }
+                                                : { c: '#0f8a5f', bg: 'rgba(15,138,95,0.15)' };
+                                            const mw = at === 'lock' ? 25 : at === 'connector' ? 40 : at === 'profile' ? (shape.width || 120) : 30;
+                                            const mh = at === 'profile' ? 10 : at === 'connector' ? 20 : 25;
+                                            const holes = Math.min(Number(shape.accessoryHoleCount) || 0, 6);
+                                            const cuts = Math.min(Number(shape.accessoryCutCount) || 0, 4);
+                                            const marks = holes + cuts;
+                                            const gap = 7;
+                                            const startX = mw / 2 - ((marks - 1) * gap) / 2;
+                                            const midY = mh / 2;
+                                            return (
+                                                <Group>
+                                                    <Rect x={0} y={0} width={mw} height={mh} fill={pal.bg} stroke={pal.c} strokeWidth={1.6 / drawingScale} cornerRadius={3} />
+                                                    {Array.from({ length: holes }).map((_, k) => (
+                                                        <Circle key={`hw-h-${k}`} x={startX + k * gap} y={midY} radius={2.3} fill={pal.c} listening={false} />
+                                                    ))}
+                                                    {Array.from({ length: cuts }).map((_, k) => (
+                                                        <Rect key={`hw-c-${k}`} x={startX + (holes + k) * gap - 2.3} y={midY - 2.3} width={4.6} height={4.6} stroke={pal.c} strokeWidth={1.2 / drawingScale} listening={false} />
+                                                    ))}
+                                                    <Text x={(mw / 2) - 55} y={-11 / drawingScale} text={((shape.accessoryName || 'Fitting').length > 16 ? (shape.accessoryName || 'Fitting').slice(0, 15).trim() + '…' : (shape.accessoryName || 'Fitting'))} fontSize={7.5 / drawingScale} fill={pal.c} fontStyle="bold" align="center" width={110} listening={false} />
+                                                </Group>
+                                            );
+                                        })()}
                                         {/* Selection highlight border */}
                                         {isSelected && (() => {
                                             let w = shape.width || 20;
