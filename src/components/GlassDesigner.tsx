@@ -2934,6 +2934,41 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                                             />
                                                         </div>
                                                     )}
+                                                    {shape.type === 'accessory' && (
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                                            <label style={{ fontSize: '0.72rem', fontWeight: 600, color: '#1e40af' }}>Catalog Fitting:</label>
+                                                            <select
+                                                                className="input"
+                                                                style={{ fontSize: '0.75rem', height: '26px', padding: '0.15rem 0.4rem', background: '#ffffff', minWidth: '170px', fontWeight: 600, color: '#0f172a' }}
+                                                                value={shape.hardwareItemId || ''}
+                                                                onChange={(e) => {
+                                                                    const hwId = e.target.value;
+                                                                    const hw = hardwareItems.find(item => item.id === hwId);
+                                                                    if (hw) {
+                                                                        const req = getHardwareRequirement(inferAccessoryType(hw), hw);
+                                                                        updateShape(shape.id, {
+                                                                            hardwareItemId: hw.id,
+                                                                            accessoryName: hw.name,
+                                                                            accessoryRate: hw.rate,
+                                                                            accessoryType: inferAccessoryType(hw),
+                                                                            accessoryHoleCount: req.holes,
+                                                                            accessoryCutCount: req.cuts,
+                                                                            accessoryHoleRadiusIn: req.holeRadiusIn,
+                                                                            accessoryCutAreaSqIn: req.cutAreaSqIn,
+                                                                            accessoryRequirementLabel: req.label
+                                                                        });
+                                                                    }
+                                                                }}
+                                                            >
+                                                                <option value="">Custom / Unlinked Hardware</option>
+                                                                {hardwareItems.map(item => (
+                                                                    <option key={item.id} value={item.id}>
+                                                                        {item.name} (₹{Number(item.rate || 0).toFixed(2)})
+                                                                    </option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
                                         </>
