@@ -805,7 +805,29 @@ const centerPieceShapes = (shapes: KonvaShape[], stageLogicalWidth: number, stag
     const bboxH = bbox.maxY - bbox.minY;
     const dx = (stageLogicalWidth - bboxW) / 2 - bbox.minX;
     const dy = (stageLogicalHeight - bboxH) / 2 - bbox.minY;
-    return shapes.map(s => ({ ...s, x: s.x + dx, y: s.y + dy }));
+    return shapes.map(s => ({ ...s, x: snapToOctalInch(s.x + dx), y: snapToOctalInch(s.y + dy) }));
+};
+
+const centerSystemPieces = (systemPieces: Array<Omit<GlassPiece, 'id'>>, stageLogicalWidth: number, stageLogicalHeight: number, scale: number): GlassPiece[] => {
+    const allShapes = systemPieces.flatMap(p => p.shapes);
+    if (allShapes.length === 0) {
+        return systemPieces.map(p => ({ id: generateUUID(), ...p }));
+    }
+    const bbox = getPieceBoundingBox(allShapes, scale);
+    const bboxW = bbox.maxX - bbox.minX;
+    const bboxH = bbox.maxY - bbox.minY;
+    const dx = (stageLogicalWidth - bboxW) / 2 - bbox.minX;
+    const dy = (stageLogicalHeight - bboxH) / 2 - bbox.minY;
+
+    return systemPieces.map(p => ({
+        id: generateUUID(),
+        ...p,
+        shapes: p.shapes.map(s => ({
+            ...s,
+            x: snapToOctalInch(s.x + dx),
+            y: snapToOctalInch(s.y + dy)
+        }))
+    }));
 };
 
 interface DesignPreset {
@@ -1636,7 +1658,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
 
     const updateShape = (shapeId: string, updates: Partial<KonvaShape>) => {
         const touchesGeometry = (['x', 'y', 'width', 'height', 'radius'] as const).some(key => key in updates);
-        setPieces(pieces.map(piece => {
+        setPieces(prevPieces => prevPieces.map(piece => {
             if (!piece.shapes.some(s => s.id === shapeId)) return piece;
             const newShapes = piece.shapes.map(s => {
                 if (s.id !== shapeId) return s;
@@ -1648,6 +1670,22 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
             });
             return { ...piece, shapes: newShapes };
         }));
+    };
+
+    const updateShapesInPieces = (updates: Record<string, Partial<KonvaShape>>) => {
+        setPieces(prevPieces => prevPieces.map(p => ({
+            ...p,
+            shapes: p.shapes.map(s => {
+                if (!updates[s.id]) return s;
+                const upd = updates[s.id];
+                const touchesGeometry = (['x', 'y', 'width', 'height', 'radius'] as const).some(key => key in upd);
+                const merged = { ...s, ...upd };
+                if (touchesGeometry && s.positionSource === 'estimated-fallback') {
+                    merged.positionSource = undefined;
+                }
+                return merged;
+            })
+        })));
     };
 
     const handleShapeClick = (shapeId: string, evt: any) => {
@@ -1943,15 +1981,24 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
     const addPresetPiece = (preset: DesignPreset) => {
         saveHistory();
         const { width: logicalWidth, height: logicalHeight } = getStageLogicalSize(drawingScale, stageViewportWidth);
-        const presetPieces = preset.createPieces ? preset.createPieces() : preset.createPiece ? [preset.createPiece()] : [];
-        const newPieces: GlassPiece[] = presetPieces.map(piece => ({
+        if (preset.createPieces) {
+            const newPieces = centerSystemPieces(preset.createPieces(), logicalWidth, logicalHeight, drawingScale);
+            if (newPieces.length === 0) return;
+            setPieces([...pieces, ...newPieces]);
+            setActivePieceId(newPieces[0].id);
+            setSelectedShapeId(null);
+            return;
+        }
+
+        if (!preset.createPiece) return;
+        const piece = preset.createPiece();
+        const newPiece: GlassPiece = {
             id: generateUUID(),
             ...piece,
             shapes: centerPieceShapes(piece.shapes, logicalWidth, logicalHeight, drawingScale),
-        }));
-        if (newPieces.length === 0) return;
-        setPieces([...pieces, ...newPieces]);
-        setActivePieceId(newPieces[0].id);
+        };
+        setPieces([...pieces, newPiece]);
+        setActivePieceId(newPiece.id);
         setSelectedShapeId(null);
     };
 
@@ -1979,11 +2026,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
 
         const { width: logicalWidth, height: logicalHeight } = getStageLogicalSize(targetScale, stageViewportWidth);
 
-        const newPieces: GlassPiece[] = generated.map(piece => ({
-            id: generateUUID(),
-            ...piece,
-            shapes: centerPieceShapes(piece.shapes, logicalWidth, logicalHeight, targetScale),
-        }));
+        const newPieces = centerSystemPieces(generated, logicalWidth, logicalHeight, targetScale);
         setPieces(newPieces); // Complete unified multi-piece system assembly on canvas
         setActivePieceId(newPieces[0].id);
         setSelectedShapeId(null);
@@ -3134,7 +3177,8 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                         saveHistory();
                                         if (e.target.id() === shape.id) {
                                             const children: Array<{ id: string; dx: number; dy: number }> = [];
-                                            activePiece.shapes.forEach(s => {
+                                            const allShapes = pieces.flatMap(p => p.shapes);
+                                            allShapes.forEach(s => {
                                                 if (s.id !== shape.id && (s.type === 'hole' || s.type === 'cut' || s.type === 'accessory')) {
                                                     let isInside = false;
                                                     if (s.parentId === shape.id) { isInside = true; }
@@ -3160,7 +3204,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                         childOffsetsRef.current.forEach(child => {
                                             updates[child.id] = { x: snapToOctalInch(newX + child.dx), y: snapToOctalInch(newY + child.dy), parentId: shape.id };
                                         });
-                                        updateActivePiece({ shapes: activePiece.shapes.map(s => updates[s.id] ? { ...s, ...updates[s.id] } : s) });
+                                        updateShapesInPieces(updates);
                                     },
                                     onDragEnd: (e: any) => {
                                         const newX = e.target.x(); const newY = e.target.y();
@@ -3169,7 +3213,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                         childOffsetsRef.current.forEach(child => {
                                             updates[child.id] = { x: snapToOctalInch(newX + child.dx), y: snapToOctalInch(newY + child.dy), parentId: shape.id };
                                         });
-                                        updateActivePiece({ shapes: activePiece.shapes.map(s => updates[s.id] ? { ...s, ...updates[s.id] } : s) });
+                                        updateShapesInPieces(updates);
                                         childOffsetsRef.current = [];
                                     },
                                     onTransformStart: (e: any) => {
@@ -3295,7 +3339,8 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                                 onMouseLeave={handleShapeMouseLeave}
                                                 onDragStart={(e: any) => {
                                                     const children: Array<{ id: string; dx: number; dy: number }> = [];
-                                                    activePiece.shapes.forEach(s => {
+                                                    const allShapes = pieces.flatMap(p => p.shapes);
+                                                    allShapes.forEach(s => {
                                                         if (s.id !== shape.id && (s.type === 'hole' || s.type === 'cut' || s.type === 'accessory')) {
                                                             let isInside = false;
                                                             if (s.parentId === shape.id) { isInside = true; }
@@ -3313,7 +3358,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                                     childOffsetsRef.current.forEach(child => {
                                                         updates[child.id] = { x: snapToOctalInch(nx + child.dx), y: snapToOctalInch(ny + child.dy), parentId: shape.id };
                                                     });
-                                                    updateActivePiece({ shapes: activePiece.shapes.map(s => updates[s.id] ? { ...s, ...updates[s.id] } : s) });
+                                                    updateShapesInPieces(updates);
                                                 }}
                                                 onDragEnd={(e: any) => {
                                                     const nx = snapToOctalInch(e.target.x());
@@ -3323,8 +3368,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                                     childOffsetsRef.current.forEach(child => {
                                                         updates[child.id] = { x: snapToOctalInch(nx + child.dx), y: snapToOctalInch(ny + child.dy), parentId: shape.id };
                                                     });
-                                                    const allShapes = pieces.flatMap(p => p.shapes);
-                                                    updateActivePiece({ shapes: allShapes.map(s => updates[s.id] ? { ...s, ...updates[s.id] } : s) });
+                                                    updateShapesInPieces(updates);
                                                     childOffsetsRef.current = [];
                                                 }}
                                                 onTransform={(e: any) => {
