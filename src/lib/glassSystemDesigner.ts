@@ -38,7 +38,7 @@ const SPIDER_CORNER_INSET_IN = 3;              // bolt-hole inset from each corn
 
 const ORIGIN_X = 100;
 const ORIGIN_Y = 80;
-const PIECE_GAP_U = 40; // gap between adjacent pieces on the shared canvas
+const PIECE_GAP_U = 2; // tight 2px (2mm) physical glass-to-glass joint gap for single-window system assembly
 
 export type GlassSystemType =
     | 'swing_door'
@@ -366,18 +366,34 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
         }
         case 'door_with_transom': {
             const transomH = input.transomHeightIn || 18;
-            advance(buildDoorPiece('Main Swing Glass Door', { ...input, pivotStyle: 'patch', hasLock: true }, originX, resolver));
-            advance(buildFixedPanelPiece('Overpanel Transom Glass', { ...input, heightIn: transomH }, originX, resolver, 'Transom'));
+            const doorPiece = buildDoorPiece('Main Swing Glass Door', { ...input, pivotStyle: 'patch', hasLock: true }, originX, resolver);
+            advance(doorPiece);
+            const transomPiece = buildFixedPanelPiece('Overpanel Transom Glass', { ...input, heightIn: transomH }, originX, resolver, 'Transom');
+            // Adjust transom shapes Y position to sit above the door
+            const doorHeightU = input.heightIn * U;
+            const transomHeightU = transomH * U;
+            transomPiece.shapes.forEach(s => {
+                s.y = s.y - transomHeightU - 2; // sit directly above the door
+            });
+            pieces.push(transomPiece);
             break;
         }
         case 'double_door_transom_sidelites_4pc': {
             const sideW = input.fixedPanelWidthIn || 24;
             const transomH = input.transomHeightIn || 18;
+            const startX = originX;
             advance(buildFixedPanelPiece('Left Side Lite Glass', { ...input, widthIn: sideW }, originX, resolver, 'Partition'));
             advance(buildDoorPiece('Left Entrance Door', { ...input, hingeSide: 'left', pivotStyle: 'patch' }, originX, resolver));
             advance(buildDoorPiece('Right Entrance Door', { ...input, hingeSide: 'right', pivotStyle: 'patch' }, originX, resolver));
             advance(buildFixedPanelPiece('Right Side Lite Glass', { ...input, widthIn: sideW }, originX, resolver, 'Partition'));
-            advance(buildFixedPanelPiece('Top Entrance Transom Glass', { ...input, widthIn: input.widthIn * 2, heightIn: transomH }, originX, resolver, 'Transom'));
+            
+            const totalWidthIn = sideW * 2 + input.widthIn * 2;
+            const transomPiece = buildFixedPanelPiece('Top Entrance Transom Glass', { ...input, widthIn: totalWidthIn, heightIn: transomH }, startX, resolver, 'Transom');
+            const transomHeightU = transomH * U;
+            transomPiece.shapes.forEach(s => {
+                s.y = s.y - transomHeightU - 2;
+            });
+            pieces.push(transomPiece);
             break;
         }
         case 'balustrade_spigots': {

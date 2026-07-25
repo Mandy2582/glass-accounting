@@ -335,6 +335,10 @@ export interface KonvaShape {
     // it (GlassDesigner's updateShape clears the flag on the first manual
     // geometry edit).
     positionSource?: 'estimated-fallback';
+    zOffset?: number;
+    rotX?: number;
+    rotY?: number;
+    rotZ?: number;
 }
 
 export interface GlassPiece {

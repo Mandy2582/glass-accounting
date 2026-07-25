@@ -14,6 +14,7 @@ import { validateGlassSafety, type SafetyViolation } from '@/lib/glassSafetyVali
 import { HARDWARE_CUTOUT_TEMPLATES } from '@/lib/fabricationSpecs';
 import { calculateGlassEngineering } from '@/lib/glassEngineeringCalculator';
 import { generateFactoryBOM } from '@/lib/glassBOMGenerator';
+import GlassDesigner3D from './GlassDesigner3D';
 
 // Dimension-line rendering offsets (renderRectDimensions/getPolygonSideDimensions/
 // getVertexAngleInfo below all divide these by the current drawingScale). Named
@@ -1107,6 +1108,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
     const [activePieceId, setActivePieceId] = useState<string>('');
     const [selectedShapeIds, setSelectedShapeIds] = useState<string[]>([]);
     const [showBOMModal, setShowBOMModal] = useState<boolean>(false);
+    const [designerMode, setDesignerMode] = useState<'2d' | '3d' | 'bom'>('2d');
 
     const selectedShapeId = selectedShapeIds.length > 0 ? selectedShapeIds[selectedShapeIds.length - 1] : null;
     const setSelectedShapeId = (id: string | null) => {
@@ -1960,15 +1962,30 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
     // flow as a preset, but parametric on the entered size/options.
     const addGeneratedSystem = () => {
         saveHistory();
-        const { width: logicalWidth, height: logicalHeight } = getStageLogicalSize(drawingScale, stageViewportWidth);
         const generated = generateGlassSystem(systemInput, hardwareItems);
+        if (generated.length === 0) return;
+
+        // Compute total width and max height of the system to auto-fit zoom scale
+        let totalW = 0, maxH = 0;
+        generated.forEach(p => {
+            const outline = p.shapes.find(s => s.type === 'glass_rect');
+            if (outline) {
+                totalW += outline.width || 0;
+                maxH = Math.max(maxH, outline.height || 0);
+            }
+        });
+
+        const targetScale = Math.min(0.4, Math.max(0.12, (stageViewportWidth || 920) / (totalW + 240)));
+        setDrawingScale(targetScale);
+
+        const { width: logicalWidth, height: logicalHeight } = getStageLogicalSize(targetScale, stageViewportWidth);
+
         const newPieces: GlassPiece[] = generated.map(piece => ({
             id: generateUUID(),
             ...piece,
-            shapes: centerPieceShapes(piece.shapes, logicalWidth, logicalHeight, drawingScale),
+            shapes: centerPieceShapes(piece.shapes, logicalWidth, logicalHeight, targetScale),
         }));
-        if (newPieces.length === 0) return;
-        setPieces([...pieces, ...newPieces]);
+        setPieces(newPieces); // Complete unified multi-piece system assembly on canvas
         setActivePieceId(newPieces[0].id);
         setSelectedShapeId(null);
         setShowSystemModal(false);
@@ -2649,6 +2666,81 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                     )}
                 </section>
 
+                {/* Mode Switcher Header Bar */}
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    background: '#0f172a',
+                    padding: '0.65rem 1rem',
+                    borderRadius: '8px',
+                    color: '#f8fafc',
+                    marginBottom: '0.5rem',
+                    boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'
+                }}>
+                    <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                        <h2 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: '#38bdf8', marginRight: '1rem' }}>
+                            📐 Glass CAD Studio
+                        </h2>
+                        <button
+                            type="button"
+                            className="btn"
+                            style={{
+                                background: designerMode === '2d' ? '#0284c7' : '#1e293b',
+                                color: '#ffffff',
+                                border: 'none',
+                                fontSize: '0.78rem',
+                                fontWeight: 600,
+                                padding: '0.35rem 0.75rem'
+                            }}
+                            onClick={() => setDesignerMode('2d')}
+                        >
+                            2D Elevation
+                        </button>
+                        <button
+                            type="button"
+                            className="btn"
+                            style={{
+                                background: designerMode === '3d' ? '#0284c7' : '#1e293b',
+                                color: '#ffffff',
+                                border: 'none',
+                                fontSize: '0.78rem',
+                                fontWeight: 600,
+                                padding: '0.35rem 0.75rem'
+                            }}
+                            onClick={() => setDesignerMode('3d')}
+                        >
+                            3D Visualizer
+                        </button>
+                        <button
+                            type="button"
+                            className="btn"
+                            style={{
+                                background: designerMode === 'bom' ? '#0284c7' : '#1e293b',
+                                color: '#ffffff',
+                                border: 'none',
+                                fontSize: '0.78rem',
+                                fontWeight: 600,
+                                padding: '0.35rem 0.75rem'
+                            }}
+                            onClick={() => setDesignerMode('bom')}
+                        >
+                            Factory Job Sheet
+                        </button>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <button
+                            type="button"
+                            className="btn"
+                            style={{ background: '#0e7490', color: 'white', border: 'none', fontSize: '0.78rem', fontWeight: 600, padding: '0.35rem 0.75rem' }}
+                            onClick={() => setShowSystemModal(true)}
+                        >
+                            🏗️ Generate System Preset…
+                        </button>
+                    </div>
+                </div>
+
                 {/* Horizontal Toolbar / Menu */}
                 {activePiece && (
                     <div className="designer-toolbar" style={{ 
@@ -3313,14 +3405,61 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                 <div ref={canvasFrameRef} className="designer-canvas-frame" style={{
                     width: '100%',
                     overflow: 'hidden',
-                    background: '#e8edf0',
+                    background: designerMode === '3d' ? '#111827' : '#e8edf0',
                     borderRadius: '14px',
                     border: '1px solid rgba(14, 116, 144, 0.22)',
                     boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.7), 0 18px 45px rgba(15, 23, 42, 0.08)',
                     padding: '0.65rem',
-                    height: `${stageViewportHeight + 22}px`
+                    minHeight: '680px',
+                    height: 'calc(100vh - 160px)'
                 }}>
-                    <Stage 
+                    {designerMode === '3d' ? (
+                        <GlassDesigner3D
+                            shapes={pieces.flatMap(p => p.shapes)}
+                            thickness={activePiece?.thickness || 10}
+                            selectedShapeId={selectedShapeId}
+                            onSelectShape={setSelectedShapeId}
+                            onShapeTransform={(id, updates) => updateShape(id, updates)}
+                        />
+                    ) : designerMode === 'bom' ? (() => {
+                        const bomReport = generateFactoryBOM(pieces, hardwareItems);
+                        return (
+                            <div style={{ padding: '1.2rem', overflowY: 'auto', maxHeight: '100%', background: '#ffffff', borderRadius: '10px' }}>
+                                <h2 style={{ fontSize: '1.2rem', fontWeight: 700, margin: '0 0 1rem', color: '#0f172a' }}>Factory Job Card & Architectural BOM</h2>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.8rem', marginBottom: '1.2rem', background: '#f8fafc', padding: '1rem', borderRadius: '8px', fontSize: '0.85rem' }}>
+                                    <div><strong>Total Glass Area:</strong> {bomReport.totalGlassAreaSqM} m² ({(bomReport.totalGlassAreaSqM * 10.7639).toFixed(1)} sqft)</div>
+                                    <div><strong>Total Weight:</strong> {bomReport.totalGlassWeightKg} kg</div>
+                                    <div><strong>Edge Polishing:</strong> {bomReport.totalPolishingMeters} m</div>
+                                </div>
+                                <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: '1rem 0 0.5rem', color: '#0369a1' }}>1. Glass Cutting Sizes & Deductions</h3>
+                                <table style={{ width: '100%', fontSize: '0.82rem', borderCollapse: 'collapse', textAlign: 'left', marginBottom: '1.5rem' }}>
+                                    <thead>
+                                        <tr style={{ background: '#e0f2fe', color: '#0369a1' }}>
+                                            <th style={{ padding: '0.5rem' }}>Panel Name</th>
+                                            <th style={{ padding: '0.5rem' }}>Thickness</th>
+                                            <th style={{ padding: '0.5rem' }}>Raw Size (mm)</th>
+                                            <th style={{ padding: '0.5rem' }}>Gaps (T/B/L/R)</th>
+                                            <th style={{ padding: '0.5rem' }}>Net Size (mm)</th>
+                                            <th style={{ padding: '0.5rem' }}>Holes/Cuts</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {bomReport.jobCards.map((card, i) => (
+                                            <tr key={i} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                                <td style={{ padding: '0.5rem', fontWeight: 600 }}>{card.pieceName}</td>
+                                                <td style={{ padding: '0.5rem' }}>{card.thicknessMm} mm</td>
+                                                <td style={{ padding: '0.5rem' }}>{card.rawWidthMm} × {card.rawHeightMm}</td>
+                                                <td style={{ padding: '0.5rem', color: '#64748b' }}>-{card.deductions.topGapMm}/-{card.deductions.bottomGapMm}/-{card.deductions.hingeSideGapMm}/-{card.deductions.lockSideGapMm} mm</td>
+                                                <td style={{ padding: '0.5rem', fontWeight: 700, color: '#166534' }}>{card.netWidthMm} × {card.netHeightMm}</td>
+                                                <td style={{ padding: '0.5rem' }}>{card.holesCount} h / {card.cutsCount} c</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        );
+                    })() : (
+                        <Stage 
                             width={stageViewportWidth} 
                             height={stageViewportHeight} 
                             scaleX={drawingScale}
@@ -3775,6 +3914,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                             )}
                         </Layer>
                     </Stage>
+                    )}
                 </div>
                 </section>
             </div>

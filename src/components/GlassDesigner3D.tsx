@@ -5,24 +5,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 
-interface KonvaShape {
-    id: string;
-    type: 'glass_rect' | 'glass_circle' | 'hole' | 'cut' | 'glass_polygon' | 'accessory';
-    x: number;
-    y: number;
-    width?: number;
-    height?: number;
-    radius?: number;
-    sides?: number;
-    points?: number[];
-    accessoryType?: 'lock' | 'connector' | 'hinge' | 'profile';
-    accessoryName?: string;
-    parentId?: string;
-    zOffset?: number;
-    rotX?: number;
-    rotY?: number;
-    rotZ?: number;
-}
+import { KonvaShape } from '@/types';
 
 interface GlassDesigner3DProps {
     shapes: KonvaShape[];
