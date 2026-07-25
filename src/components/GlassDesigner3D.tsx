@@ -41,6 +41,10 @@ export default function GlassDesigner3D({
 }: GlassDesigner3DProps) {
     const containerRef = useRef<HTMLDivElement>(null);
 
+    const [glassFinish, setGlassFinish] = React.useState<'clear' | 'extra_clear' | 'frosted' | 'bronze' | 'grey'>('clear');
+    const [hardwareFinish, setHardwareFinish] = React.useState<'chrome' | 'matte_black' | 'satin_brass' | 'brushed_steel'>('chrome');
+    const [cameraView, setCameraView] = React.useState<'iso' | 'front' | 'top'>('iso');
+
     // Helpers to compute polygon points relative to standard sizing
     const getPolygonPoints = (sides: number, width: number, height: number): number[] => {
         const points: number[] = [];
@@ -158,12 +162,17 @@ export default function GlassDesigner3D({
         };
 
         // Materials setup
+        const glassColorMap = { clear: 0xecfeff, extra_clear: 0xffffff, frosted: 0xf8fafc, bronze: 0x78350f, grey: 0x334155 };
+        const glassOpacityMap = { clear: 0.4, extra_clear: 0.35, frosted: 0.75, bronze: 0.6, grey: 0.65 };
+        const glassTransmissionMap = { clear: 0.88, extra_clear: 0.96, frosted: 0.5, bronze: 0.75, grey: 0.7 };
+        const glassRoughnessMap = { clear: 0.05, extra_clear: 0.02, frosted: 0.45, bronze: 0.08, grey: 0.08 };
+
         const glassMaterial = new THREE.MeshPhysicalMaterial({
-            color: 0xecfeff, // nice light cyan tint
+            color: glassColorMap[glassFinish] || 0xecfeff,
             transparent: true,
-            opacity: 0.4,
-            transmission: 0.88,
-            roughness: 0.05,
+            opacity: glassOpacityMap[glassFinish] || 0.4,
+            transmission: glassTransmissionMap[glassFinish] || 0.88,
+            roughness: glassRoughnessMap[glassFinish] || 0.05,
             metalness: 0.1,
             ior: 1.52, // refractive index of glass
             thickness: thicknessIn,
@@ -171,20 +180,24 @@ export default function GlassDesigner3D({
             depthWrite: false
         });
 
+        const hardwareColorMap = { chrome: 0xe2e8f0, matte_black: 0x18181b, satin_brass: 0xd97706, brushed_steel: 0x94a3b8 };
+        const hardwareMetalnessMap = { chrome: 0.95, matte_black: 0.7, satin_brass: 0.85, brushed_steel: 0.85 };
+        const hardwareRoughnessMap = { chrome: 0.1, matte_black: 0.6, satin_brass: 0.25, brushed_steel: 0.35 };
+
         const metalMaterial = new THREE.MeshStandardMaterial({
-            color: 0xd1d5db, // chrome/silver
-            metalness: 0.9,
-            roughness: 0.18
+            color: hardwareColorMap[hardwareFinish] || 0xd1d5db,
+            metalness: hardwareMetalnessMap[hardwareFinish] || 0.9,
+            roughness: hardwareRoughnessMap[hardwareFinish] || 0.18
         });
 
         const darkMetalMaterial = new THREE.MeshStandardMaterial({
-            color: 0x1f2937, // dark gray profile channel
+            color: hardwareFinish === 'matte_black' ? 0x09090b : 0x1f2937,
             metalness: 0.75,
             roughness: 0.35
         });
 
         const brassMaterial = new THREE.MeshStandardMaterial({
-            color: 0xf59e0b, // gold/brass keyhole
+            color: hardwareFinish === 'satin_brass' ? 0xd97706 : 0xf59e0b,
             metalness: 0.85,
             roughness: 0.22
         });
@@ -488,10 +501,58 @@ export default function GlassDesigner3D({
                 containerRef.current.innerHTML = '';
             }
         };
-    }, [shapes, thickness, selectedShapeId, onSelectShape, onShapeTransform]);
+    }, [shapes, thickness, selectedShapeId, onSelectShape, onShapeTransform, glassFinish, hardwareFinish]);
 
     return (
         <div style={{ position: 'relative', width: '100%', height: '650px', background: '#111827', borderRadius: '8px', overflow: 'hidden' }}>
+            {/* 3D Finish & Material Customizer Toolbar */}
+            <div style={{
+                position: 'absolute',
+                top: '0.8rem',
+                left: '0.8rem',
+                right: '0.8rem',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '0.5rem',
+                background: 'rgba(15, 23, 42, 0.85)',
+                backdropFilter: 'blur(8px)',
+                padding: '0.5rem 0.8rem',
+                borderRadius: '6px',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                zIndex: 10
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                    <div>
+                        <span style={{ fontSize: '0.7rem', color: '#94a3b8', marginRight: '0.4rem', fontWeight: 600 }}>Glass Finish:</span>
+                        <select
+                            value={glassFinish}
+                            onChange={e => setGlassFinish(e.target.value as any)}
+                            style={{ background: '#1e293b', color: '#f8fafc', border: '1px solid #334155', borderRadius: '4px', padding: '0.25rem 0.4rem', fontSize: '0.75rem', fontWeight: 600 }}
+                        >
+                            <option value="clear">Clear Glass</option>
+                            <option value="extra_clear">Low-Iron (Extra Clear)</option>
+                            <option value="frosted">Frosted / Satin Privacy</option>
+                            <option value="bronze">Tinted Bronze</option>
+                            <option value="grey">Tinted Grey</option>
+                        </select>
+                    </div>
+                    <div>
+                        <span style={{ fontSize: '0.7rem', color: '#94a3b8', marginRight: '0.4rem', fontWeight: 600 }}>Hardware Finish:</span>
+                        <select
+                            value={hardwareFinish}
+                            onChange={e => setHardwareFinish(e.target.value as any)}
+                            style={{ background: '#1e293b', color: '#f8fafc', border: '1px solid #334155', borderRadius: '4px', padding: '0.25rem 0.4rem', fontSize: '0.75rem', fontWeight: 600 }}
+                        >
+                            <option value="chrome">Polished Chrome</option>
+                            <option value="matte_black">Matte Black</option>
+                            <option value="satin_brass">Satin Brass / Gold</option>
+                            <option value="brushed_steel">Brushed Stainless Steel</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
             <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
             
             {/* 3D View Instructions Overlay */}

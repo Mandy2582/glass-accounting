@@ -3802,19 +3802,32 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                         <div style={{ display: 'grid', gap: '0.8rem' }}>
                             <div>
                                 <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>System type</label>
-                                <select className="input" style={{ width: '100%' }} value={systemInput.systemType}
-                                    onChange={e => setSystemInput(s => ({ ...s, systemType: e.target.value as GlassSystemType }))}>
-                                    <option value="swing_door">Swing / pivot door</option>
-                                    <option value="shower_door">Shower enclosure (Inline)</option>
-                                    <option value="corner_shower_90">90° Corner Shower Enclosure</option>
-                                    <option value="corner_shower_135">135° Neo-Angle Shower Enclosure</option>
-                                    <option value="fixed_panel">Fixed panel</option>
-                                    <option value="sliding_door">Sliding door</option>
-                                    <option value="top_hung_sliding">Top-Hung Barn Slider Door</option>
-                                    <option value="railing">Railing</option>
-                                    <option value="spider_facade">Spider Structural Glass Facade</option>
-                                    <option value="patch_double_door">Double Patch-Fitting Doors</option>
-                                </select>
+                                    <select className="input" style={{ width: '100%' }} value={systemInput.systemType}
+                                        onChange={e => setSystemInput(s => ({ ...s, systemType: e.target.value as GlassSystemType }))}>
+                                        <optgroup label="Shower Enclosures">
+                                            <option value="shower_door">Single Shower Door</option>
+                                            <option value="shower_inline_3pc">3-Piece Inline Shower (Fixed + Door + Fixed)</option>
+                                            <option value="corner_shower_90">90° Corner Shower Enclosure (2-Piece)</option>
+                                            <option value="shower_corner_90_3pc">90° Corner Shower Enclosure (3-Piece)</option>
+                                            <option value="corner_shower_135">135° Neo-Angle Shower Enclosure (3-Piece)</option>
+                                            <option value="shower_sliding_2pc">Frameless Sliding Shower System</option>
+                                        </optgroup>
+                                        <optgroup label="Commercial & Interior Doors">
+                                            <option value="swing_door">Single Swing / Pivot Glass Door</option>
+                                            <option value="patch_double_door">Double Patch-Fitting Doors</option>
+                                            <option value="door_with_transom">Swing Door with Overpanel Transom</option>
+                                            <option value="office_partition_3pc">Office Glass Partition (3-Piece Modular)</option>
+                                            <option value="double_door_transom_sidelites_4pc">Entrance System (Double Door + Transom + Sidelites)</option>
+                                            <option value="top_hung_sliding">Top-Hung Barn Slider Door</option>
+                                            <option value="sliding_door">Sliding Door with Fixed Panel</option>
+                                        </optgroup>
+                                        <optgroup label="Structural & Balustrades">
+                                            <option value="fixed_panel">Standard Fixed Partition Panel</option>
+                                            <option value="spider_facade">Spider Structural Glass Facade (4-Point)</option>
+                                            <option value="railing">Glass Balustrade (Base Channel)</option>
+                                            <option value="balustrade_spigots">Spigot Glass Balustrade (Core Drill / Base Plate)</option>
+                                        </optgroup>
+                                    </select>
                             </div>
 
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.6rem' }}>

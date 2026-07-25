@@ -50,7 +50,15 @@ export type GlassSystemType =
     | 'corner_shower_135'
     | 'top_hung_sliding'
     | 'spider_facade'
-    | 'patch_double_door';
+    | 'patch_double_door'
+    // --- Industry Standard Multi-Piece Presets ---
+    | 'shower_inline_3pc'
+    | 'shower_corner_90_3pc'
+    | 'shower_sliding_2pc'
+    | 'office_partition_3pc'
+    | 'door_with_transom'
+    | 'double_door_transom_sidelites_4pc'
+    | 'balustrade_spigots';
 
 export interface GlassSystemInput {
     systemType: GlassSystemType;
@@ -62,6 +70,9 @@ export interface GlassSystemInput {
     hasHandle?: boolean;
     pivotStyle?: 'patch' | 'hinges';
     fixedPanelWidthIn?: number;
+    fixedPanelLeftWidthIn?: number;
+    fixedPanelRightWidthIn?: number;
+    transomHeightIn?: number;
     fixingStyle?: 'channel' | 'spider' | 'standoff';
     // Glass colour/type used for per-sqft pricing (matched against the
     // thickness-pricing rows). Defaults to 'Toughened Clear'.
@@ -322,6 +333,55 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
         case 'patch_double_door': {
             advance(buildDoorPiece('Left Patch Glass Door', { ...input, hingeSide: 'left', pivotStyle: 'patch' }, originX, resolver));
             advance(buildDoorPiece('Right Patch Glass Door', { ...input, hingeSide: 'right', pivotStyle: 'patch' }, originX, resolver));
+            break;
+        }
+        case 'shower_inline_3pc': {
+            const leftW = input.fixedPanelLeftWidthIn || 18;
+            const rightW = input.fixedPanelRightWidthIn || 18;
+            advance(buildFixedPanelPiece('Shower Fixed Panel Left', { ...input, widthIn: leftW }, originX, resolver, 'Partition'));
+            advance(buildDoorPiece('Shower Door (Center)', input, originX, resolver));
+            advance(buildFixedPanelPiece('Shower Fixed Panel Right', { ...input, widthIn: rightW }, originX, resolver, 'Partition'));
+            break;
+        }
+        case 'shower_corner_90_3pc': {
+            const leftW = input.fixedPanelLeftWidthIn || 18;
+            const returnW = input.fixedPanelWidthIn || 24;
+            advance(buildFixedPanelPiece('Inline Fixed Panel', { ...input, widthIn: leftW }, originX, resolver, 'Partition'));
+            advance(buildDoorPiece('Shower Door', input, originX, resolver));
+            advance(buildFixedPanelPiece('90° Return Panel', { ...input, widthIn: returnW }, originX, resolver, 'Partition'));
+            break;
+        }
+        case 'shower_sliding_2pc': {
+            advance(buildFixedPanelPiece('Fixed Header Glass Panel', { ...input, widthIn: input.widthIn }, originX, resolver, 'Partition'));
+            advance(buildSlidingDoorPiece('Frameless Sliding Shower Door', input, originX, resolver));
+            break;
+        }
+        case 'office_partition_3pc': {
+            const leftW = input.fixedPanelLeftWidthIn || 36;
+            const rightW = input.fixedPanelRightWidthIn || 36;
+            advance(buildFixedPanelPiece('Office Glass Partition Left', { ...input, widthIn: leftW }, originX, resolver, 'Partition'));
+            advance(buildDoorPiece('Office Swing Glass Door', { ...input, pivotStyle: 'patch', hasLock: true }, originX, resolver));
+            advance(buildFixedPanelPiece('Office Glass Partition Right', { ...input, widthIn: rightW }, originX, resolver, 'Partition'));
+            break;
+        }
+        case 'door_with_transom': {
+            const transomH = input.transomHeightIn || 18;
+            advance(buildDoorPiece('Main Swing Glass Door', { ...input, pivotStyle: 'patch', hasLock: true }, originX, resolver));
+            advance(buildFixedPanelPiece('Overpanel Transom Glass', { ...input, heightIn: transomH }, originX, resolver, 'Transom'));
+            break;
+        }
+        case 'double_door_transom_sidelites_4pc': {
+            const sideW = input.fixedPanelWidthIn || 24;
+            const transomH = input.transomHeightIn || 18;
+            advance(buildFixedPanelPiece('Left Side Lite Glass', { ...input, widthIn: sideW }, originX, resolver, 'Partition'));
+            advance(buildDoorPiece('Left Entrance Door', { ...input, hingeSide: 'left', pivotStyle: 'patch' }, originX, resolver));
+            advance(buildDoorPiece('Right Entrance Door', { ...input, hingeSide: 'right', pivotStyle: 'patch' }, originX, resolver));
+            advance(buildFixedPanelPiece('Right Side Lite Glass', { ...input, widthIn: sideW }, originX, resolver, 'Partition'));
+            advance(buildFixedPanelPiece('Top Entrance Transom Glass', { ...input, widthIn: input.widthIn * 2, heightIn: transomH }, originX, resolver, 'Transom'));
+            break;
+        }
+        case 'balustrade_spigots': {
+            advance(buildRailingPiece('Spigot Glass Balustrade Panel', { ...input, fixingStyle: 'standoff' }, originX, resolver));
             break;
         }
     }
