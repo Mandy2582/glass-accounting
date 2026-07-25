@@ -2234,7 +2234,10 @@ function mapItemFromDB(dbItem: any): GlassItem {
         purchaseRate: dbItem.purchase_rate === undefined ? undefined : roundCurrency(dbItem.purchase_rate),
         purchaseRateUnit: dbItem.purchase_rate_unit || dbItem.rate_unit || defaultRateUnit,
         hsnCode: dbItem.hsn_code,
-        conversionFactor: dbItem.conversion_factor
+        conversionFactor: dbItem.conversion_factor,
+        fittingRole: dbItem.fitting_role || undefined,
+        holesRequired: dbItem.holes_required ?? undefined,
+        cutsRequired: dbItem.cuts_required ?? undefined
     };
 }
 
@@ -2263,7 +2266,10 @@ function mapItemToDB(item: GlassItem): any {
         purchase_rate: item.purchaseRate === undefined ? undefined : roundCurrency(item.purchaseRate),
         purchase_rate_unit: item.purchaseRateUnit || item.rateUnit || defaultRateUnit,
         hsn_code: item.hsnCode,
-        conversion_factor: item.conversionFactor
+        conversion_factor: item.conversionFactor,
+        fitting_role: item.fittingRole || null,
+        holes_required: item.holesRequired ?? null,
+        cuts_required: item.cutsRequired ?? null
     };
 }
 

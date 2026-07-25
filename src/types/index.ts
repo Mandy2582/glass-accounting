@@ -45,7 +45,22 @@ export interface GlassItem {
     purchaseRateUnit?: Unit; // Unit in which purchase rate was entered
     hsnCode?: string;
     conversionFactor?: number; // e.g. sqft per sheet
+    // --- Hardware glass-prep (fittings only) ---
+    // What this fitting does and how much glass preparation it needs, so the
+    // Glass Systems Designer can pick the right fitting for a system type,
+    // draw its holes/cut-outs, and price it -- all from one record. Set once
+    // per fitting in Settings; unset on glass items.
+    fittingRole?: FittingRole;
+    holesRequired?: number; // holes drilled in the glass for this fitting
+    cutsRequired?: number;  // cut-outs/notches in the glass for this fitting
 }
+
+// The job a hardware fitting does in a glass system, used to select and place
+// it. 'other' covers fittings that don't drive an auto-placed hole/cut.
+export type FittingRole =
+    | 'top_patch' | 'bottom_patch' | 'overpanel_patch' | 'floor_spring'
+    | 'wall_hinge' | 'glass_hinge' | 'door_lock' | 'sliding_lock'
+    | 'connector' | 'clamp' | 'spigot' | 'handle' | 'sliding_kit' | 'other';
 
 export interface StockBatch {
     id: string;

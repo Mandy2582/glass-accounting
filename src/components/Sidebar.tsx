@@ -29,7 +29,7 @@ import {
     TrendingUp,
     UserCheck,
     Users,
-    WalletCards, Bot, MessageSquare } from 'lucide-react';
+    WalletCards, Bot, MessageSquare, Wrench } from 'lucide-react';
 import { useState } from 'react';
 import styles from './Layout.module.css';
 import { supabase } from '@/lib/supabase';
@@ -105,6 +105,7 @@ const sections: NavSection[] = [
             { label: 'Company Details', href: '/settings/company', icon: Building2 },
             { label: 'Pricing', href: '/settings/pricing', icon: DollarSign },
             { label: 'Items Configuration', href: '/settings/items', icon: Tags },
+            { label: 'Hardware Fittings', href: '/settings/fittings', icon: Wrench },
             { label: 'Users & Roles', href: '/settings/users', icon: Users },
             { label: 'Terms & Conditions', href: '/settings/terms', icon: FileText },
             { label: 'Data & Backup', href: '/settings/data', icon: Database },
