@@ -11,7 +11,8 @@ import { generateGlassSystem, describeGlassSystem, type GlassSystemInput, type G
 import { exportToDXF, downloadDXFFile } from '@/lib/dxfExporter';
 import { exportToSVG, downloadSVGFile } from '@/lib/svgExporter';
 import { validateGlassSafety, type SafetyViolation } from '@/lib/glassSafetyValidator';
-import { HARDWARE_CUTOUT_TEMPLATES } from '@/lib/fabricationSpecs';
+import { HARDWARE_CUTOUT_TEMPLATES, getCutoutSpecsForItem } from '@/lib/fabricationSpecs';
+import { syncMasterHardwareCatalog } from '@/lib/catalogSeeder';
 import { calculateGlassEngineering } from '@/lib/glassEngineeringCalculator';
 import { generateFactoryBOM } from '@/lib/glassBOMGenerator';
 
@@ -1152,6 +1153,15 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
     const [holeEdge, setHoleEdge] = useState<'top' | 'bottom' | 'left' | 'right' | 'corners'>('top');
     const [holeCountInput, setHoleCountInput] = useState<number | ''>(4);
     const [hardwareItems, setHardwareItems] = useState<GlassItem[]>([]);
+    const groupedHardware = useMemo(() => {
+        const map = new Map<string, GlassItem[]>();
+        hardwareItems.forEach(item => {
+            const brand = item.make || 'Generic / Other';
+            if (!map.has(brand)) map.set(brand, []);
+            map.get(brand)!.push(item);
+        });
+        return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    }, [hardwareItems]);
     const [showSystemModal, setShowSystemModal] = useState(false);
     const [systemInput, setSystemInput] = useState<GlassSystemInput>({
         systemType: 'swing_door', widthIn: 36, heightIn: 84, thickness: 12,
@@ -1217,9 +1227,21 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
     useEffect(() => {
         let cancelled = false;
         db.items.getAll()
-            .then(items => {
+            .then(async items => {
                 if (!cancelled) {
-                    setHardwareItems(items.filter(item => item.category === 'hardware'));
+                    let hw = items.filter(item => item.category === 'hardware');
+                    if (hw.length < 50) {
+                        try {
+                            await syncMasterHardwareCatalog();
+                            const updated = await db.items.getAll();
+                            hw = updated.filter(item => item.category === 'hardware');
+                        } catch (e) {
+                            console.error('Auto catalog sync failed:', e);
+                        }
+                    }
+                    if (!cancelled) {
+                        setHardwareItems(hw);
+                    }
                 }
             })
             .catch(error => console.error('Failed to load hardware items for designer:', error));
@@ -2236,6 +2258,30 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
         let holeRadiusIn = 0.25;
         let cutAreaSqIn = 0;
 
+        if (hardware) {
+            const spec = getCutoutSpecsForItem(hardware);
+            if (spec && spec.id !== 'generic_fitting') {
+                holes = spec.holes ? spec.holes.length : 0;
+                cuts = spec.notchWidthMm > 0 ? 1 : 0;
+                if (holes > 0 && spec.holes[0]) {
+                    holeRadiusIn = (spec.holes[0].radiusMm || 6) / 25.4;
+                }
+                if (cuts > 0) {
+                    cutAreaSqIn = Number(((spec.notchWidthMm * spec.notchHeightMm) / 645.16).toFixed(2));
+                }
+                const parts = [];
+                if (holes > 0) parts.push(`${holes} ${holes === 1 ? 'hole' : 'holes'}`);
+                if (cuts > 0) parts.push(`${cuts} notch (${spec.notchWidthMm}×${spec.notchHeightMm}mm)`);
+                return {
+                    holes,
+                    cuts,
+                    holeRadiusIn,
+                    cutAreaSqIn,
+                    label: parts.length > 0 ? `${parts.join(', ')} [${spec.brand}]` : `No structural drill preps (${spec.brand})`
+                };
+            }
+        }
+
         if (type === 'profile' || label.includes('profile') || label.includes('channel')) {
             holes = 0;
             cuts = 0;
@@ -2607,6 +2653,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
             code: string;
             accessoryType: 'hinge' | 'lock' | 'profile' | 'connector';
             name: string;
+            brand?: string;
             pieceName: string;
             holes: number;
             cuts: number;
@@ -2620,11 +2667,14 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                     counts[at] = (counts[at] || 0) + 1;
                     const prefix = at === 'hinge' ? 'H' : at === 'lock' ? 'L' : at === 'profile' ? 'P' : 'C';
                     const code = `${prefix}${counts[at]}`;
+                    const hwItem = hardwareItems.find(i => i.id === s.hardwareItemId);
+                    const brand = hwItem?.make || '';
                     legend.push({
                         id: s.id,
                         code,
                         accessoryType: at,
-                        name: s.accessoryName || 'Hardware Fitting',
+                        name: s.accessoryName || hwItem?.name || 'Hardware Fitting',
+                        brand,
                         pieceName: p.name,
                         holes: Number(s.accessoryHoleCount) || 0,
                         cuts: Number(s.accessoryCutCount) || 0,
@@ -2634,7 +2684,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
             });
         });
         return legend;
-    }, [pieces]);
+    }, [pieces, hardwareItems]);
 
     const stageViewportHeight = STAGE_VIEWPORT_HEIGHT;
     const { width: stageLogicalWidth, height: stageLogicalHeight } = getStageLogicalSize(drawingScale, stageViewportWidth);
@@ -2791,15 +2841,15 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                             }}
                         >
                             <option value="" disabled>+ Place Hardware...</option>
-                            {hardwareItems.length > 0 && (
-                                <optgroup label="Catalogue hardware">
-                                    {hardwareItems.map(item => (
+                            {groupedHardware.map(([brand, items]) => (
+                                <optgroup key={brand} label={`--- ${brand} ---`}>
+                                    {items.map(item => (
                                         <option key={item.id} value={`hardware:${item.id}`}>
                                             {item.name} (₹{Number(item.rate || 0).toFixed(2)})
                                         </option>
                                     ))}
                                 </optgroup>
-                            )}
+                            ))}
                             <optgroup label="Position Markers">
                                 <option value="lock">Lock Position</option>
                                 <option value="connector">Corner Connector</option>
@@ -2807,6 +2857,24 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                 <option value="profile">Profile/Channel</option>
                             </optgroup>
                         </select>
+                        <button
+                            type="button"
+                            className="btn"
+                            title="Sync Complete Brand Catalogs (DORMA, Ozone, Icon, Häfele, etc.)"
+                            style={{ background: '#10b981', color: '#ffffff', border: 'none', fontSize: '0.75rem', padding: '0.35rem 0.65rem', fontWeight: 600, borderRadius: '6px', cursor: 'pointer' }}
+                            onClick={async () => {
+                                try {
+                                    await syncMasterHardwareCatalog();
+                                    const all = await db.items.getAll();
+                                    setHardwareItems(all.filter(i => i.category === 'hardware'));
+                                    alert("⚡ Successfully synchronized 80+ complete brand hardware catalogs!");
+                                } catch (e) {
+                                    console.error(e);
+                                }
+                            }}
+                        >
+                            ⚡ Sync Brands
+                        </button>
                     </div>
 
                     {/* View Mode Switcher */}
@@ -2961,10 +3029,14 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                                                 }}
                                                             >
                                                                 <option value="">Custom / Unlinked Hardware</option>
-                                                                {hardwareItems.map(item => (
-                                                                    <option key={item.id} value={item.id}>
-                                                                        {item.name} (₹{Number(item.rate || 0).toFixed(2)})
-                                                                    </option>
+                                                                {groupedHardware.map(([brand, items]) => (
+                                                                    <optgroup key={brand} label={brand}>
+                                                                        {items.map(item => (
+                                                                            <option key={item.id} value={item.id}>
+                                                                                {item.name} (₹{Number(item.rate || 0).toFixed(2)})
+                                                                            </option>
+                                                                        ))}
+                                                                    </optgroup>
                                                                 ))}
                                                             </select>
                                                         </div>
@@ -3801,10 +3873,10 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                             )}
                             {/* Architectural Hardware Schedule Key (Bottom Right Corner) */}
                             {hardwareLegend.length > 0 && (() => {
-                                const boxWidth = 220 / drawingScale;
-                                const headerHeight = 22 / drawingScale;
-                                const rowHeight = 18 / drawingScale;
-                                const boxHeight = headerHeight + hardwareLegend.length * rowHeight + (10 / drawingScale);
+                                const boxWidth = 360 / drawingScale;
+                                const headerHeight = 24 / drawingScale;
+                                const rowHeight = 20 / drawingScale;
+                                const boxHeight = headerHeight + hardwareLegend.length * rowHeight + (12 / drawingScale);
                                 const marginX = 20 / drawingScale;
                                 const marginY = 20 / drawingScale;
                                 const boxX = stageLogicalWidth - boxWidth - marginX;
@@ -3836,9 +3908,9 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                             cornerRadius={[4 / drawingScale, 4 / drawingScale, 0, 0]}
                                         />
                                         <Text
-                                            x={8 / drawingScale}
-                                            y={5 / drawingScale}
-                                            text="HARDWARE SCHEDULE KEY"
+                                            x={10 / drawingScale}
+                                            y={6 / drawingScale}
+                                            text="ARCHITECTURAL HARDWARE SCHEDULE KEY (FULL SPECIFICATION)"
                                             fontSize={9.5 / drawingScale}
                                             fill="#ffffff"
                                             fontStyle="bold"
@@ -3847,38 +3919,38 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                         {hardwareLegend.map((item: any, idx: number) => {
                                             const at = item.accessoryType;
                                             const badgeColor = at === 'hinge' ? '#1d4ed8' : at === 'lock' ? '#b91c1c' : at === 'profile' ? '#6d28d9' : '#047857';
-                                            const ry = headerHeight + (5 / drawingScale) + idx * rowHeight;
-                                            const truncatedName = item.name.length > 22 ? item.name.slice(0, 20) + '…' : item.name;
+                                            const ry = headerHeight + (6 / drawingScale) + idx * rowHeight;
+                                            const fullNameDisplay = `${item.name}${item.brand ? ` [${item.brand}]` : ''}`;
 
                                             return (
                                                 <Group key={`legend-row-${item.id}`} y={ry}>
                                                     {/* Callout Code Badge */}
                                                     <Rect
-                                                        x={8 / drawingScale}
+                                                        x={10 / drawingScale}
                                                         y={0}
-                                                        width={26 / drawingScale}
-                                                        height={14 / drawingScale}
+                                                        width={28 / drawingScale}
+                                                        height={15 / drawingScale}
                                                         fill={badgeColor}
                                                         cornerRadius={3 / drawingScale}
                                                     />
                                                     <Text
-                                                        x={8 / drawingScale}
-                                                        y={2 / drawingScale}
-                                                        width={26 / drawingScale}
+                                                        x={10 / drawingScale}
+                                                        y={3 / drawingScale}
+                                                        width={28 / drawingScale}
                                                         text={item.code}
-                                                        fontSize={9 / drawingScale}
+                                                        fontSize={9.5 / drawingScale}
                                                         fill="#ffffff"
                                                         fontStyle="bold"
                                                         align="center"
                                                     />
-                                                    {/* Hardware Name */}
+                                                    {/* Full Hardware Name without abbreviation */}
                                                     <Text
-                                                        x={40 / drawingScale}
-                                                        y={2 / drawingScale}
-                                                        width={170 / drawingScale}
-                                                        text={truncatedName}
-                                                        fontSize={8.5 / drawingScale}
-                                                        fill="#1e293b"
+                                                        x={44 / drawingScale}
+                                                        y={2.5 / drawingScale}
+                                                        width={306 / drawingScale}
+                                                        text={fullNameDisplay}
+                                                        fontSize={9 / drawingScale}
+                                                        fill="#0f172a"
                                                         fontStyle="bold"
                                                     />
                                                 </Group>

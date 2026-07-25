@@ -86,9 +86,17 @@ export function generateFactoryBOM(pieces: GlassPiece[], catalogue: GlassItem[] 
         totalGlassAreaSqM += areaSqM;
         totalGlassWeightKg += areaSqM * thickness * 2.5;
 
-        // Count holes and cuts
-        const holesCount = piece.shapes.filter(s => s.type === 'hole').length;
-        const cutsCount = piece.shapes.filter(s => s.type === 'cut').length;
+        // Count holes and cuts (both standalone drawings and accessory prep requirements)
+        const holesCount = piece.shapes.reduce((acc, s) => {
+            if (s.type === 'hole') return acc + 1;
+            if (s.type === 'accessory' && s.accessoryHoleCount) return acc + Number(s.accessoryHoleCount);
+            return acc;
+        }, 0);
+        const cutsCount = piece.shapes.reduce((acc, s) => {
+            if (s.type === 'cut') return acc + 1;
+            if (s.type === 'accessory' && s.accessoryCutCount) return acc + Number(s.accessoryCutCount);
+            return acc;
+        }, 0);
 
         jobCards.push({
             pieceId: piece.id,
@@ -108,12 +116,16 @@ export function generateFactoryBOM(pieces: GlassPiece[], catalogue: GlassItem[] 
             cutsCount
         });
 
-        // Hardware BOM Aggregation
+        // Hardware BOM Aggregation with Catalogue Enrichment
         piece.shapes.forEach(shape => {
             if (shape.type === 'accessory') {
-                const name = shape.accessoryName || 'Hardware Fitting';
-                const role = shape.accessoryType || 'fitting';
-                const rate = shape.accessoryRate || 0;
+                const catalogItem = catalogue.find(i => i.id === shape.hardwareItemId || i.name.toLowerCase() === shape.accessoryName?.toLowerCase());
+                let name = shape.accessoryName || catalogItem?.name || 'Hardware Fitting';
+                if (catalogItem?.make && !name.toLowerCase().includes(catalogItem.make.toLowerCase())) {
+                    name = `${name} [${catalogItem.make}${catalogItem.model ? ` ${catalogItem.model}` : ''}]`;
+                }
+                const role = shape.accessoryType || catalogItem?.fittingRole || 'fitting';
+                const rate = Number(shape.accessoryRate) || Number(catalogItem?.rate) || 0;
 
                 const existing = hardwareMap.get(name);
                 if (existing) {
@@ -121,7 +133,7 @@ export function generateFactoryBOM(pieces: GlassPiece[], catalogue: GlassItem[] 
                     existing.totalAmount += rate;
                 } else {
                     hardwareMap.set(name, {
-                        itemId: shape.hardwareItemId,
+                        itemId: shape.hardwareItemId || catalogItem?.id,
                         name,
                         role,
                         quantity: 1,

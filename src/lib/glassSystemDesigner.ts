@@ -1,5 +1,6 @@
 import { generateUUID } from '@/lib/utils';
 import type { GlassItem, GlassPiece, KonvaShape, FittingRole, DesignData, DesignItem } from '@/types';
+import { getCutoutSpecsForItem } from '@/lib/fabricationSpecs';
 
 // Parametric "glass systems designer": given a system type (swing door,
 // shower enclosure, fixed panel, sliding door, railing) plus real
@@ -129,9 +130,33 @@ function buildResolver(fittings: GlassItem[]): FittingResolver {
 function hardware(parentId: string, role: FittingRole, cxU: number, cyU: number, resolver: FittingResolver): KonvaShape {
     const spec = ROLE_SPEC[role];
     const fitting = resolver.get(role);
-    const holes = fitting?.holesRequired ?? spec.holes;
-    const cuts = fitting?.cutsRequired ?? spec.cuts;
-    const name = fitting?.name ?? `${spec.label} -- add a fitting`;
+    
+    let holes = fitting?.holesRequired ?? spec.holes;
+    let cuts = fitting?.cutsRequired ?? spec.cuts;
+    let holeRadiusIn = spec.holeRadiusIn;
+    let cutAreaSqIn = spec.cutAreaSqIn;
+    let requirementLabel = `${holes} hole(s) + ${cuts} cut(s)`;
+
+    if (fitting) {
+        const cadSpec = getCutoutSpecsForItem(fitting);
+        if (cadSpec && cadSpec.id !== 'generic_fitting') {
+            if (fitting.holesRequired === undefined && cadSpec.holes) {
+                holes = cadSpec.holes.length;
+            }
+            if (fitting.cutsRequired === undefined && cadSpec.notchWidthMm > 0) {
+                cuts = 1;
+            }
+            if (cadSpec.holes && cadSpec.holes.length > 0) {
+                holeRadiusIn = Number(((cadSpec.holes[0].radiusMm || 6) / 25.4).toFixed(3));
+            }
+            if (cadSpec.notchWidthMm > 0) {
+                cutAreaSqIn = Number(((cadSpec.notchWidthMm * cadSpec.notchHeightMm) / 645.16).toFixed(2));
+            }
+            requirementLabel = `${cadSpec.name} [${cadSpec.brand}] (${holes} holes, ${cuts} notch)`;
+        }
+    }
+
+    const name = fitting?.name ? (fitting.make ? `${fitting.name} (${fitting.make})` : fitting.name) : `${spec.label} -- add a fitting`;
     return {
         id: generateUUID(),
         type: 'accessory',
@@ -145,9 +170,9 @@ function hardware(parentId: string, role: FittingRole, cxU: number, cyU: number,
         ...(fitting ? { hardwareItemId: fitting.id, accessoryRate: fitting.rate } : {}),
         accessoryHoleCount: holes,
         accessoryCutCount: cuts,
-        accessoryHoleRadiusIn: spec.holeRadiusIn,
-        accessoryCutAreaSqIn: spec.cutAreaSqIn,
-        accessoryRequirementLabel: `${holes} hole(s) + ${cuts} cut(s)`,
+        accessoryHoleRadiusIn: holeRadiusIn,
+        accessoryCutAreaSqIn: cutAreaSqIn,
+        accessoryRequirementLabel: requirementLabel,
     };
 }
 
