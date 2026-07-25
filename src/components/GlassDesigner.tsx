@@ -1448,18 +1448,9 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
         }
 
         if (!loaded) {
-            const defaultPiece: GlassPiece = centerPiece({
-                id: generateUUID(),
-                name: 'Window 1',
-                type: 'Window',
-                thickness: 6,
-                shapes: [
-                    { id: generateUUID(), type: 'glass_rect', x: 100, y: 100, width: 300, height: 200 }
-                ]
-            });
-            setPieces([defaultPiece]);
-            initialPiecesJsonRef.current = JSON.stringify([defaultPiece]);
-            setActivePieceId(defaultPiece.id);
+            setPieces([]);
+            initialPiecesJsonRef.current = JSON.stringify([]);
+            setActivePieceId('');
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [initialData]);
@@ -2119,6 +2110,20 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
         }
     };
 
+    const ensureActivePiece = (): GlassPiece => {
+        if (activePiece) return activePiece;
+        const newPiece: GlassPiece = {
+            id: generateUUID(),
+            name: `Design Item 1`,
+            type: 'Partition',
+            thickness: 12,
+            shapes: []
+        };
+        setPieces([newPiece]);
+        setActivePieceId(newPiece.id);
+        return newPiece;
+    };
+
     const findParentShape = () => {
         if (!activePiece) return null;
         const selectedParent = activePiece.shapes.find(s => selectedShapeIds.includes(s.id) && (s.type === 'glass_rect' || s.type === 'glass_circle' || s.type === 'glass_polygon' || s.type === 'glass_parallelogram'));
@@ -2128,7 +2133,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
 
     const addShape = (type: 'glass_rect' | 'glass_circle' | 'hole' | 'cut' | 'glass_polygon' | 'glass_parallelogram') => {
         saveHistory();
-        if (!activePiece) return;
+        const currentPiece = ensureActivePiece();
         
         let newShape: KonvaShape;
         const id = generateUUID();
@@ -2166,7 +2171,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
             newShape = { id, type, x: px - 25, y: py - 25, width: 50, height: 50, parentId };
         }
         
-        updateActivePiece({ shapes: [...activePiece.shapes, newShape] });
+        updateActivePiece({ shapes: [...currentPiece.shapes, newShape] });
         setSelectedShapeId(id);
     };
 
@@ -2229,7 +2234,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
     };
 
     const addAccessory = (type: 'lock' | 'connector' | 'hinge' | 'profile', hardware?: GlassItem) => {
-        if (!activePiece) return;
+        const currentPiece = ensureActivePiece();
         const id = generateUUID();
         let width = 20;
         let height = 20;
@@ -2278,7 +2283,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
             parentId
         };
         
-        updateActivePiece({ shapes: [...activePiece.shapes, newShape] });
+        updateActivePiece({ shapes: [...currentPiece.shapes, newShape] });
         setSelectedShapeId(id);
     };
 
@@ -2557,43 +2562,65 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
 
     return (
         <div className="designer-shell" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {/* Tabs */}
-            <div className="designer-piece-tabs" style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto', paddingBottom: '0.35rem', borderBottom: '1px solid var(--color-border)', alignItems: 'center' }}>
+            {/* Tabs & Primary Add Design Actions */}
+            <div className="designer-piece-tabs" style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto', paddingBottom: '0.4rem', borderBottom: '1px solid var(--color-border)', alignItems: 'center' }}>
                 {pieces.map(piece => {
                     const needsReviewCount = piece.shapes.filter(s => s.positionSource === 'estimated-fallback').length;
+                    const isActive = activePieceId === piece.id;
                     return (
-                    <div key={piece.id} style={{ display: 'flex', alignItems: 'center', background: activePieceId === piece.id ? 'var(--color-primary)' : 'var(--color-bg)', borderRadius: '4px', border: activePieceId === piece.id ? 'none' : '1px solid var(--color-border)' }}>
-                        <button
-                            className={`btn ${activePieceId === piece.id ? 'btn-primary' : 'btn-secondary'}`}
-                            onClick={() => setActivePieceId(piece.id)}
-                            style={{ padding: '0.5rem 1rem', border: 'none', background: 'transparent', color: activePieceId === piece.id ? 'white' : 'inherit', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
-                        >
-                            {piece.name}
-                            {needsReviewCount > 0 && (
-                                <span
-                                    title={`${needsReviewCount} hole/cut position${needsReviewCount === 1 ? '' : 's'} could not be read from the photo -- verify before production`}
-                                    style={{ background: '#f59e0b', color: 'white', borderRadius: '999px', fontSize: '0.7rem', lineHeight: 1, padding: '3px 6px', fontWeight: 600 }}
-                                >
-                                    {needsReviewCount}
-                                </span>
-                            )}
-                        </button>
-                        {pieces.length > 1 && (
+                        <div key={piece.id} style={{ display: 'flex', alignItems: 'center', background: isActive ? '#0284c7' : '#f8fafc', borderRadius: '6px', border: isActive ? '1px solid #0284c7' : '1px solid #cbd5e1', padding: '0.1rem 0.3rem' }}>
                             <button
-                                onClick={() => removePiece(piece.id)}
-                                style={{ padding: '0.5rem', color: activePieceId === piece.id ? '#fca5a5' : '#ef4444', border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-                                title="Delete Piece"
+                                onClick={() => setActivePieceId(piece.id)}
+                                style={{ padding: '0.35rem 0.65rem', border: 'none', background: 'transparent', color: isActive ? '#ffffff' : '#334155', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
                             >
-                                <Trash2 size={16} />
+                                {piece.name}
+                                {needsReviewCount > 0 && (
+                                    <span
+                                        title={`${needsReviewCount} hole/cut position${needsReviewCount === 1 ? '' : 's'} could not be read from the photo -- verify before production`}
+                                        style={{ background: '#f59e0b', color: 'white', borderRadius: '999px', fontSize: '0.7rem', lineHeight: 1, padding: '2px 5px', fontWeight: 600 }}
+                                    >
+                                        {needsReviewCount}
+                                    </span>
+                                )}
                             </button>
-                        )}
-                    </div>
+                            {pieces.length > 1 && (
+                                <button
+                                    onClick={() => removePiece(piece.id)}
+                                    style={{ padding: '0.25rem', color: isActive ? '#fca5a5' : '#ef4444', border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                                    title="Delete Piece"
+                                >
+                                    <Trash2 size={14} />
+                                </button>
+                            )}
+                        </div>
                     );
                 })}
-                <button className="btn btn-secondary" onClick={addPiece} title="Add New Design Item" style={{ padding: '0.4rem 0.75rem', fontSize: '0.82rem' }}>
-                    <Plus size={14} /> Add Design Item
+
+                {/* Primary Glass Systems Designer Action */}
+                <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => setShowSystemModal(true)}
+                    title="Generate parametric doors, shower enclosures, partitions, sliding doors, and railings"
+                    style={{ padding: '0.4rem 0.85rem', fontSize: '0.82rem', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '0.35rem', borderRadius: '6px', cursor: 'pointer' }}
+                >
+                    <Plus size={14} /> Glass Systems Designer
                 </button>
+
+                {/* Secondary Blank Item Action */}
+                <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={addPiece}
+                    title="Add a blank design item"
+                    style={{ padding: '0.4rem 0.75rem', fontSize: '0.82rem', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '0.25rem', borderRadius: '6px', cursor: 'pointer' }}
+                >
+                    + Blank Item
+                </button>
+
+                {/* Undo Action */}
                 <button 
+                    type="button"
                     className="btn btn-secondary" 
                     onClick={undo} 
                     disabled={history.length === 0} 
@@ -2601,10 +2628,12 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                     style={{ 
                         padding: '0.4rem 0.75rem', 
                         fontSize: '0.82rem',
+                        fontWeight: 600,
                         marginLeft: 'auto', 
-                        display: 'flex', 
+                        display: 'inline-flex', 
                         alignItems: 'center', 
                         gap: '0.25rem', 
+                        borderRadius: '6px',
                         opacity: history.length === 0 ? 0.5 : 1, 
                         cursor: history.length === 0 ? 'not-allowed' : 'pointer' 
                     }}
@@ -2614,7 +2643,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
             </div>
 
             <div className="designer-workspace" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%' }}>
-                {/* Clean Single-Row Tool Bar */}
+                {/* Clean Aligned Single-Row Tool Bar */}
                 <div style={{
                     display: 'flex',
                     flexWrap: 'wrap',
@@ -2623,30 +2652,32 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                     justifyContent: 'space-between',
                     background: '#f8fafc',
                     border: '1px solid #e2e8f0',
-                    padding: '0.5rem 0.75rem',
+                    padding: '0.45rem 0.75rem',
                     borderRadius: '8px',
                     width: '100%'
                 }}>
-                    {/* Primary Action Dropdowns */}
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569' }}>Thickness:</span>
-                        <select
-                            className="input"
-                            style={{ background: '#ffffff', color: '#0f172a', border: '1px solid #cbd5e1', fontSize: '0.75rem', padding: '0.25rem 0.5rem', width: 'auto', fontWeight: 600 }}
-                            value={activePiece.thickness}
-                            onChange={e => updateActivePiece({ thickness: Number(e.target.value) })}
-                        >
-                            <option value={4}>4mm</option>
-                            <option value={5}>5mm</option>
-                            <option value={6}>6mm</option>
-                            <option value={8}>8mm</option>
-                            <option value={10}>10mm</option>
-                            <option value={12}>12mm</option>
-                        </select>
+                    {/* Primary Action Controls */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569' }}>Thickness:</span>
+                            <select
+                                className="input"
+                                style={{ background: '#ffffff', color: '#0f172a', border: '1px solid #cbd5e1', fontSize: '0.8rem', padding: '0.3rem 0.5rem', borderRadius: '6px', width: 'auto', fontWeight: 600 }}
+                                value={activePiece?.thickness || 12}
+                                onChange={e => updateActivePiece({ thickness: Number(e.target.value) })}
+                            >
+                                <option value={4}>4mm</option>
+                                <option value={5}>5mm</option>
+                                <option value={6}>6mm</option>
+                                <option value={8}>8mm</option>
+                                <option value={10}>10mm</option>
+                                <option value={12}>12mm</option>
+                            </select>
+                        </div>
 
                         <select
                             className="input"
-                            style={{ background: '#0284c7', color: '#ffffff', border: 'none', fontSize: '0.75rem', padding: '0.3rem 0.6rem', width: 'auto', fontWeight: 600, borderRadius: '6px' }}
+                            style={{ background: '#0284c7', color: '#ffffff', border: 'none', fontSize: '0.8rem', padding: '0.35rem 0.75rem', width: 'auto', fontWeight: 600, borderRadius: '6px', cursor: 'pointer' }}
                             value=""
                             onChange={(e) => {
                                 const shapeType = e.target.value;
@@ -2664,7 +2695,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
 
                         <select
                             className="input"
-                            style={{ background: '#7c3aed', color: '#ffffff', border: 'none', fontSize: '0.75rem', padding: '0.3rem 0.6rem', width: 'auto', fontWeight: 600, borderRadius: '6px' }}
+                            style={{ background: '#7c3aed', color: '#ffffff', border: 'none', fontSize: '0.8rem', padding: '0.35rem 0.75rem', width: 'auto', fontWeight: 600, borderRadius: '6px', cursor: 'pointer' }}
                             value=""
                             onChange={(e) => {
                                 const val = e.target.value;
@@ -2695,18 +2726,9 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                 <option value="profile">Profile/Channel</option>
                             </optgroup>
                         </select>
-
-                        <button
-                            type="button"
-                            className="btn"
-                            style={{ background: '#0891b2', color: 'white', border: 'none', fontSize: '0.75rem', fontWeight: 600, padding: '0.3rem 0.65rem', borderRadius: '6px' }}
-                            onClick={() => setShowSystemModal(true)}
-                        >
-                            🏗️ System Builder…
-                        </button>
                     </div>
 
-                    {/* View Mode & Export Actions */}
+                    {/* View Mode Switcher */}
                     <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
                         <button
                             type="button"
@@ -2715,43 +2737,15 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                 background: designerMode === 'bom' ? '#0f172a' : '#ffffff',
                                 color: designerMode === 'bom' ? '#ffffff' : '#334155',
                                 border: '1px solid #cbd5e1',
-                                fontSize: '0.75rem',
+                                fontSize: '0.8rem',
                                 fontWeight: 600,
-                                padding: '0.3rem 0.6rem'
+                                padding: '0.35rem 0.75rem',
+                                borderRadius: '6px',
+                                cursor: 'pointer'
                             }}
                             onClick={() => setDesignerMode(designerMode === 'bom' ? '2d' : 'bom')}
                         >
                             {designerMode === 'bom' ? '📐 Back to Drawing' : '📄 Factory Job Sheet'}
-                        </button>
-                        <button
-                            type="button"
-                            className="btn btn-secondary"
-                            style={{ fontSize: '0.75rem', padding: '0.3rem 0.5rem', background: '#ffffff', color: '#0369a1', border: '1px solid #cbd5e1', fontWeight: 600 }}
-                            onClick={() => {
-                                const dxf = exportToDXF(pieces);
-                                downloadDXFFile(`${initialData?.name || 'glass_design'}_CAD.dxf`, dxf);
-                            }}
-                        >
-                            DXF
-                        </button>
-                        <button
-                            type="button"
-                            className="btn btn-secondary"
-                            style={{ fontSize: '0.75rem', padding: '0.3rem 0.5rem', background: '#ffffff', color: '#15803d', border: '1px solid #cbd5e1', fontWeight: 600 }}
-                            onClick={() => {
-                                const svg = exportToSVG(pieces);
-                                downloadSVGFile(`${initialData?.name || 'glass_design'}_JobCard.svg`, svg);
-                            }}
-                        >
-                            SVG
-                        </button>
-                        <button
-                            type="button"
-                            className="btn btn-secondary"
-                            style={{ fontSize: '0.75rem', padding: '0.3rem 0.5rem', background: '#ffffff', color: '#b45309', border: '1px solid #cbd5e1', fontWeight: 600 }}
-                            onClick={() => setShowBOMModal(true)}
-                        >
-                            BOM
                         </button>
                     </div>
                 </div>
@@ -3095,6 +3089,49 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                     minHeight: '680px',
                     height: 'calc(100vh - 160px)'
                 }}>
+                    {pieces.length === 0 && (
+                        <div style={{
+                            position: 'absolute',
+                            top: '50%',
+                            left: '50%',
+                            transform: 'translate(-50%, -50%)',
+                            textAlign: 'center',
+                            background: '#ffffff',
+                            padding: '2.5rem 3rem',
+                            borderRadius: '12px',
+                            border: '1px dashed #cbd5e1',
+                            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05)',
+                            zIndex: 20,
+                            maxWidth: '520px',
+                            width: '90%'
+                        }}>
+                            <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>📐</div>
+                            <h3 style={{ margin: '0 0 0.5rem 0', color: '#0f172a', fontSize: '1.2rem', fontWeight: 700 }}>
+                                CAD Design Window Ready
+                            </h3>
+                            <p style={{ margin: '0 0 1.5rem 0', color: '#64748b', fontSize: '0.875rem', lineHeight: 1.5 }}>
+                                Generate complete shower enclosures, sliding doors, and partitions automatically, or add custom glass shapes to start designing.
+                            </p>
+                            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                                <button
+                                    type="button"
+                                    className="btn btn-primary"
+                                    onClick={() => setShowSystemModal(true)}
+                                    style={{ fontSize: '0.85rem', padding: '0.5rem 1.1rem', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '0.4rem', borderRadius: '6px', cursor: 'pointer' }}
+                                >
+                                    <Plus size={16} /> Glass Systems Designer
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    onClick={() => addShape('glass_rect')}
+                                    style={{ fontSize: '0.85rem', padding: '0.5rem 1.1rem', fontWeight: 600, borderRadius: '6px', cursor: 'pointer' }}
+                                >
+                                    + Add Panel Shape
+                                </button>
+                            </div>
+                        </div>
+                    )}
                     {designerMode === 'bom' ? (() => {
                         const bomReport = generateFactoryBOM(pieces, hardwareItems);
                         return (
