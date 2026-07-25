@@ -3698,6 +3698,94 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                     }}
                                 />
                             )}
+                            {/* Architectural Hardware Schedule Key (Bottom Right Corner) */}
+                            {hardwareLegend.length > 0 && (() => {
+                                const boxWidth = 220 / drawingScale;
+                                const headerHeight = 22 / drawingScale;
+                                const rowHeight = 18 / drawingScale;
+                                const boxHeight = headerHeight + hardwareLegend.length * rowHeight + (10 / drawingScale);
+                                const marginX = 20 / drawingScale;
+                                const marginY = 20 / drawingScale;
+                                const boxX = stageLogicalWidth - boxWidth - marginX;
+                                const boxY = stageLogicalHeight - boxHeight - marginY;
+
+                                return (
+                                    <Group x={boxX} y={boxY} listening={false}>
+                                        {/* Main Legend Container Box */}
+                                        <Rect
+                                            x={0}
+                                            y={0}
+                                            width={boxWidth}
+                                            height={boxHeight}
+                                            fill="#ffffff"
+                                            stroke="#0f172a"
+                                            strokeWidth={1.5 / drawingScale}
+                                            cornerRadius={4 / drawingScale}
+                                            shadowColor="#0f172a"
+                                            shadowBlur={6 / drawingScale}
+                                            shadowOpacity={0.12}
+                                        />
+                                        {/* Legend Header */}
+                                        <Rect
+                                            x={0}
+                                            y={0}
+                                            width={boxWidth}
+                                            height={headerHeight}
+                                            fill="#0f172a"
+                                            cornerRadius={[4 / drawingScale, 4 / drawingScale, 0, 0]}
+                                        />
+                                        <Text
+                                            x={8 / drawingScale}
+                                            y={5 / drawingScale}
+                                            text="HARDWARE SCHEDULE KEY"
+                                            fontSize={9.5 / drawingScale}
+                                            fill="#ffffff"
+                                            fontStyle="bold"
+                                        />
+                                        {/* Legend Rows */}
+                                        {hardwareLegend.map((item: any, idx: number) => {
+                                            const at = item.accessoryType;
+                                            const badgeColor = at === 'hinge' ? '#1d4ed8' : at === 'lock' ? '#b91c1c' : at === 'profile' ? '#6d28d9' : '#047857';
+                                            const ry = headerHeight + (5 / drawingScale) + idx * rowHeight;
+                                            const truncatedName = item.name.length > 22 ? item.name.slice(0, 20) + '…' : item.name;
+
+                                            return (
+                                                <Group key={`legend-row-${item.id}`} y={ry}>
+                                                    {/* Callout Code Badge */}
+                                                    <Rect
+                                                        x={8 / drawingScale}
+                                                        y={0}
+                                                        width={26 / drawingScale}
+                                                        height={14 / drawingScale}
+                                                        fill={badgeColor}
+                                                        cornerRadius={3 / drawingScale}
+                                                    />
+                                                    <Text
+                                                        x={8 / drawingScale}
+                                                        y={2 / drawingScale}
+                                                        width={26 / drawingScale}
+                                                        text={item.code}
+                                                        fontSize={9 / drawingScale}
+                                                        fill="#ffffff"
+                                                        fontStyle="bold"
+                                                        align="center"
+                                                    />
+                                                    {/* Hardware Name */}
+                                                    <Text
+                                                        x={40 / drawingScale}
+                                                        y={2 / drawingScale}
+                                                        width={170 / drawingScale}
+                                                        text={truncatedName}
+                                                        fontSize={8.5 / drawingScale}
+                                                        fill="#1e293b"
+                                                        fontStyle="bold"
+                                                    />
+                                                </Group>
+                                            );
+                                        })}
+                                    </Group>
+                                );
+                            })()}
                         </Layer>
                     </Stage>
                     )}
