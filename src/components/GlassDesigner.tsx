@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Plus, Trash2, Square, Circle as CircleIcon, Move, Layers, RotateCcw, Upload, Images } from 'lucide-react';
 import { generateUUID, formatInchesToFraction, parseFractionToInches } from '@/lib/utils';
 import { roundToNextEvenInch } from '@/lib/designCalculations';
@@ -2555,6 +2555,41 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
 
 
 
+    const hardwareLegend = useMemo(() => {
+        const legend: Array<{
+            id: string;
+            code: string;
+            accessoryType: 'hinge' | 'lock' | 'profile' | 'connector';
+            name: string;
+            pieceName: string;
+            holes: number;
+            cuts: number;
+            rate?: number;
+        }> = [];
+        const counts = { hinge: 0, lock: 0, profile: 0, connector: 0 };
+        pieces.forEach(p => {
+            p.shapes.forEach(s => {
+                if (s.type === 'accessory') {
+                    const at = s.accessoryType || 'connector';
+                    counts[at] = (counts[at] || 0) + 1;
+                    const prefix = at === 'hinge' ? 'H' : at === 'lock' ? 'L' : at === 'profile' ? 'P' : 'C';
+                    const code = `${prefix}${counts[at]}`;
+                    legend.push({
+                        id: s.id,
+                        code,
+                        accessoryType: at,
+                        name: s.accessoryName || 'Hardware Fitting',
+                        pieceName: p.name,
+                        holes: Number(s.accessoryHoleCount) || 0,
+                        cuts: Number(s.accessoryCutCount) || 0,
+                        rate: s.accessoryRate
+                    });
+                }
+            });
+        });
+        return legend;
+    }, [pieces]);
+
     const stageViewportHeight = STAGE_VIEWPORT_HEIGHT;
     const { width: stageLogicalWidth, height: stageLogicalHeight } = getStageLogicalSize(drawingScale, stageViewportWidth);
     const gridColumnCount = Math.ceil(stageLogicalWidth / 20) + 1;
@@ -3554,11 +3589,6 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                             });
                                         }}
                                     >
-                                        {/* Unified fabrication-style hardware marker: a colour-coded
-                                            fitting body with its real holes drawn as dots and cuts as
-                                            squares, plus the actual fitting name. Colours match the
-                                            Glass Systems Designer palette (hinge=blue, lock=red,
-                                            patch/channel=violet, connector/fixing=green). */}
                                         {(() => {
                                             const at = shape.accessoryType;
                                             const pal = at === 'hinge' ? { c: '#1d4ed8', bg: '#ffffff', badgeBg: '#eff6ff' }
@@ -3574,13 +3604,8 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                             const startX = mw / 2 - ((marks - 1) * gap) / 2;
                                             const midY = mh / 2;
 
-                                            const rawName = shape.accessoryName || 'Fitting';
-                                            const textStr = rawName.length > 22 ? rawName.slice(0, 20).trim() + '…' : rawName;
-                                            const approxTextW = Math.max(70, textStr.length * 7.5);
-                                            const labelW = approxTextW / drawingScale;
-                                            const labelH = 16 / drawingScale;
-                                            const labelX = (mw / 2) - (labelW / 2);
-                                            const labelY = mh + (4 / drawingScale);
+                                            const legendItem = hardwareLegend.find((item: any) => item.id === shape.id);
+                                            const codeTag = legendItem ? legendItem.code : 'HW';
 
                                             return (
                                                 <Group>
@@ -3607,28 +3632,26 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                                         <Rect key={`hw-c-${k}`} x={startX + (holes + k) * gap - 2.5} y={midY - 2.5} width={5} height={5} stroke={pal.c} strokeWidth={1.4 / drawingScale} fill={pal.badgeBg} listening={false} />
                                                     ))}
 
-                                                    {/* High-contrast hardware name badge below fitting */}
+                                                    {/* Clean callout code tag badge below fitting */}
                                                     <Rect
-                                                        x={labelX}
-                                                        y={labelY}
-                                                        width={labelW}
-                                                        height={labelH}
-                                                        fill={pal.badgeBg}
-                                                        stroke={pal.c}
-                                                        strokeWidth={1 / drawingScale}
+                                                        x={(mw / 2) - (15 / drawingScale)}
+                                                        y={mh + (3 / drawingScale)}
+                                                        width={30 / drawingScale}
+                                                        height={16 / drawingScale}
+                                                        fill={pal.c}
                                                         cornerRadius={4 / drawingScale}
                                                         shadowColor="#000000"
                                                         shadowBlur={2 / drawingScale}
-                                                        shadowOpacity={0.1}
+                                                        shadowOpacity={0.2}
                                                         listening={false}
                                                     />
                                                     <Text
-                                                        x={labelX}
-                                                        y={labelY + (2.5 / drawingScale)}
-                                                        width={labelW}
-                                                        text={textStr}
-                                                        fontSize={9 / drawingScale}
-                                                        fill={pal.c}
+                                                        x={(mw / 2) - (15 / drawingScale)}
+                                                        y={mh + (5 / drawingScale)}
+                                                        width={30 / drawingScale}
+                                                        text={codeTag}
+                                                        fontSize={10 / drawingScale}
+                                                        fill="#ffffff"
                                                         fontStyle="bold"
                                                         align="center"
                                                         listening={false}
@@ -3679,6 +3702,78 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                     </Stage>
                     )}
                 </div>
+
+                {/* Hardware Callout Schedule Legend Bar */}
+                {hardwareLegend.length > 0 && (
+                    <div style={{
+                        background: '#ffffff',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '10px',
+                        padding: '0.65rem 0.9rem',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.4rem',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.03)'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                🏷️ Hardware Schedule Legend ({hardwareLegend.length} fittings)
+                            </span>
+                            <span style={{ fontSize: '0.72rem', color: '#64748b' }}>Click item to select on 2D drawing</span>
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.45rem' }}>
+                            {hardwareLegend.map((item: any) => {
+                                const at = item.accessoryType;
+                                const badgeColor = at === 'hinge' ? '#1d4ed8' : at === 'lock' ? '#b91c1c' : at === 'profile' ? '#6d28d9' : '#047857';
+                                const isSelected = selectedShapeIds.includes(item.id);
+                                return (
+                                    <div
+                                        key={item.id}
+                                        onClick={() => setSelectedShapeIds([item.id])}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '0.4rem',
+                                            background: isSelected ? '#eff6ff' : '#f8fafc',
+                                            border: isSelected ? '1.5px solid #2563eb' : '1px solid #e2e8f0',
+                                            borderRadius: '6px',
+                                            padding: '0.3rem 0.65rem',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.15s ease'
+                                        }}
+                                    >
+                                        <span style={{
+                                            background: badgeColor,
+                                            color: '#ffffff',
+                                            fontWeight: 700,
+                                            fontSize: '0.72rem',
+                                            padding: '1px 5px',
+                                            borderRadius: '4px'
+                                        }}>
+                                            {item.code}
+                                        </span>
+                                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#1e293b' }}>
+                                            {item.name}
+                                        </span>
+                                        <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                                            ({item.pieceName})
+                                        </span>
+                                        {(item.holes > 0 || item.cuts > 0) && (
+                                            <span style={{ fontSize: '0.68rem', background: '#e2e8f0', color: '#334155', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
+                                                {item.holes}H {item.cuts}C
+                                            </span>
+                                        )}
+                                        {item.rate ? (
+                                            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#166534' }}>
+                                                ₹{Number(item.rate).toFixed(2)}
+                                            </span>
+                                        ) : null}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
             </div>
 
             {showSystemModal && (
