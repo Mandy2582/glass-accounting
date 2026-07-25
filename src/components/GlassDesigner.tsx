@@ -3561,10 +3561,10 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                             patch/channel=violet, connector/fixing=green). */}
                                         {(() => {
                                             const at = shape.accessoryType;
-                                            const pal = at === 'hinge' ? { c: '#2563eb', bg: 'rgba(37,99,235,0.15)' }
-                                                : at === 'lock' ? { c: '#d0402a', bg: 'rgba(208,64,42,0.15)' }
-                                                : at === 'profile' ? { c: '#7c3aed', bg: 'rgba(124,58,237,0.15)' }
-                                                : { c: '#0f8a5f', bg: 'rgba(15,138,95,0.15)' };
+                                            const pal = at === 'hinge' ? { c: '#1d4ed8', bg: '#ffffff', badgeBg: '#eff6ff' }
+                                                : at === 'lock' ? { c: '#b91c1c', bg: '#ffffff', badgeBg: '#fef2f2' }
+                                                : at === 'profile' ? { c: '#6d28d9', bg: '#ffffff', badgeBg: '#f5f3ff' }
+                                                : { c: '#047857', bg: '#ffffff', badgeBg: '#ecfdf5' };
                                             const mw = at === 'lock' ? 25 : at === 'connector' ? 40 : at === 'profile' ? (shape.width || 120) : 30;
                                             const mh = at === 'profile' ? 10 : at === 'connector' ? 20 : 25;
                                             const holes = Math.min(Number(shape.accessoryHoleCount) || 0, 6);
@@ -3573,16 +3573,66 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                             const gap = 7;
                                             const startX = mw / 2 - ((marks - 1) * gap) / 2;
                                             const midY = mh / 2;
+
+                                            const rawName = shape.accessoryName || 'Fitting';
+                                            const textStr = rawName.length > 22 ? rawName.slice(0, 20).trim() + '…' : rawName;
+                                            const approxTextW = Math.max(70, textStr.length * 7.5);
+                                            const labelW = approxTextW / drawingScale;
+                                            const labelH = 16 / drawingScale;
+                                            const labelX = (mw / 2) - (labelW / 2);
+                                            const labelY = mh + (4 / drawingScale);
+
                                             return (
                                                 <Group>
-                                                    <Rect x={0} y={0} width={mw} height={mh} fill={pal.bg} stroke={pal.c} strokeWidth={1.6 / drawingScale} cornerRadius={3} />
+                                                    {/* Solid high-contrast fitting body */}
+                                                    <Rect
+                                                        x={0}
+                                                        y={0}
+                                                        width={mw}
+                                                        height={mh}
+                                                        fill={pal.bg}
+                                                        stroke={pal.c}
+                                                        strokeWidth={2 / drawingScale}
+                                                        cornerRadius={4}
+                                                        shadowColor="#0f172a"
+                                                        shadowBlur={4 / drawingScale}
+                                                        shadowOpacity={0.18}
+                                                    />
+                                                    {/* Drill hole dots */}
                                                     {Array.from({ length: holes }).map((_, k) => (
-                                                        <Circle key={`hw-h-${k}`} x={startX + k * gap} y={midY} radius={2.3} fill={pal.c} listening={false} />
+                                                        <Circle key={`hw-h-${k}`} x={startX + k * gap} y={midY} radius={2.5} fill={pal.c} listening={false} />
                                                     ))}
+                                                    {/* Cutout notch boxes */}
                                                     {Array.from({ length: cuts }).map((_, k) => (
-                                                        <Rect key={`hw-c-${k}`} x={startX + (holes + k) * gap - 2.3} y={midY - 2.3} width={4.6} height={4.6} stroke={pal.c} strokeWidth={1.2 / drawingScale} listening={false} />
+                                                        <Rect key={`hw-c-${k}`} x={startX + (holes + k) * gap - 2.5} y={midY - 2.5} width={5} height={5} stroke={pal.c} strokeWidth={1.4 / drawingScale} fill={pal.badgeBg} listening={false} />
                                                     ))}
-                                                    <Text x={(mw / 2) - 55} y={-11 / drawingScale} text={((shape.accessoryName || 'Fitting').length > 16 ? (shape.accessoryName || 'Fitting').slice(0, 15).trim() + '…' : (shape.accessoryName || 'Fitting'))} fontSize={7.5 / drawingScale} fill={pal.c} fontStyle="bold" align="center" width={110} listening={false} />
+
+                                                    {/* High-contrast hardware name badge below fitting */}
+                                                    <Rect
+                                                        x={labelX}
+                                                        y={labelY}
+                                                        width={labelW}
+                                                        height={labelH}
+                                                        fill={pal.badgeBg}
+                                                        stroke={pal.c}
+                                                        strokeWidth={1 / drawingScale}
+                                                        cornerRadius={4 / drawingScale}
+                                                        shadowColor="#000000"
+                                                        shadowBlur={2 / drawingScale}
+                                                        shadowOpacity={0.1}
+                                                        listening={false}
+                                                    />
+                                                    <Text
+                                                        x={labelX}
+                                                        y={labelY + (2.5 / drawingScale)}
+                                                        width={labelW}
+                                                        text={textStr}
+                                                        fontSize={9 / drawingScale}
+                                                        fill={pal.c}
+                                                        fontStyle="bold"
+                                                        align="center"
+                                                        listening={false}
+                                                    />
                                                 </Group>
                                             );
                                         })()}
