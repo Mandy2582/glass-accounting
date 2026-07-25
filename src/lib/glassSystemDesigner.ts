@@ -1,5 +1,5 @@
 import { generateUUID } from '@/lib/utils';
-import type { GlassItem, GlassPiece, KonvaShape, FittingRole } from '@/types';
+import type { GlassItem, GlassPiece, KonvaShape, FittingRole, DesignData, DesignItem } from '@/types';
 
 // Parametric "glass systems designer": given a system type (swing door,
 // shower enclosure, fixed panel, sliding door, railing) plus real
@@ -53,6 +53,9 @@ export interface GlassSystemInput {
     pivotStyle?: 'patch' | 'hinges';
     fixedPanelWidthIn?: number;
     fixingStyle?: 'channel' | 'spider' | 'standoff';
+    // Glass colour/type used for per-sqft pricing (matched against the
+    // thickness-pricing rows). Defaults to 'Toughened Clear'.
+    glassType?: string;
 }
 
 // How each fitting role renders (KonvaShape.accessoryType only has four
@@ -286,6 +289,71 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
     }
 
     return pieces;
+}
+
+// Converts a generated system into the CustomDesign.drawingData shape the
+// rest of the app already understands: `items` (DesignItem[]) drives
+// pricing in orderDesignItems.ts, `pieces` renders on the GlassDesigner
+// canvas. Same output shape as buildDesignDataFromImageAnalysis, so the
+// order-intake path can create a real, priceable, editable design from a
+// text order ("shower door 30x72 12mm") without any drawing at all.
+export function buildGlassSystemDesignData(input: GlassSystemInput, fittings: GlassItem[] = []): {
+    drawingData: DesignData;
+    totalArea: number;
+    grossArea: number;
+    holes: number;
+    cuts: number;
+    items: DesignItem[];
+} {
+    const generated = generateGlassSystem(input, fittings);
+
+    const items: DesignItem[] = generated.map((piece, index) => {
+        const outline = piece.shapes.find(s => s.type === 'glass_rect');
+        const widthIn = (outline?.width ?? 0) / U;
+        const heightIn = (outline?.height ?? 0) / U;
+        const quantity = piece.quantity || 1;
+        const area = Math.round(((widthIn * heightIn) / 144) * quantity * 100) / 100;
+        const holes = piece.shapes.reduce((sum, s) => sum + (Number(s.accessoryHoleCount) || 0), 0);
+        const cuts = piece.shapes.reduce((sum, s) => sum + (Number(s.accessoryCutCount) || 0), 0);
+        return {
+            id: generateUUID(),
+            name: piece.name || `Piece ${index + 1}`,
+            // The glass TYPE (not the piece role) -- getPieceThicknessRate
+            // matches this against the thickness-pricing rows to find the
+            // per-sqft rate. Generated systems are toughened clear glass by
+            // default; the piece's role ("Door"/"Panel") stays on the
+            // canvas piece itself. Staff can switch to another colour in the
+            // designer, which re-prices via the matching pricing row.
+            type: input.glassType || 'Toughened Clear',
+            thickness: piece.thickness || input.thickness || 12,
+            shapes: [],
+            area,
+            cost: 0,
+            // Extra fields the design editor's cost breakdown reads (treated
+            // as any[]) -- match buildDesignDataFromImageAnalysis so a
+            // reopened draft keeps its holes/cuts/quantity.
+            netArea: area,
+            holes: holes * quantity,
+            cuts: cuts * quantity,
+            quantity,
+        } as DesignItem;
+    });
+
+    const totalArea = Math.round(items.reduce((sum, item) => sum + item.area, 0) * 100) / 100;
+    const holes = generated.reduce((sum, p) => sum + p.shapes.reduce((s, sh) => s + (Number(sh.accessoryHoleCount) || 0), 0), 0);
+    const cuts = generated.reduce((sum, p) => sum + p.shapes.reduce((s, sh) => s + (Number(sh.accessoryCutCount) || 0), 0), 0);
+
+    const drawingData: DesignData = {
+        shapes: [],
+        dimensions: { width: input.widthIn, height: input.heightIn, unit: 'inch' },
+        holes: [],
+        cuts: [],
+        notes: `Auto-generated ${input.systemType.replace('_', ' ')} -- ${input.widthIn}in x ${input.heightIn}in, ${input.thickness}mm. Hardware placed at standard positions from your fitting catalogue; review and adjust before production.`,
+        items,
+        pieces: generated.map(piece => ({ id: generateUUID(), ...piece, source: 'system-designer' })),
+    };
+
+    return { drawingData, totalArea, grossArea: totalArea, holes, cuts, items };
 }
 
 // Human-readable summary of what a system will generate, for a confirmation

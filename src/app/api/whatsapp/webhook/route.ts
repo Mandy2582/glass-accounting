@@ -41,6 +41,8 @@ import {
     type CustomGlassOrderResult,
 } from '@/lib/customGlassOrder';
 import { normalizeIntakeImage, type NormalizedIntakeImage } from '@/lib/intakeImage';
+import { looksLikeGlassSystemOrder, parseGlassSystemOrder } from '@/lib/glassSystemOrder';
+import { buildGlassSystemDesignData, describeGlassSystem } from '@/lib/glassSystemDesigner';
 import type { CustomDesign, Invoice, InvoiceItem, Order, Party, PricingConfig } from '@/types';
 
 export const runtime = 'nodejs';
@@ -248,6 +250,9 @@ async function createOrderFromWhatsAppEvent(event: WhatsAppMessageEvent) {
         }
     }
 
+    const glassSystemResult = await handleGlassSystemOrderText(event, body, 'WhatsApp Business webhook');
+    if (glassSystemResult) return glassSystemResult;
+
     const customGlassResult = await handleCustomGlassOrderText(event, body, 'WhatsApp Business webhook');
     if (customGlassResult) return customGlassResult;
 
@@ -371,6 +376,9 @@ async function createDraftFromWhatsAppImage(event: WhatsAppMessageEvent, caption
             analysis.extractedText,
             ...analysis.orderLines.map(line => `${line.quantity || 1} ${line.unit || ''} ${line.description}`.trim()),
         ].filter(Boolean).join('\n');
+
+        const glassSystemResult = await handleGlassSystemOrderText(event, orderText, 'WhatsApp image order');
+        if (glassSystemResult) return glassSystemResult;
 
         const customGlassResult = await handleCustomGlassOrderText(event, orderText, 'WhatsApp image order');
         if (customGlassResult) return customGlassResult;
@@ -748,6 +756,98 @@ async function tryCompleteClarification(
     await runAutoReview(updatedOrder);
 
     return { status: 'clarification_completed', orderId: updatedOrder.id, orderNumber: updatedOrder.number, total: updatedOrder.total };
+}
+
+// A named glass SYSTEM order ("shower door 30x72 12mm", "sliding door 48x84
+// hinge right") -- generate the full standard hardware layout from the
+// shop's fitting catalogue as a real, priced, editable design, instead of
+// waiting on a drawing. Returns null when the message doesn't name a system
+// type + size, so the caller falls through to the Toughened/catalogue flows
+// unchanged. Runs before those since a named system + size is a more
+// specific signal.
+async function handleGlassSystemOrderText(event: WhatsAppMessageEvent, orderText: string, source: string) {
+    if (!looksLikeGlassSystemOrder(orderText)) return null;
+
+    const parsed = parseGlassSystemOrder(orderText);
+    const parties = await db.parties.getAll();
+    const customer = await getOrCreateCustomer(event, parties);
+
+    if (!parsed.ok) return null; // named a system but no readable size -- let other parsers try
+
+    const items = await db.items.getAll();
+    const fittings = items.filter(i => i.category === 'hardware');
+    const design = buildGlassSystemDesignData(parsed.input, fittings);
+
+    const orderNumber = await db.orders.generateNextOrderNumber('sale_order');
+    const generalNumber = await db.orders.generateNextGeneralNumber();
+    const systemLabel = parsed.input.systemType.replace('_', ' ');
+    const order: Order = {
+        id: generateUUID(),
+        type: 'sale_order',
+        number: orderNumber,
+        generalNumber,
+        soNumber: orderNumber,
+        requiresDesign: true,
+        date: new Date().toISOString().slice(0, 10),
+        partyId: customer.id,
+        partyName: customer.name,
+        items: [],
+        subtotal: 0,
+        taxRate: 18,
+        taxAmount: 0,
+        total: 0,
+        status: 'pending',
+        notes: withNeedsApproval(withOrderSource([
+            `Created automatically from ${source}.`,
+            `WhatsApp Message ID: ${event.message.id}`,
+            `WhatsApp From: ${event.message.from}`,
+            '',
+            `Auto-generated ${systemLabel}: ${parsed.input.widthIn}in x ${parsed.input.heightIn}in, ${parsed.input.thickness}mm. Hardware placed at standard positions from the fitting catalogue -- ${describeGlassSystem(parsed.input, fittings)}. Review on the design canvas before approval.`,
+            '',
+            'Original message:',
+            orderText,
+        ].join('\n'), 'whatsapp')),
+        paidAmount: 0,
+        paymentStatus: 'unpaid',
+    };
+    await db.orders.add(order);
+
+    const customDesign: CustomDesign = {
+        id: generateUUID(),
+        name: `${systemLabel} - ${order.number}`,
+        customerId: customer.id,
+        customerName: customer.name,
+        drawingData: design.drawingData,
+        baseShape: 'system-designer',
+        totalArea: design.totalArea,
+        grossArea: design.grossArea,
+        holes: design.holes,
+        cuts: design.cuts,
+        complexityLevel: 'medium',
+        baseRate: 0,
+        complexityCharge: 0,
+        edgeFinishingCharge: 0,
+        estimatedCost: 0,
+        status: 'draft',
+        createdDate: new Date().toISOString().slice(0, 10),
+        notes: `Auto-generated from WhatsApp order "${orderText}".`,
+        orderId: order.id,
+    };
+    await designsDb.add(customDesign);
+
+    const pricedOrder = await priceIntakeDesignOrder(order, customDesign);
+    await runAutoReview(pricedOrder);
+
+    return {
+        messageId: event.message.id,
+        status: 'glass_system_order_created',
+        orderId: pricedOrder.id,
+        orderNumber: pricedOrder.number,
+        customerId: customer.id,
+        customerName: customer.name,
+        systemType: parsed.input.systemType,
+        total: pricedOrder.total,
+    };
 }
 
 // Entry point for both WhatsApp text-order call sites (plain text message,
