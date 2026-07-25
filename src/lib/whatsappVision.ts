@@ -1,4 +1,5 @@
 import sharp from 'sharp';
+import { detectCandidateCircles } from '@/lib/circleDetection';
 import { calculateDimensionAreaSqft } from '@/lib/units';
 import { generateUUID, roundCurrency } from '@/lib/utils';
 import type { DesignData, DesignItem, KonvaShape } from '@/types';
@@ -536,6 +537,17 @@ async function verifyPieceHolesAndCuts(
     const croppedImageDataUrl = await cropImageRegion(fullImageDataUrl, piece.imageRegion);
     if (!croppedImageDataUrl) return null;
 
+    // Classical circle detection as a candidate generator -- confirmed on a
+    // real drawing that this reliably finds every real hand-drawn hole, at
+    // the cost of also flagging lookalikes (circled drawing numbers, digit
+    // loops, a photographed thumb). Handing the LLM a candidate list to
+    // confirm/reject is a much more tractable task than free-form counting
+    // from scratch, which is where the pure-LLM approach was shown to drift
+    // regardless of prompt framing. Never a hard dependency -- an empty
+    // result here just means the prompt below omits the candidate section
+    // and the call proceeds exactly as the pre-candidate version did.
+    const candidateCircles = await detectCandidateCircles(croppedImageDataUrl);
+
     const model = process.env.OPENAI_VISION_MODEL || 'gpt-4.1-mini';
     const isReasoningModel = /^(gpt-5|o\d)/.test(model);
 
@@ -557,6 +569,14 @@ async function verifyPieceHolesAndCuts(
                                 'This is a zoomed-in crop showing ONE glass panel from a larger hand-marked order drawing (other panels, if any, have been cropped out -- only count what is visible in THIS image). This crop may include a small sliver of a neighboring panel at its very edge (deliberate padding to avoid clipping) -- ignore anything that clearly belongs to a different panel outline, and only report holes/cuts that belong to the main panel filling most of this crop.',
                                 'Recount every hole (small circle, "o") visible in this crop, precisely and independently of any earlier reading.',
                                 'COUNT EVERY HOLE INDIVIDUALLY: scan methodically along the top edge, bottom edge, left edge, right edge, and interior, and report one holes[] entry per circle.',
+                                '',
+                                candidateCircles.length > 0
+                                    ? [
+                                        `CANDIDATE CIRCLES (from image analysis, NOT verified -- confirm or reject each one yourself): a separate detector found ${candidateCircles.length} circular mark(s) at these approximate positions, as fractions of this crop's width/height (0,0 = top-left, 1,1 = bottom-right): ${JSON.stringify(candidateCircles.map(c => ({ x: Math.round(c.xFraction * 1000) / 1000, y: Math.round(c.yFraction * 1000) / 1000 })))}.`,
+                                        'For EACH candidate, look at that exact spot in the photo and decide: is this a real hole hand-drawn on the glass, or something else entirely (a digit or letter with a loop shape like "8"/"0"/"3", part of a circled drawing/reference number, a photographed object like a finger, a smudge, or paper texture)? Only include the ones you visually confirm as real holes in holes[], using their true measured position per the position rules below (not the candidate\'s raw fraction, which is only an approximate hint of where to look). Do NOT include a candidate just because it was detected -- verify each one against what is actually drawn.',
+                                        'These candidates are a starting point, not a complete list: the detector can miss faint, small, or unusually-shaped hand-drawn circles, and it does not see anything within the outer margin of this crop at all (deliberately excluded, since that\'s where a neighboring panel or a photographed edge is most likely). Actively look for and include any real hole you can see that isn\'t in the candidate list above.',
+                                    ].join('\n')
+                                    : null,
                                 '',
                                 HOLE_EDGE_COUNTS_GUIDANCE,
                                 '',

@@ -12,6 +12,7 @@
   "dependencies": {
     "@supabase/auth-helpers-nextjs": "^0.10.0",
     "@supabase/supabase-js": "^2.84.0",
+    "@techstark/opencv-js": "^5.0.0-release.1",
     "@types/pg": "^8.15.6",
     "dotenv": "^17.4.2",
     "fabric": "^6.9.0",
