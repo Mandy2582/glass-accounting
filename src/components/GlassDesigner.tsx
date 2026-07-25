@@ -14,7 +14,6 @@ import { validateGlassSafety, type SafetyViolation } from '@/lib/glassSafetyVali
 import { HARDWARE_CUTOUT_TEMPLATES } from '@/lib/fabricationSpecs';
 import { calculateGlassEngineering } from '@/lib/glassEngineeringCalculator';
 import { generateFactoryBOM } from '@/lib/glassBOMGenerator';
-import GlassDesigner3D from './GlassDesigner3D';
 
 // Dimension-line rendering offsets (renderRectDimensions/getPolygonSideDimensions/
 // getVertexAngleInfo below all divide these by the current drawingScale). Named
@@ -1108,7 +1107,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
     const [activePieceId, setActivePieceId] = useState<string>('');
     const [selectedShapeIds, setSelectedShapeIds] = useState<string[]>([]);
     const [showBOMModal, setShowBOMModal] = useState<boolean>(false);
-    const [designerMode, setDesignerMode] = useState<'2d' | '3d' | 'bom'>('2d');
+    const [designerMode, setDesignerMode] = useState<'2d' | 'bom'>('2d');
 
     const selectedShapeId = selectedShapeIds.length > 0 ? selectedShapeIds[selectedShapeIds.length - 1] : null;
     const setSelectedShapeId = (id: string | null) => {
@@ -2695,22 +2694,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                             }}
                             onClick={() => setDesignerMode('2d')}
                         >
-                            2D Elevation
-                        </button>
-                        <button
-                            type="button"
-                            className="btn"
-                            style={{
-                                background: designerMode === '3d' ? '#0284c7' : '#1e293b',
-                                color: '#ffffff',
-                                border: 'none',
-                                fontSize: '0.78rem',
-                                fontWeight: 600,
-                                padding: '0.35rem 0.75rem'
-                            }}
-                            onClick={() => setDesignerMode('3d')}
-                        >
-                            3D Visualizer
+                            2D CAD Elevation
                         </button>
                         <button
                             type="button"
@@ -3410,7 +3394,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                 <div ref={canvasFrameRef} className="designer-canvas-frame" style={{
                     width: '100%',
                     overflow: 'hidden',
-                    background: designerMode === '3d' ? '#111827' : '#e8edf0',
+                    background: '#e8edf0',
                     borderRadius: '14px',
                     border: '1px solid rgba(14, 116, 144, 0.22)',
                     boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.7), 0 18px 45px rgba(15, 23, 42, 0.08)',
@@ -3418,15 +3402,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                     minHeight: '680px',
                     height: 'calc(100vh - 160px)'
                 }}>
-                    {designerMode === '3d' ? (
-                        <GlassDesigner3D
-                            shapes={pieces.flatMap(p => p.shapes)}
-                            thickness={activePiece?.thickness || 10}
-                            selectedShapeId={selectedShapeId}
-                            onSelectShape={setSelectedShapeId}
-                            onShapeTransform={(id, updates) => updateShape(id, updates)}
-                        />
-                    ) : designerMode === 'bom' ? (() => {
+                    {designerMode === 'bom' ? (() => {
                         const bomReport = generateFactoryBOM(pieces, hardwareItems);
                         return (
                             <div style={{ padding: '1.2rem', overflowY: 'auto', maxHeight: '100%', background: '#ffffff', borderRadius: '10px' }}>
