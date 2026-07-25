@@ -3252,7 +3252,27 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                         const bomReport = generateFactoryBOM(pieces, hardwareItems);
                         return (
                             <div style={{ padding: '1.2rem', overflowY: 'auto', maxHeight: '100%', background: '#ffffff', borderRadius: '10px' }}>
-                                <h2 style={{ fontSize: '1.2rem', fontWeight: 700, margin: '0 0 1rem', color: '#0f172a' }}>Factory Job Card & Architectural BOM</h2>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                    <h2 style={{ fontSize: '1.2rem', fontWeight: 700, margin: 0, color: '#0f172a' }}>Factory Job Card & Architectural BOM</h2>
+                                    <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                                        <button 
+                                            type="button" 
+                                            className="btn btn-secondary" 
+                                            style={{ fontSize: '0.75rem', padding: '0.3rem 0.65rem', background: '#0f172a', color: '#ffffff', border: 'none', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem', borderRadius: '5px', cursor: 'pointer' }} 
+                                            onClick={() => exportToDXF(pieces)}
+                                        >
+                                            💾 Export DXF (CNC)
+                                        </button>
+                                        <button 
+                                            type="button" 
+                                            className="btn btn-secondary" 
+                                            style={{ fontSize: '0.75rem', padding: '0.3rem 0.65rem', background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem', borderRadius: '5px', cursor: 'pointer' }} 
+                                            onClick={() => exportToSVG(pieces)}
+                                        >
+                                            🖼️ Export SVG
+                                        </button>
+                                    </div>
+                                </div>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.8rem', marginBottom: '1.2rem', background: '#f8fafc', padding: '1rem', borderRadius: '8px', fontSize: '0.85rem' }}>
                                     <div><strong>Total Glass Area:</strong> {bomReport.totalGlassAreaSqM} m² ({(bomReport.totalGlassAreaSqM * 10.7639).toFixed(1)} sqft)</div>
                                     <div><strong>Total Weight:</strong> {bomReport.totalGlassWeightKg} kg</div>
@@ -3986,6 +4006,38 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                             <option value="balustrade_spigots_3pc">3-Panel Glass Balustrade (Heavy Duty Spigots)</option>
                                         </optgroup>
                                     </select>
+                            </div>
+
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-text-muted)', marginBottom: '0.35rem' }}>Quick Preset Dimensions</label>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                                    {[
+                                        { label: 'Door 30×78"', w: 30, h: 78, t: 10 },
+                                        { label: 'Shower 36×72"', w: 36, h: 72, t: 10 },
+                                        { label: 'Entrance 72×96"', w: 72, h: 96, t: 12 },
+                                        { label: 'Balustrade 48×42"', w: 48, h: 42, t: 12 },
+                                        { label: 'Patio 120×96"', w: 120, h: 96, t: 12 }
+                                    ].map(preset => (
+                                        <button
+                                            key={preset.label}
+                                            type="button"
+                                            onClick={() => setSystemInput(s => ({ ...s, widthIn: preset.w, heightIn: preset.h, thickness: preset.t }))}
+                                            style={{
+                                                fontSize: '0.7rem',
+                                                fontWeight: 600,
+                                                padding: '0.2rem 0.5rem',
+                                                borderRadius: '5px',
+                                                border: '1px solid #cbd5e1',
+                                                background: '#f8fafc',
+                                                color: '#334155',
+                                                cursor: 'pointer',
+                                                transition: 'all 0.15s ease'
+                                            }}
+                                        >
+                                            ⚡ {preset.label}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
 
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.6rem' }}>
