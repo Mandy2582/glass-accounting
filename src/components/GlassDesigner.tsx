@@ -2831,6 +2831,17 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                 />
                             </div>
                             <div>
+                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>Glass System Generator</label>
+                                <button
+                                    type="button"
+                                    className="btn"
+                                    style={{ width: '100%', background: '#0e7490', color: 'white', border: 'none', fontWeight: 600, fontSize: '0.78rem' }}
+                                    onClick={() => setShowSystemModal(true)}
+                                >
+                                    🏗️ Generate Glass System…
+                                </button>
+                            </div>
+                            <div>
                                 <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>Vector CAD Exports</label>
                                 <div style={{ display: 'flex', gap: '0.35rem' }}>
                                     <button
