@@ -1,25 +1,28 @@
 import { generateUUID } from '@/lib/utils';
-import type { GlassPiece, KonvaShape } from '@/types';
+import type { GlassItem, GlassPiece, KonvaShape, FittingRole } from '@/types';
 
 // Parametric "glass systems designer": given a system type (swing door,
 // shower enclosure, fixed panel, sliding door, railing) plus real
 // dimensions and a few options, generate the glass panel(s) with all the
 // hardware placed at industry-standard positions -- instead of trying to
-// perceive/count holes off a photo, which is unreliable. The output is
-// ordinary GlassPiece[] in the exact canvas format GlassDesigner already
-// renders (10 canvas units per inch) and prices (hardware carries
-// accessoryHoleCount/accessoryCutCount, already summed by
-// orderDesignItems.ts and the canvas totals), so this needs no changes to
-// rendering or pricing -- it only produces the shapes.
+// perceive/count holes off a photo, which is unreliable.
 //
-// Placement standards are sourced from common frameless-glass hardware
-// conventions (dormakaba/Ozone/generic patch-fitting and shower-hardware
-// installation guides): shower hinges 150-200mm in from top and bottom;
-// door handle/lock ~1000mm above floor; patch-fitting cutout set back
-// ~70mm from the edge with the pivot ~55-65mm in. These are sensible
-// defaults a designer confirms/adjusts on the canvas, not gospel -- exact
-// cutout sizes ultimately depend on the specific hardware brand the shop
-// uses, which is why every generated item stays fully editable.
+// Hardware is sourced from the shop's OWN catalogue: each generated fitting
+// is the real stocked item matching that role (its name, glass prep, rate,
+// and item id), so the drawing, the hole/cut counts, and the priced BOM all
+// come from one record. When a role isn't stocked yet, a sensible built-in
+// default is used and the marker is named "(role) -- add a fitting" so it's
+// obvious what to configure in Settings > Hardware Fittings.
+//
+// The output is ordinary GlassPiece[] in the exact canvas format
+// GlassDesigner already renders (10 canvas units per inch) and prices
+// (accessoryHoleCount/accessoryCutCount are summed by orderDesignItems.ts
+// and the canvas totals), so this needs no changes to rendering or pricing.
+//
+// Placement standards come from common frameless-glass conventions: shower
+// hinges 150-200mm in from top/bottom; door handle/lock ~1000mm above floor;
+// patch cutout set back ~70mm; spider/standoff bolts inset from the edges.
+// These are starting points a designer confirms on the canvas.
 
 const U = 10; // canvas units per inch, matching GlassDesigner.createRectShape
 const MM_PER_INCH = 25.4;
@@ -28,13 +31,11 @@ const inFromMm = (millimetres: number) => millimetres / MM_PER_INCH;
 // --- Standard placement offsets (inches) ---
 const SHOWER_HINGE_INSET_IN = inFromMm(175);   // 150-200mm from top & bottom edge
 const HANDLE_HEIGHT_IN = inFromMm(1000);       // handle/lock center ~1000mm above floor
-const HANDLE_HOLE_PITCH_IN = inFromMm(300);    // vertical gap between a D-handle's two holes
 const PATCH_SETBACK_IN = inFromMm(70);         // patch cutout set back from the edge it clamps
 const DOOR_HINGE_END_INSET_IN = 4;             // frameless door hinges ~4in in from each end
 const RAIL_END_INSET_IN = 4;                   // first/last roller or standoff in from the ends
 const SPIDER_CORNER_INSET_IN = 3;              // bolt-hole inset from each corner for bolted glass
 
-// Canvas origin for the first piece; extra pieces are laid out to the right.
 const ORIGIN_X = 100;
 const ORIGIN_Y = 80;
 const PIECE_GAP_U = 40; // gap between adjacent pieces on the shared canvas
@@ -46,81 +47,79 @@ export interface GlassSystemInput {
     widthIn: number;
     heightIn: number;
     thickness: number;
-    // Which vertical edge carries the hinges/pivot (the other edge gets the
-    // handle/lock). Defaults to 'left'.
     hingeSide?: 'left' | 'right';
-    // Swing/shower door extras.
-    hasLock?: boolean;   // patch lock / glass lock on the leading edge
-    hasHandle?: boolean; // D-handle (2 holes) on the leading edge
-    // Swing door pivot style: patch fittings (top+bottom corner patches over
-    // a floor spring) vs wall hinges. Defaults to 'hinges'.
+    hasLock?: boolean;
+    hasHandle?: boolean;
     pivotStyle?: 'patch' | 'hinges';
-    // Optional adjoining fixed side panel (shower/partition), generated as a
-    // second piece to the right at this width.
     fixedPanelWidthIn?: number;
-    // Fixed-panel / railing fixing style.
     fixingStyle?: 'channel' | 'spider' | 'standoff';
 }
 
-type HardwareKind =
-    | 'hinge' | 'lock' | 'handle' | 'knob'
-    | 'patch' | 'connector' | 'channel' | 'clamp'
-    | 'spider' | 'standoff' | 'roller';
-
-// Standard glass-prep requirement per hardware kind: how many holes/cuts it
-// implies (for pricing + the hole/cut totals) and a human label. Values
-// follow the existing createAccessoryShape conventions (hinge 2h+1c, lock
-// 1h+1c) and extend them to the additional hardware this engine places.
-const HARDWARE_REQUIREMENT: Record<HardwareKind, { holes: number; cuts: number; holeRadiusIn: number; cutAreaSqIn: number; label: string }> = {
-    hinge:     { holes: 2, cuts: 1, holeRadiusIn: 0.25, cutAreaSqIn: 6, label: '2 holes + 1 cut' },
-    lock:      { holes: 1, cuts: 1, holeRadiusIn: 0.75, cutAreaSqIn: 6, label: '1 hole + 1 cut' },
-    handle:    { holes: 2, cuts: 0, holeRadiusIn: 0.25, cutAreaSqIn: 0, label: '2 holes' },
-    knob:      { holes: 1, cuts: 0, holeRadiusIn: 0.5, cutAreaSqIn: 0, label: '1 hole' },
-    patch:     { holes: 0, cuts: 1, holeRadiusIn: 0, cutAreaSqIn: 8, label: '1 corner cut-out' },
-    connector: { holes: 0, cuts: 0, holeRadiusIn: 0, cutAreaSqIn: 0, label: 'clamped, no glass prep' },
-    channel:   { holes: 0, cuts: 0, holeRadiusIn: 0, cutAreaSqIn: 0, label: 'channel, no glass prep' },
-    clamp:     { holes: 0, cuts: 0, holeRadiusIn: 0, cutAreaSqIn: 0, label: 'clamped, no glass prep' },
-    spider:    { holes: 1, cuts: 0, holeRadiusIn: 0.5, cutAreaSqIn: 0, label: '1 bolt hole' },
-    standoff:  { holes: 1, cuts: 0, holeRadiusIn: 0.5, cutAreaSqIn: 0, label: '1 bolt hole' },
-    roller:    { holes: 2, cuts: 0, holeRadiusIn: 0.25, cutAreaSqIn: 0, label: '2 holes' },
+// How each fitting role renders (KonvaShape.accessoryType only has four
+// values, so every role maps to the closest), its default marker footprint,
+// and the built-in glass prep used only when the shop hasn't stocked a
+// fitting for that role yet.
+const ROLE_SPEC: Record<FittingRole, {
+    render: 'lock' | 'connector' | 'hinge' | 'profile';
+    w: number; h: number;
+    holes: number; cuts: number; holeRadiusIn: number; cutAreaSqIn: number;
+    label: string;
+}> = {
+    top_patch:       { render: 'profile',   w: 60, h: 40, holes: 0, cuts: 1, holeRadiusIn: 0,    cutAreaSqIn: 8, label: 'Top patch' },
+    bottom_patch:    { render: 'profile',   w: 60, h: 40, holes: 0, cuts: 1, holeRadiusIn: 0,    cutAreaSqIn: 8, label: 'Bottom patch' },
+    overpanel_patch: { render: 'profile',   w: 60, h: 40, holes: 0, cuts: 1, holeRadiusIn: 0,    cutAreaSqIn: 8, label: 'Overpanel patch' },
+    floor_spring:    { render: 'profile',   w: 60, h: 40, holes: 0, cuts: 0, holeRadiusIn: 0,    cutAreaSqIn: 0, label: 'Floor spring' },
+    wall_hinge:      { render: 'hinge',     w: 30, h: 25, holes: 2, cuts: 1, holeRadiusIn: 0.25, cutAreaSqIn: 6, label: 'Hinge' },
+    glass_hinge:     { render: 'hinge',     w: 30, h: 25, holes: 2, cuts: 1, holeRadiusIn: 0.25, cutAreaSqIn: 6, label: 'Glass hinge' },
+    door_lock:       { render: 'lock',      w: 25, h: 25, holes: 1, cuts: 1, holeRadiusIn: 0.75, cutAreaSqIn: 6, label: 'Lock' },
+    sliding_lock:    { render: 'lock',      w: 25, h: 25, holes: 1, cuts: 0, holeRadiusIn: 0.5,  cutAreaSqIn: 0, label: 'Sliding lock' },
+    connector:       { render: 'connector', w: 40, h: 20, holes: 0, cuts: 0, holeRadiusIn: 0,    cutAreaSqIn: 0, label: 'Connector' },
+    clamp:           { render: 'connector', w: 30, h: 18, holes: 0, cuts: 0, holeRadiusIn: 0,    cutAreaSqIn: 0, label: 'Clamp' },
+    spigot:          { render: 'connector', w: 26, h: 26, holes: 1, cuts: 0, holeRadiusIn: 0.5,  cutAreaSqIn: 0, label: 'Spigot' },
+    handle:          { render: 'lock',      w: 22, h: 60, holes: 2, cuts: 0, holeRadiusIn: 0.25, cutAreaSqIn: 0, label: 'Handle' },
+    sliding_kit:     { render: 'hinge',     w: 40, h: 22, holes: 2, cuts: 0, holeRadiusIn: 0.25, cutAreaSqIn: 0, label: 'Roller' },
+    other:           { render: 'connector', w: 30, h: 24, holes: 0, cuts: 0, holeRadiusIn: 0,    cutAreaSqIn: 0, label: 'Fitting' },
 };
 
-// The KonvaShape.accessoryType enum only has four values; every hardware
-// kind renders as the closest of those (drives the marker's colour/label in
-// the canvas), while the real hole/cut counts above are what get priced.
-const RENDER_TYPE: Record<HardwareKind, 'lock' | 'connector' | 'hinge' | 'profile'> = {
-    hinge: 'hinge', roller: 'hinge',
-    lock: 'lock', handle: 'lock', knob: 'lock',
-    patch: 'profile', channel: 'profile',
-    connector: 'connector', clamp: 'connector', spider: 'connector', standoff: 'connector',
-};
+// role -> the shop's stocked fitting for that role (first match wins; the
+// designer UI can later let staff swap among multiple options per role).
+type FittingResolver = Map<FittingRole, GlassItem>;
 
-// Default marker footprint (canvas units) per hardware kind.
-const HARDWARE_SIZE: Record<HardwareKind, { w: number; h: number }> = {
-    hinge: { w: 30, h: 25 }, lock: { w: 25, h: 25 }, handle: { w: 22, h: 60 }, knob: { w: 22, h: 22 },
-    patch: { w: 60, h: 40 }, connector: { w: 40, h: 20 }, channel: { w: 60, h: 18 }, clamp: { w: 30, h: 18 },
-    spider: { w: 24, h: 24 }, standoff: { w: 24, h: 24 }, roller: { w: 40, h: 22 },
-};
+function buildResolver(fittings: GlassItem[]): FittingResolver {
+    const byRole = new Map<FittingRole, GlassItem>();
+    for (const f of fittings) {
+        if (f.category === 'hardware' && f.fittingRole && !byRole.has(f.fittingRole)) {
+            byRole.set(f.fittingRole, f);
+        }
+    }
+    return byRole;
+}
 
-// Builds a hardware accessory marker centered on (cxU, cyU) in canvas units.
-function hardware(parentId: string, kind: HardwareKind, cxU: number, cyU: number, name: string): KonvaShape {
-    const req = HARDWARE_REQUIREMENT[kind];
-    const size = HARDWARE_SIZE[kind];
+// Builds a hardware accessory marker for `role` centered on (cxU, cyU),
+// using the shop's stocked fitting when available (real name/prep/rate/id)
+// and the built-in default otherwise.
+function hardware(parentId: string, role: FittingRole, cxU: number, cyU: number, resolver: FittingResolver): KonvaShape {
+    const spec = ROLE_SPEC[role];
+    const fitting = resolver.get(role);
+    const holes = fitting?.holesRequired ?? spec.holes;
+    const cuts = fitting?.cutsRequired ?? spec.cuts;
+    const name = fitting?.name ?? `${spec.label} -- add a fitting`;
     return {
         id: generateUUID(),
         type: 'accessory',
-        x: cxU - size.w / 2,
-        y: cyU - size.h / 2,
-        width: size.w,
-        height: size.h,
-        accessoryType: RENDER_TYPE[kind],
+        x: cxU - spec.w / 2,
+        y: cyU - spec.h / 2,
+        width: spec.w,
+        height: spec.h,
+        accessoryType: spec.render,
         accessoryName: name,
         parentId,
-        accessoryHoleCount: req.holes,
-        accessoryCutCount: req.cuts,
-        accessoryHoleRadiusIn: req.holeRadiusIn,
-        accessoryCutAreaSqIn: req.cutAreaSqIn,
-        accessoryRequirementLabel: req.label,
+        ...(fitting ? { hardwareItemId: fitting.id, accessoryRate: fitting.rate } : {}),
+        accessoryHoleCount: holes,
+        accessoryCutCount: cuts,
+        accessoryHoleRadiusIn: spec.holeRadiusIn,
+        accessoryCutAreaSqIn: spec.cutAreaSqIn,
+        accessoryRequirementLabel: `${holes} hole(s) + ${cuts} cut(s)`,
     };
 }
 
@@ -134,8 +133,6 @@ function rectPanel(widthIn: number, heightIn: number, originX: number): { shape:
     return { shape, box: { id, leftX: originX, topY: ORIGIN_Y, widthU, heightU } };
 }
 
-// Evenly spaces N points along a run of `spanU` units, inset `insetU` from
-// each end -- used for hinge columns, roller rows, standoff rows, etc.
 function evenPositions(count: number, startU: number, spanU: number, insetU: number): number[] {
     if (count <= 0) return [];
     if (count === 1) return [startU + spanU / 2];
@@ -143,15 +140,11 @@ function evenPositions(count: number, startU: number, spanU: number, insetU: num
     return Array.from({ length: count }, (_, i) => startU + insetU + (usable * i) / (count - 1));
 }
 
-// Hinge count grows with door height so tall doors get a middle hinge, the
-// same rule a fabricator uses by eye.
 function hingeCountForHeight(heightIn: number): number {
-    if (heightIn <= 60) return 2;
-    if (heightIn <= 90) return 2;
-    return 3;
+    return heightIn <= 90 ? 2 : 3;
 }
 
-function buildDoorPiece(name: string, input: GlassSystemInput, originX: number): Omit<GlassPiece, 'id'> {
+function buildDoorPiece(name: string, input: GlassSystemInput, originX: number, resolver: FittingResolver): Omit<GlassPiece, 'id'> {
     const { widthIn, heightIn, thickness } = input;
     const hingeSide = input.hingeSide ?? 'left';
     const { shape, box } = rectPanel(widthIn, heightIn, originX);
@@ -159,109 +152,106 @@ function buildDoorPiece(name: string, input: GlassSystemInput, originX: number):
 
     const hingeEdgeX = hingeSide === 'left' ? box.leftX : box.leftX + box.widthU;
     const leadingEdgeX = hingeSide === 'left' ? box.leftX + box.widthU : box.leftX;
-    // Nudge the marker just inside its edge so it reads as belonging to that edge.
     const edgeInset = 6;
     const hingeMarkX = hingeSide === 'left' ? hingeEdgeX + edgeInset : hingeEdgeX - edgeInset;
     const leadMarkX = hingeSide === 'left' ? leadingEdgeX - edgeInset : leadingEdgeX + edgeInset;
+    const isShower = input.systemType === 'shower_door';
 
     if (input.systemType === 'swing_door' && input.pivotStyle === 'patch') {
-        // Top + bottom corner patch fittings over a floor spring.
         const setback = PATCH_SETBACK_IN * U;
-        shapes.push(hardware(box.id, 'patch', hingeMarkX + (hingeSide === 'left' ? setback : -setback) / 2, box.topY + setback / 2, 'Top Patch Fitting'));
-        shapes.push(hardware(box.id, 'patch', hingeMarkX + (hingeSide === 'left' ? setback : -setback) / 2, box.topY + box.heightU - setback / 2, 'Bottom Patch Fitting'));
+        const dx = (hingeSide === 'left' ? setback : -setback) / 2;
+        shapes.push(hardware(box.id, 'top_patch', hingeMarkX + dx, box.topY + setback / 2, resolver));
+        shapes.push(hardware(box.id, 'bottom_patch', hingeMarkX + dx, box.topY + box.heightU - setback / 2, resolver));
     } else {
-        // Wall/glass hinges evenly spaced down the hinge edge.
-        const count = input.systemType === 'shower_door' ? 2 : hingeCountForHeight(heightIn);
-        const inset = (input.systemType === 'shower_door' ? SHOWER_HINGE_INSET_IN : DOOR_HINGE_END_INSET_IN) * U;
+        const count = isShower ? 2 : hingeCountForHeight(heightIn);
+        const inset = (isShower ? SHOWER_HINGE_INSET_IN : DOOR_HINGE_END_INSET_IN) * U;
+        const hingeRole: FittingRole = 'wall_hinge';
         for (const yU of evenPositions(count, box.topY, box.heightU, inset)) {
-            shapes.push(hardware(box.id, 'hinge', hingeMarkX, yU, input.systemType === 'shower_door' ? 'Shower Hinge' : 'Door Hinge'));
+            shapes.push(hardware(box.id, hingeRole, hingeMarkX, yU, resolver));
         }
     }
 
-    // Handle/lock on the leading edge at standard height (measured up from the
-    // bottom edge, since that's how the 1000mm convention is defined).
     const handleCenterY = box.topY + box.heightU - HANDLE_HEIGHT_IN * U;
     const clampedHandleY = Math.max(box.topY + 40, Math.min(box.topY + box.heightU - 40, handleCenterY));
     if (input.hasLock) {
-        shapes.push(hardware(box.id, input.systemType === 'shower_door' ? 'knob' : 'lock', leadMarkX, clampedHandleY, input.systemType === 'shower_door' ? 'Shower Knob' : 'Patch Lock'));
+        shapes.push(hardware(box.id, 'door_lock', leadMarkX, clampedHandleY, resolver));
     }
-    if (input.hasHandle) {
-        // A D-handle reads as one marker spanning its two-hole pitch.
-        shapes.push(hardware(box.id, 'handle', leadMarkX, clampedHandleY, 'D-Handle'));
+    if (input.hasHandle && !isShower) {
+        shapes.push(hardware(box.id, 'handle', leadMarkX, input.hasLock ? clampedHandleY - 70 : clampedHandleY, resolver));
     }
 
     return { name, type: 'Door', thickness, quantity: 1, shapes };
 }
 
-function buildFixedPanelPiece(name: string, input: GlassSystemInput, originX: number, pieceType = 'Partition'): Omit<GlassPiece, 'id'> {
+function buildFixedPanelPiece(name: string, input: GlassSystemInput, originX: number, resolver: FittingResolver, pieceType = 'Partition'): Omit<GlassPiece, 'id'> {
     const { widthIn, heightIn, thickness } = input;
     const { shape, box } = rectPanel(widthIn, heightIn, originX);
     const shapes: KonvaShape[] = [shape];
     const style = input.fixingStyle ?? 'channel';
 
     if (style === 'spider') {
-        // Bolted glass: a bolt hole inset from each of the four corners.
         const inset = SPIDER_CORNER_INSET_IN * U;
         const xs = [box.leftX + inset, box.leftX + box.widthU - inset];
         const ys = [box.topY + inset, box.topY + box.heightU - inset];
-        for (const x of xs) for (const y of ys) shapes.push(hardware(box.id, 'spider', x, y, 'Spider Bolt'));
+        for (const x of xs) for (const y of ys) shapes.push(hardware(box.id, 'spigot', x, y, resolver));
     } else if (style === 'standoff') {
-        // Standoff-fixed: a row of standoffs near the bottom edge.
         const count = Math.max(2, Math.round(widthIn / 24));
         for (const xU of evenPositions(count, box.leftX, box.widthU, RAIL_END_INSET_IN * U)) {
-            shapes.push(hardware(box.id, 'standoff', xU, box.topY + box.heightU - 4 * U, 'Standoff'));
+            shapes.push(hardware(box.id, 'spigot', xU, box.topY + box.heightU - 4 * U, resolver));
         }
     } else {
-        // U-channel top & bottom (or clamps) -- no glass holes.
-        shapes.push(hardware(box.id, 'channel', box.leftX + box.widthU / 2, box.topY + 9, 'Top U-Channel'));
-        shapes.push(hardware(box.id, 'channel', box.leftX + box.widthU / 2, box.topY + box.heightU - 9, 'Bottom U-Channel'));
+        shapes.push(hardware(box.id, 'connector', box.leftX + box.widthU / 2, box.topY + 9, resolver));
+        shapes.push(hardware(box.id, 'connector', box.leftX + box.widthU / 2, box.topY + box.heightU - 9, resolver));
     }
 
     return { name, type: pieceType, thickness, quantity: 1, shapes };
 }
 
-function buildSlidingDoorPiece(name: string, input: GlassSystemInput, originX: number): Omit<GlassPiece, 'id'> {
+function buildSlidingDoorPiece(name: string, input: GlassSystemInput, originX: number, resolver: FittingResolver): Omit<GlassPiece, 'id'> {
     const { widthIn, heightIn, thickness } = input;
     const { shape, box } = rectPanel(widthIn, heightIn, originX);
     const shapes: KonvaShape[] = [shape];
 
-    // Top-hung: two roller brackets near the top corners.
     for (const xU of evenPositions(2, box.leftX, box.widthU, RAIL_END_INSET_IN * U)) {
-        shapes.push(hardware(box.id, 'roller', xU, box.topY + 3 * U, 'Roller Bracket'));
+        shapes.push(hardware(box.id, 'sliding_kit', xU, box.topY + 3 * U, resolver));
+    }
+    if (input.hasLock) {
+        const leadX = (input.hingeSide ?? 'left') === 'left' ? box.leftX + box.widthU - 6 : box.leftX + 6;
+        shapes.push(hardware(box.id, 'sliding_lock', leadX, box.topY + box.heightU / 2, resolver));
     }
     if (input.hasHandle) {
-        const handleCenterY = box.topY + box.heightU - HANDLE_HEIGHT_IN * U;
-        const clampedHandleY = Math.max(box.topY + 40, Math.min(box.topY + box.heightU - 40, handleCenterY));
+        const by = box.topY + box.heightU;
+        const cy = Math.max(box.topY + 40, Math.min(by - 40, by - HANDLE_HEIGHT_IN * U));
         const leadX = (input.hingeSide ?? 'left') === 'left' ? box.leftX + box.widthU - 6 : box.leftX + 6;
-        shapes.push(hardware(box.id, 'handle', leadX, clampedHandleY, 'Sliding Handle'));
+        shapes.push(hardware(box.id, 'handle', leadX, cy, resolver));
     }
 
     return { name, type: 'Sliding Door', thickness, quantity: 1, shapes };
 }
 
-function buildRailingPiece(name: string, input: GlassSystemInput, originX: number): Omit<GlassPiece, 'id'> {
+function buildRailingPiece(name: string, input: GlassSystemInput, originX: number, resolver: FittingResolver): Omit<GlassPiece, 'id'> {
     const { widthIn, heightIn, thickness } = input;
     const { shape, box } = rectPanel(widthIn, heightIn, originX);
     const shapes: KonvaShape[] = [shape];
     const style = input.fixingStyle ?? 'channel';
 
     if (style === 'standoff' || style === 'spider') {
-        // Standoff-fixed railing: a row of standoffs near the bottom edge.
         const count = Math.max(2, Math.round(widthIn / 18));
         for (const xU of evenPositions(count, box.leftX, box.widthU, RAIL_END_INSET_IN * U)) {
-            shapes.push(hardware(box.id, 'standoff', xU, box.topY + box.heightU - 3 * U, 'Standoff'));
+            shapes.push(hardware(box.id, 'spigot', xU, box.topY + box.heightU - 3 * U, resolver));
         }
     } else {
-        // Base-channel railing: continuous channel along the bottom, no holes.
-        shapes.push(hardware(box.id, 'channel', box.leftX + box.widthU / 2, box.topY + box.heightU - 9, 'Base Channel'));
+        shapes.push(hardware(box.id, 'connector', box.leftX + box.widthU / 2, box.topY + box.heightU - 9, resolver));
     }
 
     return { name, type: 'Railing', thickness, quantity: 1, shapes };
 }
 
-// Main entry point: system type + params -> ready-to-render, ready-to-price
-// GlassPiece pieces (without ids, matching GlassDesigner's preset convention).
-export function generateGlassSystem(input: GlassSystemInput): Array<Omit<GlassPiece, 'id'>> {
+// Main entry point. Pass the shop's hardware catalogue (or the full item
+// list -- non-hardware items are ignored) so each fitting is the real
+// stocked one; omit it and every role falls back to built-in defaults.
+export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem[] = []): Array<Omit<GlassPiece, 'id'>> {
+    const resolver = buildResolver(fittings);
     const pieces: Array<Omit<GlassPiece, 'id'>> = [];
     let originX = ORIGIN_X;
 
@@ -273,25 +263,25 @@ export function generateGlassSystem(input: GlassSystemInput): Array<Omit<GlassPi
 
     switch (input.systemType) {
         case 'swing_door':
-            advance(buildDoorPiece('Glass Door', input, originX));
+            advance(buildDoorPiece('Glass Door', input, originX, resolver));
             break;
         case 'shower_door':
-            advance(buildDoorPiece('Shower Door', input, originX));
+            advance(buildDoorPiece('Shower Door', input, originX, resolver));
             if (input.fixedPanelWidthIn && input.fixedPanelWidthIn > 0) {
-                advance(buildFixedPanelPiece('Shower Fixed Panel', { ...input, widthIn: input.fixedPanelWidthIn }, originX, 'Partition'));
+                advance(buildFixedPanelPiece('Shower Fixed Panel', { ...input, widthIn: input.fixedPanelWidthIn }, originX, resolver, 'Partition'));
             }
             break;
         case 'fixed_panel':
-            advance(buildFixedPanelPiece('Fixed Panel', input, originX));
+            advance(buildFixedPanelPiece('Fixed Panel', input, originX, resolver));
             break;
         case 'sliding_door':
-            advance(buildSlidingDoorPiece('Sliding Door', input, originX));
+            advance(buildSlidingDoorPiece('Sliding Door', input, originX, resolver));
             if (input.fixedPanelWidthIn && input.fixedPanelWidthIn > 0) {
-                advance(buildFixedPanelPiece('Fixed Panel', { ...input, widthIn: input.fixedPanelWidthIn }, originX, 'Partition'));
+                advance(buildFixedPanelPiece('Fixed Panel', { ...input, widthIn: input.fixedPanelWidthIn }, originX, resolver, 'Partition'));
             }
             break;
         case 'railing':
-            advance(buildRailingPiece('Glass Railing', input, originX));
+            advance(buildRailingPiece('Glass Railing', input, originX, resolver));
             break;
     }
 
@@ -299,10 +289,9 @@ export function generateGlassSystem(input: GlassSystemInput): Array<Omit<GlassPi
 }
 
 // Human-readable summary of what a system will generate, for a confirmation
-// line in the UI / a WhatsApp reply ("Generating: Shower Door 30x72 12mm --
-// 2 hinges, 1 knob").
-export function describeGlassSystem(input: GlassSystemInput): string {
-    const pieces = generateGlassSystem(input);
+// line in the UI or a WhatsApp reply.
+export function describeGlassSystem(input: GlassSystemInput, fittings: GlassItem[] = []): string {
+    const pieces = generateGlassSystem(input, fittings);
     const hardwareCounts = new Map<string, number>();
     let holes = 0, cuts = 0;
     for (const piece of pieces) {
