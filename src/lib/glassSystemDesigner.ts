@@ -58,7 +58,11 @@ export type GlassSystemType =
     | 'office_partition_3pc'
     | 'door_with_transom'
     | 'double_door_transom_sidelites_4pc'
-    | 'balustrade_spigots';
+    | 'balustrade_spigots'
+    | 'sliding_4pc_patio'
+    | 'spider_facade_4pc'
+    | 'balustrade_spigots_3pc'
+    | 'double_swing_transom_3pc';
 
 export interface GlassSystemInput {
     systemType: GlassSystemType;
@@ -400,6 +404,44 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
             advance(buildRailingPiece('Spigot Glass Balustrade Panel', { ...input, fixingStyle: 'standoff' }, originX, resolver));
             break;
         }
+        case 'sliding_4pc_patio': {
+            const fixedW = input.fixedPanelWidthIn || 36;
+            advance(buildFixedPanelPiece('Left Fixed Patio Glass', { ...input, widthIn: fixedW }, originX, resolver, 'Partition'));
+            advance(buildSlidingDoorPiece('Left Sliding Patio Door', input, originX, resolver));
+            advance(buildSlidingDoorPiece('Right Sliding Patio Door', input, originX, resolver));
+            advance(buildFixedPanelPiece('Right Fixed Patio Glass', { ...input, widthIn: fixedW }, originX, resolver, 'Partition'));
+            break;
+        }
+        case 'spider_facade_4pc': {
+            const panelW = input.widthIn || 48;
+            advance(buildFixedPanelPiece('Facade Panel 1 (Left Outer)', { ...input, widthIn: panelW, fixingStyle: 'spider' }, originX, resolver, 'Structural Glass'));
+            advance(buildFixedPanelPiece('Facade Panel 2 (Left Center)', { ...input, widthIn: panelW, fixingStyle: 'spider' }, originX, resolver, 'Structural Glass'));
+            advance(buildFixedPanelPiece('Facade Panel 3 (Right Center)', { ...input, widthIn: panelW, fixingStyle: 'spider' }, originX, resolver, 'Structural Glass'));
+            advance(buildFixedPanelPiece('Facade Panel 4 (Right Outer)', { ...input, widthIn: panelW, fixingStyle: 'spider' }, originX, resolver, 'Structural Glass'));
+            break;
+        }
+        case 'balustrade_spigots_3pc': {
+            const panelW = input.widthIn || 48;
+            advance(buildRailingPiece('Balustrade Glass Panel 1', { ...input, widthIn: panelW, fixingStyle: 'standoff' }, originX, resolver));
+            advance(buildRailingPiece('Balustrade Glass Panel 2', { ...input, widthIn: panelW, fixingStyle: 'standoff' }, originX, resolver));
+            advance(buildRailingPiece('Balustrade Glass Panel 3', { ...input, widthIn: panelW, fixingStyle: 'standoff' }, originX, resolver));
+            break;
+        }
+        case 'double_swing_transom_3pc': {
+            const startX = originX;
+            const transomH = input.transomHeightIn || 18;
+            advance(buildDoorPiece('Left Double Entrance Door', { ...input, hingeSide: 'left', pivotStyle: 'patch', hasLock: true }, originX, resolver));
+            advance(buildDoorPiece('Right Double Entrance Door', { ...input, hingeSide: 'right', pivotStyle: 'patch', hasLock: true }, originX, resolver));
+            
+            const totalWidthIn = (input.widthIn || 36) * 2;
+            const transomPiece = buildFixedPanelPiece('Double Entrance Transom Glass', { ...input, widthIn: totalWidthIn, heightIn: transomH }, startX, resolver, 'Transom');
+            const transomHeightU = transomH * U;
+            transomPiece.shapes.forEach(s => {
+                s.y = s.y - transomHeightU - 2;
+            });
+            pieces.push(transomPiece);
+            break;
+        }
     }
 
     return pieces;
@@ -453,6 +495,52 @@ export function buildGlassSystemDesignData(input: GlassSystemInput, fittings: Gl
         } as DesignItem;
     });
 
+    // Collect all hardware fittings from generated pieces and append them as 'Hardware' items in items
+    const hardwareMap = new Map<string, { id: string; name: string; type: 'Hardware'; quantity: number; rate: number; holes: number; cuts: number }>();
+    generated.forEach(piece => {
+        const qty = piece.quantity || 1;
+        piece.shapes.forEach(shape => {
+            if (shape.type === 'accessory') {
+                const name = shape.accessoryName || shape.accessoryType || 'Hardware Fitting';
+                const key = shape.hardwareItemId || name;
+                const rate = Number(shape.accessoryRate) || 0;
+                const holes = Number(shape.accessoryHoleCount) || 0;
+                const cuts = Number(shape.accessoryCutCount) || 0;
+                const existing = hardwareMap.get(key);
+                if (existing) {
+                    existing.quantity += qty;
+                } else {
+                    hardwareMap.set(key, {
+                        id: key,
+                        name,
+                        type: 'Hardware',
+                        quantity: qty,
+                        rate,
+                        holes,
+                        cuts
+                    });
+                }
+            }
+        });
+    });
+
+    const hardwareItems: DesignItem[] = Array.from(hardwareMap.values()).map(hw => ({
+        id: generateUUID(),
+        name: hw.name,
+        type: 'Hardware',
+        thickness: 0,
+        shapes: [],
+        area: 0,
+        cost: hw.rate * hw.quantity,
+        netArea: 0,
+        holes: hw.holes * hw.quantity,
+        cuts: hw.cuts * hw.quantity,
+        quantity: hw.quantity,
+        rate: hw.rate
+    } as any));
+
+    const allItems = [...items, ...hardwareItems];
+
     const totalArea = Math.round(items.reduce((sum, item) => sum + item.area, 0) * 100) / 100;
     const holes = generated.reduce((sum, p) => sum + p.shapes.reduce((s, sh) => s + (Number(sh.accessoryHoleCount) || 0), 0), 0);
     const cuts = generated.reduce((sum, p) => sum + p.shapes.reduce((s, sh) => s + (Number(sh.accessoryCutCount) || 0), 0), 0);
@@ -463,11 +551,11 @@ export function buildGlassSystemDesignData(input: GlassSystemInput, fittings: Gl
         holes: [],
         cuts: [],
         notes: `Auto-generated ${input.systemType.replace('_', ' ')} -- ${input.widthIn}in x ${input.heightIn}in, ${input.thickness}mm. Hardware placed at standard positions from your fitting catalogue; review and adjust before production.`,
-        items,
+        items: allItems,
         pieces: generated.map(piece => ({ id: generateUUID(), ...piece, source: 'system-designer' })),
     };
 
-    return { drawingData, totalArea, grossArea: totalArea, holes, cuts, items };
+    return { drawingData, totalArea, grossArea: totalArea, holes, cuts, items: allItems };
 }
 
 // Human-readable summary of what a system will generate, for a confirmation

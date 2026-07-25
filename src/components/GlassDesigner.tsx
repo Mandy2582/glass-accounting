@@ -1635,13 +1635,59 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
             };
         });
 
+        // Collect hardware accessories as line items with rates for estimate & order pricing
+        const hardwareMap = new Map<string, { id: string; name: string; type: 'Hardware'; quantity: number; rate: number; holes: number; cuts: number }>();
+        pieces.forEach(p => {
+            const qty = p.quantity || 1;
+            p.shapes.forEach(s => {
+                if (s.type === 'accessory') {
+                    const name = s.accessoryName || s.accessoryType || 'Hardware Fitting';
+                    const key = s.hardwareItemId || name;
+                    const rate = Number(s.accessoryRate) || 0;
+                    const holes = Number(s.accessoryHoleCount) || 0;
+                    const cuts = Number(s.accessoryCutCount) || 0;
+                    const existing = hardwareMap.get(key);
+                    if (existing) {
+                        existing.quantity += qty;
+                    } else {
+                        hardwareMap.set(key, {
+                            id: key,
+                            name,
+                            type: 'Hardware',
+                            quantity: qty,
+                            rate,
+                            holes,
+                            cuts
+                        });
+                    }
+                }
+            });
+        });
+
+        const hardwareItems = Array.from(hardwareMap.values()).map(hw => ({
+            id: hw.id,
+            name: hw.name,
+            type: 'Hardware',
+            quantity: hw.quantity,
+            rate: hw.rate,
+            amount: hw.rate * hw.quantity,
+            cost: hw.rate * hw.quantity,
+            holes: hw.holes * hw.quantity,
+            cuts: hw.cuts * hw.quantity,
+            netArea: 0,
+            grossArea: 0
+        }));
+
+        const finalMappedItems = [...mappedItems, ...hardwareItems];
+
         if (onAreaChange) onAreaChange(totalGrossSqFt, totalNetSqFt);
-        if (onItemsChange) onItemsChange(mappedItems);
+        if (onItemsChange) onItemsChange(finalMappedItems);
         if (onDesignChange) {
             onDesignChange({
                 pieces,
                 holes: globalHoleCount,
                 cuts: globalCutCount,
+                items: finalMappedItems
             });
         }
     }, [pieces]);
@@ -3888,17 +3934,21 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                         <optgroup label="Commercial & Interior Doors">
                                             <option value="swing_door">Single Swing / Pivot Glass Door</option>
                                             <option value="patch_double_door">Double Patch-Fitting Doors</option>
+                                            <option value="double_swing_transom_3pc">Double Swing Door with Transom (3-Piece)</option>
                                             <option value="door_with_transom">Swing Door with Overpanel Transom</option>
                                             <option value="office_partition_3pc">Office Glass Partition (3-Piece Modular)</option>
                                             <option value="double_door_transom_sidelites_4pc">Entrance System (Double Door + Transom + Sidelites)</option>
                                             <option value="top_hung_sliding">Top-Hung Barn Slider Door</option>
                                             <option value="sliding_door">Sliding Door with Fixed Panel</option>
+                                            <option value="sliding_4pc_patio">4-Panel Folding/Patio Sliding System</option>
                                         </optgroup>
                                         <optgroup label="Structural & Balustrades">
                                             <option value="fixed_panel">Standard Fixed Partition Panel</option>
-                                            <option value="spider_facade">Spider Structural Glass Facade (4-Point)</option>
+                                            <option value="spider_facade">Spider Structural Glass Facade (Single Panel)</option>
+                                            <option value="spider_facade_4pc">4-Panel Structural Spider Glass Curtain Wall</option>
                                             <option value="railing">Glass Balustrade (Base Channel)</option>
-                                            <option value="balustrade_spigots">Spigot Glass Balustrade (Core Drill / Base Plate)</option>
+                                            <option value="balustrade_spigots">Spigot Glass Balustrade (Single Panel)</option>
+                                            <option value="balustrade_spigots_3pc">3-Panel Glass Balustrade (Heavy Duty Spigots)</option>
                                         </optgroup>
                                     </select>
                             </div>

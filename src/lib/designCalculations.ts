@@ -200,20 +200,28 @@ export function calculateDesignEstimate(input: DesignEstimateInput): {
         let totalComplexityCharge = 0;
 
         designItems.forEach(item => {
-            const itemCost = calculateCost(
-                item.netArea || item.area || 0,
-                item.holes || 0,
-                item.cuts || 0,
-                input.complexity,
-                item.thickness || input.thickness || 6,
-                input.pricingConfig,
-                false
-            );
-            subtotal += itemCost.total;
-            totalBaseAmount += itemCost.baseAmount;
-            totalHoleCharges += itemCost.holeCharges;
-            totalCutCharges += itemCost.cutCharges;
-            totalComplexityCharge += itemCost.complexityCharge;
+            if (item.type === 'Hardware') {
+                const qty = Number(item.quantity) || 1;
+                const rate = Number((item as any).rate) || Number((item as any).cost) || 0;
+                const hwTotal = rate * qty;
+                subtotal += hwTotal;
+                totalBaseAmount += hwTotal;
+            } else {
+                const itemCost = calculateCost(
+                    item.netArea || item.area || 0,
+                    item.holes || 0,
+                    item.cuts || 0,
+                    input.complexity,
+                    item.thickness || input.thickness || 6,
+                    input.pricingConfig,
+                    false
+                );
+                subtotal += itemCost.total;
+                totalBaseAmount += itemCost.baseAmount;
+                totalHoleCharges += itemCost.holeCharges;
+                totalCutCharges += itemCost.cutCharges;
+                totalComplexityCharge += itemCost.complexityCharge;
+            }
         });
 
         return {
