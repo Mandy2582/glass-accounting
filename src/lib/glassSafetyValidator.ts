@@ -30,6 +30,14 @@ export interface GlassSafetyAnalysis {
 /**
  * Validates a list of glass pieces against structural safety and fabrication rules.
  */
+// Canvas coordinates are stored at 10 units per inch (see
+// GlassDesigner.createRectShape / glassSystemDesigner U=10), so 1 canvas
+// unit = 0.1 inch = 2.54 mm. All the engineering rules below are in mm, so
+// every canvas measurement is converted through this first -- otherwise
+// panel area/weight come out ~100x too large (a normal door reading as
+// thousands of kg and firing false "over capacity" alarms).
+const MM_PER_UNIT = 2.54;
+
 export function validateGlassSafety(pieces: GlassPiece[]): GlassSafetyAnalysis {
     const violations: SafetyViolation[] = [];
     const pieceWeights: { pieceId: string; weightKg: number; areaSqFt: number }[] = [];
@@ -39,15 +47,15 @@ export function validateGlassSafety(pieces: GlassPiece[]): GlassSafetyAnalysis {
         const rectShape = piece.shapes.find(s => s.type === 'glass_rect');
         if (!rectShape) return;
 
-        const panelWidth = rectShape.width || 0;
-        const panelHeight = rectShape.height || 0;
-        const x0 = rectShape.x || 0;
-        const y0 = rectShape.y || 0;
+        // Panel outline in mm (converted from canvas units).
+        const panelWidthMm = (rectShape.width || 0) * MM_PER_UNIT;
+        const panelHeightMm = (rectShape.height || 0) * MM_PER_UNIT;
+        const x0Mm = (rectShape.x || 0) * MM_PER_UNIT;
+        const y0Mm = (rectShape.y || 0) * MM_PER_UNIT;
 
         // 1. Calculate Panel Area & Weight (Glass density ~2.5 kg per m² per mm thickness)
-        const areaSqIn = panelWidth * panelHeight;
-        const areaSqFt = areaSqIn / 144;
-        const areaSqM = areaSqIn * 0.00064516;
+        const areaSqM = (panelWidthMm * panelHeightMm) / 1_000_000;
+        const areaSqFt = areaSqM * 10.7639;
         const weightKg = areaSqM * thickness * 2.5;
 
         pieceWeights.push({ pieceId: piece.id, weightKg: Math.round(weightKg * 10) / 10, areaSqFt: Math.round(areaSqFt * 100) / 100 });
@@ -67,32 +75,32 @@ export function validateGlassSafety(pieces: GlassPiece[]): GlassSafetyAnalysis {
 
         const holes = piece.shapes.filter(s => s.type === 'hole');
 
-        // 2. Validate Hole Diameter & Edge Clearances
+        // 2. Validate Hole Diameter & Edge Clearances (all in mm)
         holes.forEach(hole => {
-            const radius = hole.radius || 10; // in mm or px
-            const diameter = radius * 2;
-            const hx = hole.x;
-            const hy = hole.y;
+            const radiusMm = (hole.radius || 10) * MM_PER_UNIT;
+            const diameterMm = Math.round(radiusMm * 2);
+            const hxMm = hole.x * MM_PER_UNIT;
+            const hyMm = hole.y * MM_PER_UNIT;
 
             // Rule A: Minimum Hole Diameter >= Glass Thickness
-            if (diameter < thickness) {
+            if (diameterMm < thickness) {
                 violations.push({
                     pieceId: piece.id,
                     pieceName: piece.name,
                     shapeId: hole.id,
                     rule: 'HOLE_DIAMETER',
                     severity: 'critical',
-                    message: `Hole diameter (${diameter}mm) is smaller than glass thickness (${thickness}mm). Risk of glass cracking during tempering.`,
-                    details: { actual: diameter, required: thickness, unit: 'mm' }
+                    message: `Hole diameter (${diameterMm}mm) is smaller than glass thickness (${thickness}mm). Risk of glass cracking during tempering.`,
+                    details: { actual: diameterMm, required: thickness, unit: 'mm' }
                 });
             }
 
             // Rule B: Minimum Distance from Hole Edge to Glass Panel Edge (>= 2.5 * thickness)
             const minEdgeDist = 2.5 * thickness;
-            const distLeft = hx - x0 - radius;
-            const distRight = x0 + panelWidth - hx - radius;
-            const distTop = hy - y0 - radius;
-            const distBottom = y0 + panelHeight - hy - radius;
+            const distLeft = hxMm - x0Mm - radiusMm;
+            const distRight = x0Mm + panelWidthMm - hxMm - radiusMm;
+            const distTop = hyMm - y0Mm - radiusMm;
+            const distBottom = y0Mm + panelHeightMm - hyMm - radiusMm;
 
             const actualMinEdge = Math.min(distLeft, distRight, distTop, distBottom);
 
@@ -109,18 +117,18 @@ export function validateGlassSafety(pieces: GlassPiece[]): GlassSafetyAnalysis {
             }
         });
 
-        // 3. Validate Hole-to-Hole Distance (>= 2.0 * thickness or 30mm)
+        // 3. Validate Hole-to-Hole Distance (>= 2.0 * thickness or 30mm), in mm
         for (let i = 0; i < holes.length; i++) {
             for (let j = i + 1; j < holes.length; j++) {
                 const h1 = holes[i];
                 const h2 = holes[j];
-                const r1 = h1.radius || 10;
-                const r2 = h2.radius || 10;
+                const r1Mm = (h1.radius || 10) * MM_PER_UNIT;
+                const r2Mm = (h2.radius || 10) * MM_PER_UNIT;
 
-                const dx = h1.x - h2.x;
-                const dy = h1.y - h2.y;
-                const centerDist = Math.sqrt(dx * dx + dy * dy);
-                const edgeToEdgeDist = centerDist - r1 - r2;
+                const dxMm = (h1.x - h2.x) * MM_PER_UNIT;
+                const dyMm = (h1.y - h2.y) * MM_PER_UNIT;
+                const centerDist = Math.sqrt(dxMm * dxMm + dyMm * dyMm);
+                const edgeToEdgeDist = centerDist - r1Mm - r2Mm;
 
                 const minHoleSpacing = Math.max(2.0 * thickness, 30);
 
