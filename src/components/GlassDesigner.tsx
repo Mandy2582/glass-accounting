@@ -2553,7 +2553,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
         }
     };
 
-    if (!activePiece) return <div>Loading designer...</div>;
+
 
     const stageViewportHeight = STAGE_VIEWPORT_HEIGHT;
     const { width: stageLogicalWidth, height: stageLogicalHeight } = getStageLogicalSize(drawingScale, stageViewportWidth);
