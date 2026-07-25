@@ -1635,19 +1635,19 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
 
 
     const updateShape = (shapeId: string, updates: Partial<KonvaShape>) => {
-        if (!activePiece) return;
         const touchesGeometry = (['x', 'y', 'width', 'height', 'radius'] as const).some(key => key in updates);
-        const newShapes = activePiece.shapes.map(s => {
-            if (s.id !== shapeId) return s;
-            const merged = { ...s, ...updates };
-            // Staff has now positioned this hole/cut manually -- trust it
-            // going forward instead of still flagging it for review.
-            if (touchesGeometry && s.positionSource === 'estimated-fallback') {
-                merged.positionSource = undefined;
-            }
-            return merged;
-        });
-        updateActivePiece({ shapes: newShapes });
+        setPieces(pieces.map(piece => {
+            if (!piece.shapes.some(s => s.id === shapeId)) return piece;
+            const newShapes = piece.shapes.map(s => {
+                if (s.id !== shapeId) return s;
+                const merged = { ...s, ...updates };
+                if (touchesGeometry && s.positionSource === 'estimated-fallback') {
+                    merged.positionSource = undefined;
+                }
+                return merged;
+            });
+            return { ...piece, shapes: newShapes };
+        }));
     };
 
     const handleShapeClick = (shapeId: string, evt: any) => {
@@ -2569,102 +2569,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                 </button>
             </div>
 
-            <div className="designer-workspace">
-                <aside className="designer-side-panel">
-                <section className="designer-photo-import">
-                    <div className="designer-photo-import-header">
-                        <div>
-                            <h3 style={{ margin: 0, fontSize: '0.9rem' }}>Bulk From Photos</h3>
-                        </div>
-                        <label className="btn btn-secondary designer-upload-button">
-                            <Upload size={16} /> Upload photos
-                            <input
-                                type="file"
-                                accept="image/*"
-                                multiple
-                                style={{ display: 'none' }}
-                                onChange={(e) => {
-                                    handlePhotoUpload(e.target.files);
-                                    e.target.value = '';
-                                }}
-                            />
-                        </label>
-                    </div>
-
-                    {photoDrafts.length === 0 ? (
-                        <div className="designer-photo-empty">
-                            <Images size={18} />
-                            <span>No photos added</span>
-                        </div>
-                    ) : (
-                        <>
-                            <div className="designer-photo-grid">
-                                {photoDrafts.map(draft => (
-                                    <div className="designer-photo-card" key={draft.id}>
-                                        <img src={draft.previewUrl} alt={draft.fileName} />
-                                        <div className="designer-photo-fields">
-                                            <input
-                                                className="input"
-                                                value={draft.pieceName}
-                                                placeholder="Piece name"
-                                                onChange={e => updatePhotoDraft(draft.id, { pieceName: e.target.value })}
-                                            />
-                                            <div className="designer-photo-field-row">
-                                                <input
-                                                    className="input"
-                                                    value={draft.width}
-                                                    placeholder="Width inches"
-                                                    onChange={e => updatePhotoDraft(draft.id, { width: e.target.value })}
-                                                />
-                                                <input
-                                                    className="input"
-                                                    value={draft.height}
-                                                    placeholder="Height inches"
-                                                    onChange={e => updatePhotoDraft(draft.id, { height: e.target.value })}
-                                                />
-                                            </div>
-                                            <div className="designer-photo-field-row">
-                                                <select
-                                                    className="input"
-                                                    value={draft.type}
-                                                    onChange={e => updatePhotoDraft(draft.id, { type: e.target.value })}
-                                                >
-                                                    <option value="Window">Window</option>
-                                                    <option value="Door">Door</option>
-                                                    <option value="Partition">Partition</option>
-                                                    <option value="Table Top">Table Top</option>
-                                                    <option value="Shelf">Shelf</option>
-                                                </select>
-                                                <select
-                                                    className="input"
-                                                    value={draft.thickness}
-                                                    onChange={e => updatePhotoDraft(draft.id, { thickness: Number(e.target.value) })}
-                                                >
-                                                    <option value={4}>4mm</option>
-                                                    <option value={5}>5mm</option>
-                                                    <option value={6}>6mm</option>
-                                                    <option value={8}>8mm</option>
-                                                    <option value={10}>10mm</option>
-                                                    <option value={12}>12mm</option>
-                                                </select>
-                                            </div>
-                                            <button type="button" className="btn btn-secondary" onClick={() => removePhotoDraft(draft.id)}>
-                                                <Trash2 size={14} /> Remove
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                            <div className="designer-photo-actions">
-                                <button type="button" className="btn btn-primary" onClick={createPiecesFromPhotos}>
-                                    <Plus size={16} /> Create drawings from photos
-                                </button>
-                                <span>{photoDrafts.length} uploaded photo{photoDrafts.length === 1 ? '' : 's'}</span>
-                            </div>
-                        </>
-                    )}
-                </section>
-
+            <div className="designer-workspace" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%' }}>
                 {/* Mode Switcher Header Bar */}
                 <div style={{
                     display: 'flex',
@@ -2674,8 +2579,8 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                     padding: '0.65rem 1rem',
                     borderRadius: '8px',
                     color: '#f8fafc',
-                    marginBottom: '0.5rem',
-                    boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'
+                    boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
+                    width: '100%'
                 }}>
                     <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
                         <h2 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: '#38bdf8', marginRight: '1rem' }}>
@@ -2713,293 +2618,119 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                         </button>
                     </div>
 
-                    <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 600, marginRight: '0.2rem' }}>Quick Presets:</span>
-                        <button
-                            type="button"
-                            className="btn"
-                            style={{ background: '#1e293b', color: '#38bdf8', border: '1px solid #334155', fontSize: '0.72rem', padding: '0.25rem 0.5rem', fontWeight: 600 }}
-                            onClick={() => { setSystemInput(s => ({ ...s, systemType: 'shower_door' })); setShowSystemModal(true); }}
+                    {/* Controls Row: Shapes, Hardware, Thickness, Exports */}
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 600 }}>Thickness:</span>
+                        <select
+                            className="input"
+                            style={{ background: '#1e293b', color: '#f8fafc', border: '1px solid #334155', fontSize: '0.75rem', padding: '0.25rem 0.5rem', width: 'auto' }}
+                            value={activePiece.thickness}
+                            onChange={e => updateActivePiece({ thickness: Number(e.target.value) })}
                         >
-                            🚿 Shower
-                        </button>
-                        <button
-                            type="button"
-                            className="btn"
-                            style={{ background: '#1e293b', color: '#38bdf8', border: '1px solid #334155', fontSize: '0.72rem', padding: '0.25rem 0.5rem', fontWeight: 600 }}
-                            onClick={() => { setSystemInput(s => ({ ...s, systemType: 'swing_door' })); setShowSystemModal(true); }}
+                            <option value={4}>4mm</option>
+                            <option value={5}>5mm</option>
+                            <option value={6}>6mm</option>
+                            <option value={8}>8mm</option>
+                            <option value={10}>10mm</option>
+                            <option value={12}>12mm</option>
+                        </select>
+
+                        <select
+                            className="input"
+                            style={{ background: '#1e293b', color: '#38bdf8', border: '1px solid #334155', fontSize: '0.75rem', padding: '0.25rem 0.5rem', width: 'auto', fontWeight: 600 }}
+                            value=""
+                            onChange={(e) => {
+                                const shapeType = e.target.value;
+                                if (shapeType) addShape(shapeType as any);
+                                e.target.value = "";
+                            }}
                         >
-                            🚪 Entrance
-                        </button>
-                        <button
-                            type="button"
-                            className="btn"
-                            style={{ background: '#1e293b', color: '#38bdf8', border: '1px solid #334155', fontSize: '0.72rem', padding: '0.25rem 0.5rem', fontWeight: 600 }}
-                            onClick={() => { setSystemInput(s => ({ ...s, systemType: 'spider_facade' })); setShowSystemModal(true); }}
+                            <option value="" disabled>+ Add Shape...</option>
+                            <option value="glass_rect">Glass Panel (Rectangle)</option>
+                            <option value="glass_circle">Glass Circle</option>
+                            <option value="hole">Drill Hole</option>
+                            <option value="cut">Cutout Notch</option>
+                            <option value="glass_polygon">Irregular Polygon</option>
+                        </select>
+
+                        <select
+                            className="input"
+                            style={{ background: '#1e293b', color: '#a78bfa', border: '1px solid #334155', fontSize: '0.75rem', padding: '0.25rem 0.5rem', width: 'auto', fontWeight: 600 }}
+                            value=""
+                            onChange={(e) => {
+                                const val = e.target.value;
+                                if (!val) return;
+                                if (val === 'lock' || val === 'connector' || val === 'hinge' || val === 'profile') {
+                                    addAccessory(val);
+                                } else if (val.startsWith('hardware:')) {
+                                    const hardware = hardwareItems.find(item => item.id === val.replace('hardware:', ''));
+                                    if (hardware) addAccessory(inferAccessoryType(hardware), hardware);
+                                }
+                                e.target.value = "";
+                            }}
                         >
-                            🏬 Spider
-                        </button>
+                            <option value="" disabled>+ Place Hardware...</option>
+                            {hardwareItems.length > 0 && (
+                                <optgroup label="Catalogue hardware">
+                                    {hardwareItems.map(item => (
+                                        <option key={item.id} value={`hardware:${item.id}`}>
+                                            {item.name} (₹{Number(item.rate || 0).toFixed(2)})
+                                        </option>
+                                    ))}
+                                </optgroup>
+                            )}
+                            <optgroup label="Position Markers">
+                                <option value="lock">Lock Position</option>
+                                <option value="connector">Corner Connector</option>
+                                <option value="hinge">Hinge Position</option>
+                                <option value="profile">Profile/Channel</option>
+                            </optgroup>
+                        </select>
+
                         <button
                             type="button"
                             className="btn"
-                            style={{ background: '#0e7490', color: 'white', border: 'none', fontSize: '0.78rem', fontWeight: 600, padding: '0.35rem 0.75rem', marginLeft: '0.4rem' }}
+                            style={{ background: '#0e7490', color: 'white', border: 'none', fontSize: '0.75rem', fontWeight: 600, padding: '0.3rem 0.6rem' }}
                             onClick={() => setShowSystemModal(true)}
                         >
-                            🏗️ Parametric System Generator…
+                            🏗️ System Builder…
+                        </button>
+
+                        <button
+                            type="button"
+                            className="btn btn-secondary"
+                            style={{ fontSize: '0.75rem', padding: '0.3rem 0.5rem', background: '#0f172a', color: '#38bdf8', border: '1px solid #334155', fontWeight: 600 }}
+                            onClick={() => {
+                                const dxf = exportToDXF(pieces);
+                                downloadDXFFile(`${initialData?.name || 'glass_design'}_CAD.dxf`, dxf);
+                            }}
+                        >
+                            DXF
+                        </button>
+                        <button
+                            type="button"
+                            className="btn btn-secondary"
+                            style={{ fontSize: '0.75rem', padding: '0.3rem 0.5rem', background: '#0f172a', color: '#4ade80', border: '1px solid #334155', fontWeight: 600 }}
+                            onClick={() => {
+                                const svg = exportToSVG(pieces);
+                                downloadSVGFile(`${initialData?.name || 'glass_design'}_JobCard.svg`, svg);
+                            }}
+                        >
+                            SVG
+                        </button>
+                        <button
+                            type="button"
+                            className="btn btn-secondary"
+                            style={{ fontSize: '0.75rem', padding: '0.3rem 0.5rem', background: '#0f172a', color: '#f59e0b', border: '1px solid #334155', fontWeight: 600 }}
+                            onClick={() => setShowBOMModal(true)}
+                        >
+                            BOM
                         </button>
                     </div>
-                </div>
-
-                {/* Horizontal Toolbar / Menu */}
-                {activePiece && (
-                    <div className="designer-toolbar" style={{ 
-                        display: 'flex', 
-                        flexDirection: 'column', 
-                        gap: '0.38rem', 
-                        background: 'var(--color-bg)', 
-                        padding: '0.52rem', 
-                        borderRadius: '8px', 
-                        border: '1px solid var(--color-border)',
-                        boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
-                    }}>
-                        {/* Row 1: Piece Settings */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0.5rem', alignItems: 'end', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.35rem' }}>
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>Piece Name</label>
-                                <input type="text" className="input" style={{ width: '100%' }} value={activePiece.name} onChange={e => updateActivePiece({ name: e.target.value })} />
-                            </div>
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>Type</label>
-                                <select className="input" style={{ width: '100%' }} value={activePiece.type} onChange={e => updateActivePiece({ type: e.target.value })}>
-                                    <option value="Window">Window</option>
-                                    <option value="Door">Door</option>
-                                    <option value="Partition">Partition</option>
-                                    <option value="Table Top">Table Top</option>
-                                    <option value="Mirror">Mirror</option>
-                                    <option value="Shelf">Shelf</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>Thickness</label>
-                                <select className="input" style={{ width: '100%' }} value={activePiece.thickness} onChange={e => updateActivePiece({ thickness: Number(e.target.value) })}>
-                                    <option value={4}>4mm</option>
-                                    <option value={5}>5mm</option>
-                                    <option value={6}>6mm</option>
-                                    <option value={8}>8mm</option>
-                                    <option value={10}>10mm</option>
-                                    <option value={12}>12mm</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>Quantity</label>
-                                <input 
-                                    type="number" 
-                                    className="input" 
-                                    style={{ width: '100%' }}
-                                    min={1} 
-                                    value={activePiece.quantity !== undefined ? activePiece.quantity : ''} 
-                                    onChange={e => {
-                                        const val = e.target.value;
-                                        if (val === '') {
-                                            updateActivePiece({ quantity: '' as any });
-                                        } else {
-                                            const parsed = parseInt(val);
-                                            updateActivePiece({ quantity: isNaN(parsed) ? '' as any : parsed });
-                                        }
-                                    }} 
-                                    onBlur={() => {
-                                        if (!activePiece.quantity || activePiece.quantity < 1) {
-                                            updateActivePiece({ quantity: 1 });
-                                        }
-                                    }}
-                                />
-                            </div>
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>Glass System Generator</label>
-                                <button
-                                    type="button"
-                                    className="btn"
-                                    style={{ width: '100%', background: '#0e7490', color: 'white', border: 'none', fontWeight: 600, fontSize: '0.78rem' }}
-                                    onClick={() => setShowSystemModal(true)}
-                                >
-                                    🏗️ Generate Glass System…
-                                </button>
-                            </div>
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>Vector CAD Exports</label>
-                                <div style={{ display: 'flex', gap: '0.35rem' }}>
-                                    <button
-                                        type="button"
-                                        className="btn btn-secondary"
-                                        style={{ flex: 1, fontSize: '0.75rem', padding: '0.35rem 0.5rem', background: '#0f172a', color: '#38bdf8', border: '1px solid #1e293b', fontWeight: 600 }}
-                                        title="Export AutoCAD R12 DXF file for CNC glass cutting"
-                                        onClick={() => {
-                                            const dxf = exportToDXF(pieces);
-                                            downloadDXFFile(`${initialData?.name || 'glass_design'}_CAD.dxf`, dxf);
-                                        }}
-                                    >
-                                        DXF (CAD)
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="btn btn-secondary"
-                                        style={{ flex: 1, fontSize: '0.75rem', padding: '0.35rem 0.5rem', background: '#0f172a', color: '#4ade80', border: '1px solid #1e293b', fontWeight: 600 }}
-                                        title="Export SVG job card drawing with dimensions"
-                                        onClick={() => {
-                                            const svg = exportToSVG(pieces);
-                                            downloadSVGFile(`${initialData?.name || 'glass_design'}_JobCard.svg`, svg);
-                                        }}
-                                    >
-                                        SVG (Vector)
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="btn btn-secondary"
-                                        style={{ flex: 1, fontSize: '0.75rem', padding: '0.35rem 0.5rem', background: '#0f172a', color: '#f59e0b', border: '1px solid #1e293b', fontWeight: 600 }}
-                                        title="View Net Cutting Sizes, Deductions, and Hardware BOM"
-                                        onClick={() => setShowBOMModal(true)}
-                                    >
-                                        Factory BOM
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Structural Safety & Validation Banner */}
-                        {(() => {
-                            const safety = validateGlassSafety(pieces);
-                            if (safety.violations.length === 0) return null;
-                            return (
-                                <div style={{
-                                    marginTop: '0.65rem',
-                                    padding: '0.6rem 0.8rem',
-                                    background: '#fef2f2',
-                                    border: '1px solid #fca5a5',
-                                    borderRadius: '6px',
-                                    color: '#991b1b',
-                                    fontSize: '0.78rem'
-                                }}>
-                                    <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.2rem' }}>
-                                        <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#dc2626' }}></span>
-                                        Engineering Safety Violation ({safety.violations.length} issue{safety.violations.length > 1 ? 's' : ''})
-                                    </div>
-                                    <ul style={{ margin: 0, paddingLeft: '1.2rem', lineHeight: '1.35' }}>
-                                        {safety.violations.map((v, idx) => (
-                                            <li key={idx} style={{ marginBottom: '0.15rem' }}>
-                                                <strong>[{v.pieceName}]</strong> {v.message}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            );
-                        })()}
-
-                        {/* Row 2: Add Tools & Accessories */}
-                        <div style={{ 
-                            display: 'grid', 
-                            gridTemplateColumns: '1fr',
-                            gap: '0.65rem', 
-                            alignItems: 'flex-end', 
-                            borderBottom: selectedShapeId ? '1px solid var(--color-border)' : 'none', 
-                            paddingBottom: selectedShapeId ? '0.45rem' : '0' 
-                        }}>
-                            {/* Add Shapes Dropdown */}
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>Add Shapes</label>
-                                <select
-                                    className="input"
-                                    style={{ width: '100%' }}
-                                    value=""
-                                    onChange={(e) => {
-                                        const shapeType = e.target.value;
-                                        if (shapeType) {
-                                            addShape(shapeType as any);
-                                        }
-                                        e.target.value = ""; // Reset dropdown
-                                    }}
-                                >
-                                    <option value="" disabled>Select Shape to Add...</option>
-                                    <option value="glass_rect">Glass (Rectangle)</option>
-                                    <option value="glass_circle">Circle</option>
-                                    <option value="hole">Hole</option>
-                                    <option value="cut">Cut</option>
-                                    <option value="glass_polygon">Irregular Polygon (4 Sides)</option>
-                                    <option value="glass_parallelogram">Parallelogram</option>
-                                </select>
-                            </div>
-
-                            {/* Add Hardware Dropdown */}
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>Place Hardware</label>
-                                <select
-                                    className="input"
-                                    style={{ width: '100%' }}
-                                    value=""
-                                    onChange={(e) => {
-                                        const val = e.target.value;
-	                                        if (!val) return;
-	                                        if (val === 'lock' || val === 'connector' || val === 'hinge' || val === 'profile') {
-	                                            addAccessory(val);
-	                                        } else if (val.startsWith('hardware:')) {
-	                                            const hardware = hardwareItems.find(item => item.id === val.replace('hardware:', ''));
-	                                            if (hardware) {
-	                                                addAccessory(inferAccessoryType(hardware), hardware);
-	                                            }
-	                                        }
-	                                        e.target.value = ""; // Reset select
-	                                    }}
-	                                >
-	                                    <option value="" disabled>Choose catalogue hardware or marker...</option>
-		                                    {hardwareItems.length > 0 && (
-		                                        <optgroup label="Catalogue hardware">
-		                                            {hardwareItems.map(item => {
-                                                        const hardwareType = inferAccessoryType(item);
-                                                        const requirement = getHardwareRequirement(hardwareType, item);
-                                                        return (
-                                                            <option key={item.id} value={`hardware:${item.id}`}>
-                                                                {item.name}{item.make ? ` - ${item.make}` : ''}{item.model ? ` ${item.model}` : ''} - {requirement.label} (₹{Number(item.rate || 0).toFixed(2)})
-                                                            </option>
-                                                        );
-                                                    })}
-		                                        </optgroup>
-		                                    )}
-	                                    <optgroup label="Placement marker - choose catalogue later">
-	                                        <option value="lock">Lock position</option>
-	                                        <option value="connector">L-Connector position</option>
-	                                        <option value="hinge">Hinge position</option>
-	                                        <option value="profile">Profile/channel position</option>
-                                    </optgroup>
-                                </select>
-                            </div>
-                        </div>
-
-                        {activePiece.shapes.some(shape => shape.type === 'accessory') && (
-                            <div style={{
-                                display: 'flex',
-                                flexWrap: 'wrap',
-                                gap: '0.5rem',
-                                alignItems: 'center',
-                                padding: '0.65rem 0.75rem',
-                                borderRadius: '8px',
-                                background: 'rgba(245, 158, 11, 0.08)',
-                                border: '1px solid rgba(245, 158, 11, 0.18)'
-                            }}>
-                                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#92400e' }}>
-                                    Hardware positions:
-                                </span>
-	                                {activePiece.shapes
-	                                    .filter(shape => shape.type === 'accessory')
-                                        .map(shape => (
-	                                    <span key={shape.id} className="badge badge-warning" style={{ fontSize: '0.68rem' }}>
-	                                        {shape.accessoryName || shape.accessoryType || 'Hardware'} ({shape.accessoryRequirementLabel || 'holes/cuts'})
-	                                    </span>
-	                                ))}
-                            </div>
-                        )}
 
                         {/* Row 3: Edit Selected Shape (Contextual) */}
                         {selectedShapeIds.length > 0 && (() => {
-                            const shape = activePiece.shapes.find(s => s.id === selectedShapeId);
+                            const shape = pieces.flatMap(p => p.shapes).find(s => s.id === selectedShapeId);
                             if (!shape) return null;
                             return (
                                 <div style={{ 
@@ -3262,9 +2993,6 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                             );
                         })()}
                     </div>
-                )}
-                </aside>
-                <section className="designer-main-panel">
 
                 {/* Hidden Stages for PDF Export */}
                 <div style={{ position: 'absolute', top: -9999, left: -9999, visibility: 'hidden' }}>
@@ -3460,7 +3188,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                             ))}
 
                             {/* Render glass pieces (flat 2D) */}
-                            {activePiece.shapes.filter(s => s.type === 'glass_rect' || s.type === 'glass_circle' || s.type === 'glass_polygon' || s.type === 'glass_parallelogram').map((shape) => {
+                            {pieces.flatMap(p => p.shapes).filter(s => s.type === 'glass_rect' || s.type === 'glass_circle' || s.type === 'glass_polygon' || s.type === 'glass_parallelogram').map((shape) => {
                                 const isSelected = selectedShapeIds.includes(shape.id);
                                 const isRect = shape.type === 'glass_rect';
                                 const isCircle = shape.type === 'glass_circle';
@@ -3673,7 +3401,8 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                                     childOffsetsRef.current.forEach(child => {
                                                         updates[child.id] = { x: snapToOctalInch(nx + child.dx), y: snapToOctalInch(ny + child.dy), parentId: shape.id };
                                                     });
-                                                    updateActivePiece({ shapes: activePiece.shapes.map(s => updates[s.id] ? { ...s, ...updates[s.id] } : s) });
+                                                    const allShapes = pieces.flatMap(p => p.shapes);
+                                                    updateActivePiece({ shapes: allShapes.map(s => updates[s.id] ? { ...s, ...updates[s.id] } : s) });
                                                     childOffsetsRef.current = [];
                                                 }}
                                                 onTransform={(e: any) => {
@@ -3722,12 +3451,12 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                 return isCircle ? (
                                     <Group key={shape.id}><Circle {...baseProps} radius={shape.radius} />{renderCircleDimensions(shape, drawingScale)}</Group>
                                 ) : (
-                                    <Group key={shape.id}><Rect {...baseProps} width={shape.width} height={shape.height} />{renderRectDimensions(shape, drawingScale, !hasSiblingToTheRight(shape, activePiece.shapes))}</Group>
+                                    <Group key={shape.id}><Rect {...baseProps} width={shape.width} height={shape.height} />{renderRectDimensions(shape, drawingScale, !hasSiblingToTheRight(shape, pieces.flatMap(p => p.shapes)))}</Group>
                                 );
                             })}
 
                             {/* Render cuts and holes */}
-                            {activePiece.shapes.filter(s => s.type === 'hole' || s.type === 'cut').map((shape) => {
+                            {pieces.flatMap(p => p.shapes).filter(s => s.type === 'hole' || s.type === 'cut').map((shape) => {
                                 const isSelected = selectedShapeIds.includes(shape.id);
                                 const isCut = shape.type === 'cut';
                                 const needsReview = shape.positionSource === 'estimated-fallback';
@@ -3774,7 +3503,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                             })}
 
                             {/* Render accessories */}
-                            {activePiece.shapes.filter(s => s.type === 'accessory').map((shape) => {
+                            {pieces.flatMap(p => p.shapes).filter(s => s.type === 'accessory').map((shape) => {
                                 const isSelected = selectedShapeIds.includes(shape.id);
                                 return (
                                     <Group
@@ -3897,7 +3626,6 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                     </Stage>
                     )}
                 </div>
-                </section>
             </div>
 
             {showSystemModal && (
