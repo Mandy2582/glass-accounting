@@ -11,6 +11,9 @@ import { generateGlassSystem, describeGlassSystem, type GlassSystemInput, type G
 import { exportToDXF, downloadDXFFile } from '@/lib/dxfExporter';
 import { exportToSVG, downloadSVGFile } from '@/lib/svgExporter';
 import { validateGlassSafety, type SafetyViolation } from '@/lib/glassSafetyValidator';
+import { HARDWARE_CUTOUT_TEMPLATES } from '@/lib/fabricationSpecs';
+import { calculateGlassEngineering } from '@/lib/glassEngineeringCalculator';
+import { generateFactoryBOM } from '@/lib/glassBOMGenerator';
 
 // Dimension-line rendering offsets (renderRectDimensions/getPolygonSideDimensions/
 // getVertexAngleInfo below all divide these by the current drawingScale). Named
@@ -1103,6 +1106,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
 
     const [activePieceId, setActivePieceId] = useState<string>('');
     const [selectedShapeIds, setSelectedShapeIds] = useState<string[]>([]);
+    const [showBOMModal, setShowBOMModal] = useState<boolean>(false);
 
     const selectedShapeId = selectedShapeIds.length > 0 ? selectedShapeIds[selectedShapeIds.length - 1] : null;
     const setSelectedShapeId = (id: string | null) => {
@@ -2767,6 +2771,15 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                     >
                                         SVG (Vector)
                                     </button>
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary"
+                                        style={{ flex: 1, fontSize: '0.75rem', padding: '0.35rem 0.5rem', background: '#0f172a', color: '#f59e0b', border: '1px solid #1e293b', fontWeight: 600 }}
+                                        title="View Net Cutting Sizes, Deductions, and Hardware BOM"
+                                        onClick={() => setShowBOMModal(true)}
+                                    >
+                                        Factory BOM
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -3917,6 +3930,88 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                     </div>
                 </div>
             )}
+
+            {showBOMModal && (() => {
+                const bomReport = generateFactoryBOM(pieces, hardwareItems);
+                return (
+                    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+                        <div className="card" style={{ width: '100%', maxWidth: '680px', maxHeight: '90vh', overflowY: 'auto', padding: '1.4rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
+                                <h2 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }}>Factory Job Card & Bill of Materials (BOM)</h2>
+                                <button className="btn" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }} onClick={() => setShowBOMModal(false)}>✕</button>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.6rem', marginBottom: '1rem', background: '#f8fafc', padding: '0.8rem', borderRadius: '6px', fontSize: '0.8rem' }}>
+                                <div><strong>Net Glass Area:</strong> {bomReport.totalGlassAreaSqM} m² ({(bomReport.totalGlassAreaSqM * 10.7639).toFixed(1)} sqft)</div>
+                                <div><strong>Total Glass Weight:</strong> {bomReport.totalGlassWeightKg} kg</div>
+                                <div><strong>Edge Polishing:</strong> {bomReport.totalPolishingMeters} m</div>
+                            </div>
+
+                            <h3 style={{ fontSize: '0.9rem', fontWeight: 700, margin: '1rem 0 0.4rem', color: '#0369a1' }}>1. Glass Panel Net Cutting Sizes & Deductions</h3>
+                            <div style={{ overflowX: 'auto', marginBottom: '1rem' }}>
+                                <table style={{ width: '100%', fontSize: '0.78rem', borderCollapse: 'collapse', textAlign: 'left' }}>
+                                    <thead>
+                                        <tr style={{ background: '#e0f2fe', color: '#0369a1' }}>
+                                            <th style={{ padding: '0.4rem' }}>Panel Name</th>
+                                            <th style={{ padding: '0.4rem' }}>Thickness</th>
+                                            <th style={{ padding: '0.4rem' }}>Raw Size (mm)</th>
+                                            <th style={{ padding: '0.4rem' }}>Gaps (T/B/L/R)</th>
+                                            <th style={{ padding: '0.4rem' }}>Net Size (mm)</th>
+                                            <th style={{ padding: '0.4rem' }}>Holes/Cuts</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {bomReport.jobCards.map((card, i) => (
+                                            <tr key={i} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                                <td style={{ padding: '0.4rem', fontWeight: 600 }}>{card.pieceName}</td>
+                                                <td style={{ padding: '0.4rem' }}>{card.thicknessMm} mm</td>
+                                                <td style={{ padding: '0.4rem' }}>{card.rawWidthMm} × {card.rawHeightMm}</td>
+                                                <td style={{ padding: '0.4rem', color: '#64748b' }}>-{card.deductions.topGapMm}/-{card.deductions.bottomGapMm}/-{card.deductions.hingeSideGapMm}/-{card.deductions.lockSideGapMm} mm</td>
+                                                <td style={{ padding: '0.4rem', fontWeight: 700, color: '#166534' }}>{card.netWidthMm} × {card.netHeightMm}</td>
+                                                <td style={{ padding: '0.4rem' }}>{card.holesCount} h / {card.cutsCount} c</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <h3 style={{ fontSize: '0.9rem', fontWeight: 700, margin: '1rem 0 0.4rem', color: '#d97706' }}>2. Hardware Itemized Bill of Materials (BOM)</h3>
+                            {bomReport.hardwareBOM.length === 0 ? (
+                                <p style={{ fontSize: '0.8rem', color: '#94a3b8' }}>No hardware accessories attached yet.</p>
+                            ) : (
+                                <div style={{ overflowX: 'auto' }}>
+                                    <table style={{ width: '100%', fontSize: '0.78rem', borderCollapse: 'collapse', textAlign: 'left' }}>
+                                        <thead>
+                                            <tr style={{ background: '#fef3c7', color: '#92400e' }}>
+                                                <th style={{ padding: '0.4rem' }}>Item Description</th>
+                                                <th style={{ padding: '0.4rem' }}>Role</th>
+                                                <th style={{ padding: '0.4rem' }}>Qty</th>
+                                                <th style={{ padding: '0.4rem' }}>Rate (₹)</th>
+                                                <th style={{ padding: '0.4rem' }}>Amount (₹)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {bomReport.hardwareBOM.map((hw, i) => (
+                                                <tr key={i} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                                    <td style={{ padding: '0.4rem', fontWeight: 600 }}>{hw.name}</td>
+                                                    <td style={{ padding: '0.4rem', color: '#64748b' }}>{hw.role}</td>
+                                                    <td style={{ padding: '0.4rem' }}>{hw.quantity}</td>
+                                                    <td style={{ padding: '0.4rem' }}>₹{hw.estimatedRate}</td>
+                                                    <td style={{ padding: '0.4rem', fontWeight: 700 }}>₹{hw.totalAmount}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1.2rem' }}>
+                                <button className="btn btn-primary" onClick={() => setShowBOMModal(false)}>Close</button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
         </div>
     );
 }
