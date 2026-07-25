@@ -40,7 +40,17 @@ const ORIGIN_X = 100;
 const ORIGIN_Y = 80;
 const PIECE_GAP_U = 40; // gap between adjacent pieces on the shared canvas
 
-export type GlassSystemType = 'swing_door' | 'shower_door' | 'fixed_panel' | 'sliding_door' | 'railing';
+export type GlassSystemType =
+    | 'swing_door'
+    | 'shower_door'
+    | 'fixed_panel'
+    | 'sliding_door'
+    | 'railing'
+    | 'corner_shower_90'
+    | 'corner_shower_135'
+    | 'top_hung_sliding'
+    | 'spider_facade'
+    | 'patch_double_door';
 
 export interface GlassSystemInput {
     systemType: GlassSystemType;
@@ -286,6 +296,34 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
         case 'railing':
             advance(buildRailingPiece('Glass Railing', input, originX, resolver));
             break;
+        case 'corner_shower_90': {
+            advance(buildDoorPiece('Shower Door (90° Corner)', input, originX, resolver));
+            const returnWidth = input.fixedPanelWidthIn || 24;
+            advance(buildFixedPanelPiece('90° Return Glass Panel', { ...input, widthIn: returnWidth }, originX, resolver, 'Partition'));
+            break;
+        }
+        case 'corner_shower_135': {
+            advance(buildDoorPiece('Shower Door (135° Neo-Angle)', input, originX, resolver));
+            const returnWidth = input.fixedPanelWidthIn || 20;
+            advance(buildFixedPanelPiece('135° Fixed Panel A', { ...input, widthIn: returnWidth }, originX, resolver, 'Partition'));
+            advance(buildFixedPanelPiece('135° Fixed Panel B', { ...input, widthIn: returnWidth }, originX, resolver, 'Partition'));
+            break;
+        }
+        case 'top_hung_sliding': {
+            advance(buildSlidingDoorPiece('Top-Hung Barn Slider Door', input, originX, resolver));
+            const fixedW = input.fixedPanelWidthIn || input.widthIn;
+            advance(buildFixedPanelPiece('Sliding Fixed Track Panel', { ...input, widthIn: fixedW }, originX, resolver, 'Partition'));
+            break;
+        }
+        case 'spider_facade': {
+            advance(buildFixedPanelPiece('Spider Structural Facade Glass', { ...input, fixingStyle: 'spider' }, originX, resolver, 'Structural Glass'));
+            break;
+        }
+        case 'patch_double_door': {
+            advance(buildDoorPiece('Left Patch Glass Door', { ...input, hingeSide: 'left', pivotStyle: 'patch' }, originX, resolver));
+            advance(buildDoorPiece('Right Patch Glass Door', { ...input, hingeSide: 'right', pivotStyle: 'patch' }, originX, resolver));
+            break;
+        }
     }
 
     return pieces;

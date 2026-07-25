@@ -8,6 +8,9 @@ import { Stage, Layer, Rect, Circle, Transformer, Group, Text, Line, Arrow } fro
 import { db } from '@/lib/storage';
 import { GlassItem, KonvaShape, GlassPiece } from '@/types';
 import { generateGlassSystem, describeGlassSystem, type GlassSystemInput, type GlassSystemType } from '@/lib/glassSystemDesigner';
+import { exportToDXF, downloadDXFFile } from '@/lib/dxfExporter';
+import { exportToSVG, downloadSVGFile } from '@/lib/svgExporter';
+import { validateGlassSafety, type SafetyViolation } from '@/lib/glassSafetyValidator';
 
 // Dimension-line rendering offsets (renderRectDimensions/getPolygonSideDimensions/
 // getVertexAngleInfo below all divide these by the current drawingScale). Named
@@ -2737,7 +2740,65 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                     Generate from system type…
                                 </button>
                             </div>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>Vector CAD Exports</label>
+                                <div style={{ display: 'flex', gap: '0.35rem' }}>
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary"
+                                        style={{ flex: 1, fontSize: '0.75rem', padding: '0.35rem 0.5rem', background: '#0f172a', color: '#38bdf8', border: '1px solid #1e293b', fontWeight: 600 }}
+                                        title="Export AutoCAD R12 DXF file for CNC glass cutting"
+                                        onClick={() => {
+                                            const dxf = exportToDXF(pieces);
+                                            downloadDXFFile(`${initialData?.name || 'glass_design'}_CAD.dxf`, dxf);
+                                        }}
+                                    >
+                                        DXF (CAD)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary"
+                                        style={{ flex: 1, fontSize: '0.75rem', padding: '0.35rem 0.5rem', background: '#0f172a', color: '#4ade80', border: '1px solid #1e293b', fontWeight: 600 }}
+                                        title="Export SVG job card drawing with dimensions"
+                                        onClick={() => {
+                                            const svg = exportToSVG(pieces);
+                                            downloadSVGFile(`${initialData?.name || 'glass_design'}_JobCard.svg`, svg);
+                                        }}
+                                    >
+                                        SVG (Vector)
+                                    </button>
+                                </div>
+                            </div>
                         </div>
+
+                        {/* Structural Safety & Validation Banner */}
+                        {(() => {
+                            const safety = validateGlassSafety(pieces);
+                            if (safety.violations.length === 0) return null;
+                            return (
+                                <div style={{
+                                    marginTop: '0.65rem',
+                                    padding: '0.6rem 0.8rem',
+                                    background: '#fef2f2',
+                                    border: '1px solid #fca5a5',
+                                    borderRadius: '6px',
+                                    color: '#991b1b',
+                                    fontSize: '0.78rem'
+                                }}>
+                                    <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.2rem' }}>
+                                        <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#dc2626' }}></span>
+                                        Engineering Safety Violation ({safety.violations.length} issue{safety.violations.length > 1 ? 's' : ''})
+                                    </div>
+                                    <ul style={{ margin: 0, paddingLeft: '1.2rem', lineHeight: '1.35' }}>
+                                        {safety.violations.map((v, idx) => (
+                                            <li key={idx} style={{ marginBottom: '0.15rem' }}>
+                                                <strong>[{v.pieceName}]</strong> {v.message}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            );
+                        })()}
 
                         {/* Row 2: Add Tools & Accessories */}
                         <div style={{ 
@@ -3744,10 +3805,15 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                 <select className="input" style={{ width: '100%' }} value={systemInput.systemType}
                                     onChange={e => setSystemInput(s => ({ ...s, systemType: e.target.value as GlassSystemType }))}>
                                     <option value="swing_door">Swing / pivot door</option>
-                                    <option value="shower_door">Shower enclosure</option>
+                                    <option value="shower_door">Shower enclosure (Inline)</option>
+                                    <option value="corner_shower_90">90° Corner Shower Enclosure</option>
+                                    <option value="corner_shower_135">135° Neo-Angle Shower Enclosure</option>
                                     <option value="fixed_panel">Fixed panel</option>
                                     <option value="sliding_door">Sliding door</option>
+                                    <option value="top_hung_sliding">Top-Hung Barn Slider Door</option>
                                     <option value="railing">Railing</option>
+                                    <option value="spider_facade">Spider Structural Glass Facade</option>
+                                    <option value="patch_double_door">Double Patch-Fitting Doors</option>
                                 </select>
                             </div>
 
