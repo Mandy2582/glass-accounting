@@ -348,6 +348,7 @@ export interface GlassPiece {
     thickness: number;
     quantity?: number;
     shapes: KonvaShape[];
+    edgeTreatments?: { top?: string; bottom?: string; left?: string; right?: string };
 }
 
 export interface DesignData {

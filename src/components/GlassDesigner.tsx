@@ -2729,14 +2729,39 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                         </button>
                     </div>
 
-                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 600, marginRight: '0.2rem' }}>Quick Presets:</span>
                         <button
                             type="button"
                             className="btn"
-                            style={{ background: '#0e7490', color: 'white', border: 'none', fontSize: '0.78rem', fontWeight: 600, padding: '0.35rem 0.75rem' }}
+                            style={{ background: '#1e293b', color: '#38bdf8', border: '1px solid #334155', fontSize: '0.72rem', padding: '0.25rem 0.5rem', fontWeight: 600 }}
+                            onClick={() => { setSystemInput(s => ({ ...s, systemType: 'shower_door' })); setShowSystemModal(true); }}
+                        >
+                            🚿 Shower
+                        </button>
+                        <button
+                            type="button"
+                            className="btn"
+                            style={{ background: '#1e293b', color: '#38bdf8', border: '1px solid #334155', fontSize: '0.72rem', padding: '0.25rem 0.5rem', fontWeight: 600 }}
+                            onClick={() => { setSystemInput(s => ({ ...s, systemType: 'swing_door' })); setShowSystemModal(true); }}
+                        >
+                            🚪 Entrance
+                        </button>
+                        <button
+                            type="button"
+                            className="btn"
+                            style={{ background: '#1e293b', color: '#38bdf8', border: '1px solid #334155', fontSize: '0.72rem', padding: '0.25rem 0.5rem', fontWeight: 600 }}
+                            onClick={() => { setSystemInput(s => ({ ...s, systemType: 'spider_facade' })); setShowSystemModal(true); }}
+                        >
+                            🏬 Spider
+                        </button>
+                        <button
+                            type="button"
+                            className="btn"
+                            style={{ background: '#0e7490', color: 'white', border: 'none', fontSize: '0.78rem', fontWeight: 600, padding: '0.35rem 0.75rem', marginLeft: '0.4rem' }}
                             onClick={() => setShowSystemModal(true)}
                         >
-                            🏗️ Generate System Preset…
+                            🏗️ Parametric System Generator…
                         </button>
                     </div>
                 </div>
@@ -2804,37 +2829,6 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                         }
                                     }}
                                 />
-                            </div>
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>Predefined Design</label>
-                                <select
-                                    className="input"
-                                    style={{ width: '100%' }}
-                                    value=""
-                                    onChange={(e) => {
-                                        const preset = DESIGN_PRESETS.find(item => item.id === e.target.value);
-                                        if (preset) addPresetPiece(preset);
-                                        e.target.value = '';
-                                    }}
-                                >
-                                    <option value="" disabled>Select predefined design...</option>
-                                    {DESIGN_PRESETS.map(preset => (
-                                        <option key={preset.id} value={preset.id}>
-                                            {preset.name} - {preset.dimensions}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>Generate by System</label>
-                                <button
-                                    type="button"
-                                    className="btn"
-                                    style={{ width: '100%', background: '#0e7490', color: 'white', border: 'none', fontWeight: 600 }}
-                                    onClick={() => setShowSystemModal(true)}
-                                >
-                                    Generate from system type…
-                                </button>
                             </div>
                             <div>
                                 <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>Vector CAD Exports</label>
