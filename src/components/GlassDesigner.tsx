@@ -1928,7 +1928,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
         const { width: logicalWidth, height: logicalHeight } = getStageLogicalSize(drawingScale, stageViewportWidth);
         const newPiece: GlassPiece = {
             id: generateUUID(),
-            name: `Piece ${pieces.length + 1}`,
+            name: `Design Item ${pieces.length + 1}`,
             type: 'Window',
             thickness: 6,
             shapes: centerPieceShapes(
@@ -2547,8 +2547,8 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                     </div>
                     );
                 })}
-                <button className="btn btn-secondary" onClick={addPiece} title="Add New Piece" style={{ padding: '0.5rem' }}>
-                    <Plus size={16} /> Add Piece
+                <button className="btn btn-secondary" onClick={addPiece} title="Add New Design Item" style={{ padding: '0.4rem 0.75rem', fontSize: '0.82rem' }}>
+                    <Plus size={14} /> Add Design Item
                 </button>
                 <button 
                     className="btn btn-secondary" 
@@ -2556,7 +2556,8 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                     disabled={history.length === 0} 
                     title="Undo Last Action" 
                     style={{ 
-                        padding: '0.5rem 1rem', 
+                        padding: '0.4rem 0.75rem', 
+                        fontSize: '0.82rem',
                         marginLeft: 'auto', 
                         display: 'flex', 
                         alignItems: 'center', 
@@ -2565,65 +2566,30 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                         cursor: history.length === 0 ? 'not-allowed' : 'pointer' 
                     }}
                 >
-                    <RotateCcw size={16} /> Undo
+                    <RotateCcw size={14} /> Undo
                 </button>
             </div>
 
             <div className="designer-workspace" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%' }}>
-                {/* Mode Switcher Header Bar */}
+                {/* Clean Single-Row Tool Bar */}
                 <div style={{
                     display: 'flex',
-                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '0.5rem',
                     alignItems: 'center',
-                    background: '#0f172a',
-                    padding: '0.65rem 1rem',
+                    justifyContent: 'space-between',
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    padding: '0.5rem 0.75rem',
                     borderRadius: '8px',
-                    color: '#f8fafc',
-                    boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
                     width: '100%'
                 }}>
-                    <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-                        <h2 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: '#38bdf8', marginRight: '1rem' }}>
-                            📐 Glass CAD Studio
-                        </h2>
-                        <button
-                            type="button"
-                            className="btn"
-                            style={{
-                                background: designerMode === '2d' ? '#0284c7' : '#1e293b',
-                                color: '#ffffff',
-                                border: 'none',
-                                fontSize: '0.78rem',
-                                fontWeight: 600,
-                                padding: '0.35rem 0.75rem'
-                            }}
-                            onClick={() => setDesignerMode('2d')}
-                        >
-                            2D CAD Elevation
-                        </button>
-                        <button
-                            type="button"
-                            className="btn"
-                            style={{
-                                background: designerMode === 'bom' ? '#0284c7' : '#1e293b',
-                                color: '#ffffff',
-                                border: 'none',
-                                fontSize: '0.78rem',
-                                fontWeight: 600,
-                                padding: '0.35rem 0.75rem'
-                            }}
-                            onClick={() => setDesignerMode('bom')}
-                        >
-                            Factory Job Sheet
-                        </button>
-                    </div>
-
-                    {/* Controls Row: Shapes, Hardware, Thickness, Exports */}
-                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 600 }}>Thickness:</span>
+                    {/* Primary Action Dropdowns */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569' }}>Thickness:</span>
                         <select
                             className="input"
-                            style={{ background: '#1e293b', color: '#f8fafc', border: '1px solid #334155', fontSize: '0.75rem', padding: '0.25rem 0.5rem', width: 'auto' }}
+                            style={{ background: '#ffffff', color: '#0f172a', border: '1px solid #cbd5e1', fontSize: '0.75rem', padding: '0.25rem 0.5rem', width: 'auto', fontWeight: 600 }}
                             value={activePiece.thickness}
                             onChange={e => updateActivePiece({ thickness: Number(e.target.value) })}
                         >
@@ -2637,7 +2603,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
 
                         <select
                             className="input"
-                            style={{ background: '#1e293b', color: '#38bdf8', border: '1px solid #334155', fontSize: '0.75rem', padding: '0.25rem 0.5rem', width: 'auto', fontWeight: 600 }}
+                            style={{ background: '#0284c7', color: '#ffffff', border: 'none', fontSize: '0.75rem', padding: '0.3rem 0.6rem', width: 'auto', fontWeight: 600, borderRadius: '6px' }}
                             value=""
                             onChange={(e) => {
                                 const shapeType = e.target.value;
@@ -2655,7 +2621,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
 
                         <select
                             className="input"
-                            style={{ background: '#1e293b', color: '#a78bfa', border: '1px solid #334155', fontSize: '0.75rem', padding: '0.25rem 0.5rem', width: 'auto', fontWeight: 600 }}
+                            style={{ background: '#7c3aed', color: '#ffffff', border: 'none', fontSize: '0.75rem', padding: '0.3rem 0.6rem', width: 'auto', fontWeight: 600, borderRadius: '6px' }}
                             value=""
                             onChange={(e) => {
                                 const val = e.target.value;
@@ -2690,16 +2656,34 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                         <button
                             type="button"
                             className="btn"
-                            style={{ background: '#0e7490', color: 'white', border: 'none', fontSize: '0.75rem', fontWeight: 600, padding: '0.3rem 0.6rem' }}
+                            style={{ background: '#0891b2', color: 'white', border: 'none', fontSize: '0.75rem', fontWeight: 600, padding: '0.3rem 0.65rem', borderRadius: '6px' }}
                             onClick={() => setShowSystemModal(true)}
                         >
                             🏗️ System Builder…
                         </button>
+                    </div>
 
+                    {/* View Mode & Export Actions */}
+                    <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                        <button
+                            type="button"
+                            className="btn"
+                            style={{
+                                background: designerMode === 'bom' ? '#0f172a' : '#ffffff',
+                                color: designerMode === 'bom' ? '#ffffff' : '#334155',
+                                border: '1px solid #cbd5e1',
+                                fontSize: '0.75rem',
+                                fontWeight: 600,
+                                padding: '0.3rem 0.6rem'
+                            }}
+                            onClick={() => setDesignerMode(designerMode === 'bom' ? '2d' : 'bom')}
+                        >
+                            {designerMode === 'bom' ? '📐 Back to Drawing' : '📄 Factory Job Sheet'}
+                        </button>
                         <button
                             type="button"
                             className="btn btn-secondary"
-                            style={{ fontSize: '0.75rem', padding: '0.3rem 0.5rem', background: '#0f172a', color: '#38bdf8', border: '1px solid #334155', fontWeight: 600 }}
+                            style={{ fontSize: '0.75rem', padding: '0.3rem 0.5rem', background: '#ffffff', color: '#0369a1', border: '1px solid #cbd5e1', fontWeight: 600 }}
                             onClick={() => {
                                 const dxf = exportToDXF(pieces);
                                 downloadDXFFile(`${initialData?.name || 'glass_design'}_CAD.dxf`, dxf);
@@ -2710,7 +2694,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                         <button
                             type="button"
                             className="btn btn-secondary"
-                            style={{ fontSize: '0.75rem', padding: '0.3rem 0.5rem', background: '#0f172a', color: '#4ade80', border: '1px solid #334155', fontWeight: 600 }}
+                            style={{ fontSize: '0.75rem', padding: '0.3rem 0.5rem', background: '#ffffff', color: '#15803d', border: '1px solid #cbd5e1', fontWeight: 600 }}
                             onClick={() => {
                                 const svg = exportToSVG(pieces);
                                 downloadSVGFile(`${initialData?.name || 'glass_design'}_JobCard.svg`, svg);
@@ -2721,278 +2705,216 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                         <button
                             type="button"
                             className="btn btn-secondary"
-                            style={{ fontSize: '0.75rem', padding: '0.3rem 0.5rem', background: '#0f172a', color: '#f59e0b', border: '1px solid #334155', fontWeight: 600 }}
+                            style={{ fontSize: '0.75rem', padding: '0.3rem 0.5rem', background: '#ffffff', color: '#b45309', border: '1px solid #cbd5e1', fontWeight: 600 }}
                             onClick={() => setShowBOMModal(true)}
                         >
                             BOM
                         </button>
                     </div>
+                </div>
 
-                        {/* Row 3: Edit Selected Shape (Contextual) */}
-                        {selectedShapeIds.length > 0 && (() => {
-                            const shape = pieces.flatMap(p => p.shapes).find(s => s.id === selectedShapeId);
-                            if (!shape) return null;
-                            return (
-                                <div style={{ 
-                                    display: 'flex', 
-                                    flexDirection: 'column',
-                                    gap: '0.5rem', 
-                                    background: 'rgba(59, 130, 246, 0.04)', 
-                                    border: '1px solid rgba(59, 130, 246, 0.15)', 
-                                    padding: '0.75rem', 
-                                    borderRadius: '6px',
-                                    marginTop: '0.25rem'
-                                }}>
-                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
-                                        <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--color-primary)' }}>
-                                            {selectedShapeIds.length > 1 
-                                                ? `Selected: ${selectedShapeIds.length} items` 
-                                                : `Edit: ${shape.type.replace('glass_', '').toUpperCase()}`}
-                                        </span>
-                                        
-                                        {selectedShapeIds.length === 1 && (
-                                            <>
-                                                {shape.type === 'glass_polygon' ? (
-                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' }}>
-                                                        {(() => {
-                                                            const sideNames = ["Left Edge", "Top Edge", "Right Edge", "Bottom Edge"];
-                                                            const pts = shape.points || getPolygonPoints(shape.sides || 4, shape.width || 100, shape.height || 100);
-                                                            const numPoints = pts.length / 2;
-                                                            const inputs = [];
-                                                            for (let sIdx = 0; sIdx < numPoints; sIdx++) {
-                                                                const key = `poly-side-${sIdx}`;
-                                                                const val = polygonSideSpecs[sIdx] !== undefined ? polygonSideSpecs[sIdx] : '';
-                                                                
-                                                                inputs.push(
-                                                                    <div key={`side-input-${sIdx}`} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                                                                        <label style={{ fontSize: '0.7rem', fontWeight: 600 }}>{sideNames[sIdx] || `Side ${sIdx + 1}`}:</label>
-                                                                        <input 
-                                                                            type="text" 
-                                                                            className="input" 
-                                                                            style={{ padding: '0.2rem 0.4rem', fontSize: '0.75rem', width: '75px', height: '28px' }} 
-                                                                            value={val}
-                                                                            onFocus={() => { setFocusedField(key); saveHistory(); }}
-                                                                            onBlur={() => setFocusedField(null)}
-                                                                            onChange={(e) => {
-                                                                                const text = e.target.value;
-                                                                                const newSpecs = [...polygonSideSpecs];
-                                                                                newSpecs[sIdx] = text;
-                                                                                setPolygonSideSpecs(newSpecs);
-                                                                            }}
-                                                                        />
-                                                                    </div>
-                                                                );
-                                                            }
-                                                            return inputs;
-                                                        })()}
-                                                    </div>
-                                                ) : (
-                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' }}>
-                                                        {shape.width !== undefined && (
-                                                            <>
-                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                                                                    <label style={{ fontSize: '0.7rem', fontWeight: 600 }}>W:</label>
-                                                                    <input 
-                                                                        type="text" 
-                                                                        className="input" 
-                                                                        style={{ padding: '0.2rem 0.4rem', fontSize: '0.75rem', width: '65px', height: '28px' }} 
-                                                                        value={localInputs.width || ''} 
-                                                                        onFocus={() => { setFocusedField('width'); saveHistory(); }}
-                                                                        onBlur={() => setFocusedField(null)}
-                                                                        onChange={e => handleInputChange('width', e.target.value)} 
-                                                                    />
-                                                                </div>
-                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                                                                    <label style={{ fontSize: '0.7rem', fontWeight: 600 }}>H:</label>
-                                                                    <input 
-                                                                        type="text" 
-                                                                        className="input" 
-                                                                        style={{ padding: '0.2rem 0.4rem', fontSize: '0.75rem', width: '65px', height: '28px' }} 
-                                                                        value={localInputs.height || ''} 
-                                                                        onFocus={() => { setFocusedField('height'); saveHistory(); }}
-                                                                        onBlur={() => setFocusedField(null)}
-                                                                        onChange={e => handleInputChange('height', e.target.value)} 
-                                                                    />
-                                                                </div>
-                                                            </>
-                                                        )}
-                                                        {shape.radius !== undefined && (
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                                                                <label style={{ fontSize: '0.7rem', fontWeight: 600 }}>R:</label>
-                                                                <input 
-                                                                    type="text" 
-                                                                    className="input" 
-                                                                    style={{ padding: '0.2rem 0.4rem', fontSize: '0.75rem', width: '65px', height: '28px' }} 
-                                                                    value={localInputs.radius || ''} 
-                                                                    onFocus={() => { setFocusedField('radius'); saveHistory(); }}
-                                                                    onBlur={() => setFocusedField(null)}
-                                                                    onChange={e => handleInputChange('radius', e.target.value)} 
-                                                                />
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
-                                            </>
-                                        )}
-                                        
-                                        {/* Operations */}
-                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', alignItems: 'center', width: '100%' }}>
-                                            <button className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', height: '28px' }} onClick={() => copyShapes(selectedShapeIds)}>
-                                                Copy
-                                            </button>
-                                            <button className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', height: '28px' }} onClick={pasteShapes} disabled={!copiedShapes || copiedShapes.main.length === 0}>
-                                                Paste
-                                            </button>
-                                            <button className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', height: '28px' }} onClick={() => duplicateShapes(selectedShapeIds)}>
-                                                Duplicate
-                                            </button>
-                                            <button className="btn" style={{ 
-                                                background: '#fef2f2', 
-                                                color: '#ef4444', 
-                                                border: '1px solid #fca5a5', 
-                                                fontSize: '0.75rem', 
-                                                padding: '0.2rem 0.5rem', 
-                                                height: '28px',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '0.25rem'
-                                            }} onClick={() => removeShapes(selectedShapeIds)}>
-                                                <Trash2 size={12} /> Delete {selectedShapeIds.length > 1 ? `(${selectedShapeIds.length})` : ''}
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    {/* Optimization controls & read-only angles (only when single selected shape is glass_polygon) */}
-                                    {selectedShapeIds.length === 1 && shape.type === 'glass_polygon' && (
+                {/* Selected Shape Contextual Editor */}
+                {selectedShapeIds.length > 0 && (() => {
+                    const shape = pieces.flatMap(p => p.shapes).find(s => s.id === selectedShapeId);
+                    if (!shape) return null;
+                    return (
+                        <div style={{ 
+                            display: 'flex', 
+                            flexDirection: 'column',
+                            gap: '0.5rem', 
+                            background: '#eff6ff', 
+                            border: '1px solid #bfdbfe', 
+                            padding: '0.6rem 0.8rem', 
+                            borderRadius: '8px',
+                            width: '100%'
+                        }}>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' }}>
+                                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1d4ed8' }}>
+                                        {selectedShapeIds.length > 1 
+                                            ? `Selected: ${selectedShapeIds.length} items` 
+                                            : `Edit: ${shape.type.replace('glass_', '').toUpperCase()}`}
+                                    </span>
+                                    
+                                    {selectedShapeIds.length === 1 && (
                                         <>
-                                            {/* Optimization controls: Fixed Corner selection + Action Button */}
-                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', marginTop: '0.25rem', borderTop: '1px dashed rgba(59, 130, 246, 0.15)', paddingTop: '0.5rem' }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                                    <label style={{ fontSize: '0.7rem', fontWeight: 600 }}>Fix to 90°:</label>
+                                            {shape.type === 'glass_polygon' ? (
+                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
                                                     {(() => {
-                                                        const cornerNames = ["Bottom-Left", "Top-Left", "Top-Right", "Bottom-Right"];
-                                                        return [0, 1, 2, 3].map(cIdx => (
-                                                            <label key={`fix-corner-${cIdx}`} style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.7rem', cursor: 'pointer' }}>
-                                                                <input 
-                                                                    type="checkbox" 
-                                                                    checked={fixedCorners[cIdx]} 
-                                                                    onChange={(e) => {
-                                                                        const newFixed = [...fixedCorners];
-                                                                        newFixed[cIdx] = e.target.checked;
-                                                                        setFixedCorners(newFixed);
-                                                                    }}
-                                                                />
-                                                                {cornerNames[cIdx]}
-                                                            </label>
-                                                        ));
-                                                    })()}
-                                                </div>
-                                                <button 
-                                                    className="btn btn-primary" 
-                                                    style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', height: '28px' }}
-                                                    onClick={() => {
-                                                        const sideLengthsPx = polygonSideSpecs.map(spec => {
-                                                            const inches = parseInches(spec);
-                                                            return isNaN(inches) || inches <= 0 ? 150 : inches * 10;
-                                                        });
-                                                        triggerPolygonOptimization(shape.id, sideLengthsPx, fixedCorners);
-                                                    }}
-                                                >
-                                                    Optimize Shape
-                                                </button>
-                                            </div>
-                                            {/* Angles Row (Read Only Display) */}
-                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', borderTop: '1px dashed rgba(59, 130, 246, 0.15)', paddingTop: '0.25rem', marginTop: '0.25rem' }}>
-                                                {(() => {
-                                                    const cornerNames = ["Bottom-Left", "Top-Left", "Top-Right", "Bottom-Right"];
-                                                    const pts = shape.points || getPolygonPoints(shape.sides || 4, shape.width || 100, shape.height || 100);
-                                                    const centroid = getCentroid(pts);
-                                                    const numPoints = pts.length / 2;
-                                                    const displayLabels = [];
-                                                    for (let i = 0; i < numPoints; i++) {
-                                                        const angleInfo = getVertexAngleInfo(pts, i, shape.x, shape.y, centroid, 1);
-                                                        if (angleInfo) {
-                                                            displayLabels.push(
-                                                                <div key={`angle-disp-${i}`} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                                                                    <span style={{ fontSize: '0.7rem', fontWeight: 600 }}>{cornerNames[i]}:</span>
-                                                                    <span style={{ fontSize: '0.75rem', fontWeight: 500, color: '#2563eb' }}>{Math.round(angleInfo.angle)}°</span>
+                                                        const sideNames = ["Left Edge", "Top Edge", "Right Edge", "Bottom Edge"];
+                                                        const pts = shape.points || getPolygonPoints(shape.sides || 4, shape.width || 100, shape.height || 100);
+                                                        const numPoints = pts.length / 2;
+                                                        const inputs = [];
+                                                        for (let sIdx = 0; sIdx < numPoints; sIdx++) {
+                                                            const key = `poly-side-${sIdx}`;
+                                                            const val = polygonSideSpecs[sIdx] !== undefined ? polygonSideSpecs[sIdx] : '';
+                                                            
+                                                            inputs.push(
+                                                                <div key={`side-input-${sIdx}`} style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                                                                    <label style={{ fontSize: '0.7rem', fontWeight: 600, color: '#334155' }}>{sideNames[sIdx] || `Side ${sIdx + 1}`}:</label>
+                                                                    <input 
+                                                                        type="text" 
+                                                                        className="input" 
+                                                                        style={{ padding: '0.15rem 0.35rem', fontSize: '0.75rem', width: '65px', height: '26px', background: '#ffffff' }} 
+                                                                        value={val}
+                                                                        onFocus={() => { setFocusedField(key); saveHistory(); }}
+                                                                        onBlur={() => setFocusedField(null)}
+                                                                        onChange={(e) => {
+                                                                            const text = e.target.value;
+                                                                            const newSpecs = [...polygonSideSpecs];
+                                                                            newSpecs[sIdx] = text;
+                                                                            setPolygonSideSpecs(newSpecs);
+                                                                        }}
+                                                                    />
                                                                 </div>
                                                             );
                                                         }
-                                                    }
-                                                    return displayLabels;
-                                                })()}
-                                            </div>
+                                                        return inputs;
+                                                    })()}
+                                                </div>
+                                            ) : (
+                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+                                                    {shape.width !== undefined && (
+                                                        <>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                                                                <label style={{ fontSize: '0.7rem', fontWeight: 600, color: '#334155' }}>W:</label>
+                                                                <input 
+                                                                    type="text" 
+                                                                    className="input" 
+                                                                    style={{ padding: '0.15rem 0.35rem', fontSize: '0.75rem', width: '60px', height: '26px', background: '#ffffff' }} 
+                                                                    value={localInputs.width || ''} 
+                                                                    onFocus={() => { setFocusedField('width'); saveHistory(); }}
+                                                                    onBlur={() => setFocusedField(null)}
+                                                                    onChange={e => handleInputChange('width', e.target.value)} 
+                                                                />
+                                                            </div>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                                                                <label style={{ fontSize: '0.7rem', fontWeight: 600, color: '#334155' }}>H:</label>
+                                                                <input 
+                                                                    type="text" 
+                                                                    className="input" 
+                                                                    style={{ padding: '0.15rem 0.35rem', fontSize: '0.75rem', width: '60px', height: '26px', background: '#ffffff' }} 
+                                                                    value={localInputs.height || ''} 
+                                                                    onFocus={() => { setFocusedField('height'); saveHistory(); }}
+                                                                    onBlur={() => setFocusedField(null)}
+                                                                    onChange={e => handleInputChange('height', e.target.value)} 
+                                                                />
+                                                            </div>
+                                                        </>
+                                                    )}
+                                                    {shape.radius !== undefined && (
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                                                            <label style={{ fontSize: '0.7rem', fontWeight: 600, color: '#334155' }}>R:</label>
+                                                            <input 
+                                                                type="text" 
+                                                                className="input" 
+                                                                style={{ padding: '0.15rem 0.35rem', fontSize: '0.75rem', width: '60px', height: '26px', background: '#ffffff' }} 
+                                                                value={localInputs.radius || ''} 
+                                                                onFocus={() => { setFocusedField('radius'); saveHistory(); }}
+                                                                onBlur={() => setFocusedField(null)}
+                                                                onChange={e => handleInputChange('radius', e.target.value)} 
+                                                            />
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
                                         </>
                                     )}
-
-
-                                    {/* Auto Hole Aligner Row */}
-                                    {selectedShapeIds.length === 1 && (shape.type === 'glass_rect' || shape.type === 'glass_polygon') && (
-                                        <div style={{ 
-                                            display: 'flex', 
-                                            flexWrap: 'wrap', 
-                                            alignItems: 'center', 
-                                            gap: '0.75rem', 
-                                            borderTop: '1px solid rgba(59, 130, 246, 0.1)', 
-                                            paddingTop: '0.5rem',
-                                            marginTop: '0.25rem'
-                                        }}>
-                                            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-primary)' }}>Auto Hole Aligner:</span>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                                                <label style={{ fontSize: '0.65rem' }}>Edge</label>
-                                                <select 
-                                                    className="input" 
-                                                    style={{ padding: '0.15rem 0.35rem', fontSize: '0.75rem', height: '26px' }} 
-                                                    value={holeEdge} 
-                                                    onChange={e => setHoleEdge(e.target.value as any)}
-                                                >
-                                                    <option value="top">Top Edge</option>
-                                                    <option value="bottom">Bottom Edge</option>
-                                                    <option value="left">Left Edge</option>
-                                                    <option value="right">Right Edge</option>
-                                                    <option value="corners">4 Corners</option>
-                                                </select>
-                                            </div>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                                                <label style={{ fontSize: '0.65rem' }}>Holes</label>
-                                                <input 
-                                                    type="number" 
-                                                    className="input" 
-                                                    style={{ padding: '0.15rem 0.35rem', fontSize: '0.75rem', height: '26px', width: '50px' }} 
-                                                    min={1} 
-                                                    max={10} 
-                                                    disabled={holeEdge === 'corners'}
-                                                    value={holeEdge === 'corners' ? 4 : holeCountInput} 
-                                                    onChange={e => {
-                                                        const val = e.target.value;
-                                                        if (val === '') {
-                                                            setHoleCountInput('');
-                                                        } else {
-                                                            const parsed = parseInt(val);
-                                                            setHoleCountInput(isNaN(parsed) ? '' : parsed);
-                                                        }
-                                                    }}
-                                                    onBlur={() => {
-                                                        if (!holeCountInput || holeCountInput < 1) {
-                                                            setHoleCountInput(1);
-                                                        }
-                                                    }}
-                                                />
-                                            </div>
-                                            <button 
-                                                className="btn btn-secondary" 
-                                                style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem', height: '26px' }} 
-                                                onClick={() => generateAlignedHoles(holeEdge, holeEdge === 'corners' ? 4 : (typeof holeCountInput === 'number' ? holeCountInput : 2))}
-                                            >
-                                                Align & Add Holes
-                                            </button>
-                                        </div>
-                                    )}
                                 </div>
-                            );
-                        })()}
-                    </div>
+                                
+                                {/* Operations */}
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', alignItems: 'center' }}>
+                                    <button className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', height: '26px', background: '#ffffff' }} onClick={() => copyShapes(selectedShapeIds)}>
+                                        Copy
+                                    </button>
+                                    <button className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', height: '26px', background: '#ffffff' }} onClick={pasteShapes} disabled={!copiedShapes || copiedShapes.main.length === 0}>
+                                        Paste
+                                    </button>
+                                    <button className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', height: '26px', background: '#ffffff' }} onClick={() => duplicateShapes(selectedShapeIds)}>
+                                        Duplicate
+                                    </button>
+                                    <button className="btn" style={{ 
+                                        background: '#fef2f2', 
+                                        color: '#dc2626', 
+                                        border: '1px solid #fca5a5', 
+                                        fontSize: '0.75rem', 
+                                        padding: '0.2rem 0.5rem', 
+                                        height: '26px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '0.25rem',
+                                        fontWeight: 600
+                                    }} onClick={() => removeShapes(selectedShapeIds)}>
+                                        <Trash2 size={12} /> Delete {selectedShapeIds.length > 1 ? `(${selectedShapeIds.length})` : ''}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Auto Hole Aligner Row */}
+                            {selectedShapeIds.length === 1 && (shape.type === 'glass_rect' || shape.type === 'glass_polygon') && (
+                                <div style={{ 
+                                    display: 'flex', 
+                                    flexWrap: 'wrap', 
+                                    alignItems: 'center', 
+                                    gap: '0.5rem', 
+                                    borderTop: '1px solid #dbeafe', 
+                                    paddingTop: '0.4rem',
+                                    marginTop: '0.1rem'
+                                }}>
+                                    <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#1d4ed8' }}>Auto Hole Aligner:</span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                                        <label style={{ fontSize: '0.65rem', color: '#475569' }}>Edge</label>
+                                        <select 
+                                            className="input" 
+                                            style={{ padding: '0.1rem 0.3rem', fontSize: '0.75rem', height: '24px', background: '#ffffff' }} 
+                                            value={holeEdge} 
+                                            onChange={e => setHoleEdge(e.target.value as any)}
+                                        >
+                                            <option value="top">Top Edge</option>
+                                            <option value="bottom">Bottom Edge</option>
+                                            <option value="left">Left Edge</option>
+                                            <option value="right">Right Edge</option>
+                                            <option value="corners">4 Corners</option>
+                                        </select>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                                        <label style={{ fontSize: '0.65rem', color: '#475569' }}>Holes</label>
+                                        <input 
+                                            type="number" 
+                                            className="input" 
+                                            style={{ padding: '0.1rem 0.3rem', fontSize: '0.75rem', height: '24px', width: '45px', background: '#ffffff' }} 
+                                            min={1} 
+                                            max={10} 
+                                            disabled={holeEdge === 'corners'}
+                                            value={holeEdge === 'corners' ? 4 : holeCountInput} 
+                                            onChange={e => {
+                                                const val = e.target.value;
+                                                if (val === '') {
+                                                    setHoleCountInput('');
+                                                } else {
+                                                    const parsed = parseInt(val);
+                                                    setHoleCountInput(isNaN(parsed) ? '' : parsed);
+                                                }
+                                            }}
+                                            onBlur={() => {
+                                                if (!holeCountInput || holeCountInput < 1) {
+                                                    setHoleCountInput(1);
+                                                }
+                                            }}
+                                        />
+                                    </div>
+                                    <button 
+                                        className="btn btn-secondary" 
+                                        style={{ fontSize: '0.72rem', padding: '0.15rem 0.5rem', height: '24px', background: '#ffffff' }} 
+                                        onClick={() => generateAlignedHoles(holeEdge, holeEdge === 'corners' ? 4 : (typeof holeCountInput === 'number' ? holeCountInput : 2))}
+                                    >
+                                        Align & Add Holes
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    );
+                })()}
 
                 {/* Hidden Stages for PDF Export */}
                 <div style={{ position: 'absolute', top: -9999, left: -9999, visibility: 'hidden' }}>
