@@ -338,6 +338,11 @@ export interface KonvaShape {
     accessoryHoleRadiusIn?: number;
     accessoryCutAreaSqIn?: number;
     accessoryRequirementLabel?: string;
+    // Set only on continuous fittings sold by the metre (a base channel, a
+    // top track): the run length this one marker covers. When present the
+    // fitting bills as length x per-metre rate instead of one piece at a
+    // flat rate, so a 1.2m railing and a 3m railing don't cost the same.
+    accessoryLengthM?: number;
     // Set only on hole/cut shapes generated from a photo whose position could
     // NOT be read off the drawing (fell back to even-spacing). Absent means
     // "trust this position" -- either it was really extracted from the photo,

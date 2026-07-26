@@ -25,6 +25,7 @@ type DesignPiece = {
         accessoryHoleCount?: number;
         accessoryCutCount?: number;
         accessoryRequirementLabel?: string;
+        accessoryLengthM?: number;
     }>;
 };
 
@@ -34,7 +35,10 @@ type HardwareRowInput = {
     name: string;
     type: string;
     rate: number;
+    // Pieces for an ordinary fitting; METRES of run for one sold by the metre
+    // (see billsByLength) -- either way, lineTotal is rate x quantity.
     quantity: number;
+    billsByLength: boolean;
     holes: number;
     cuts: number;
     requirementLabel: string;
@@ -239,8 +243,14 @@ export const createOrderItemsFromDesign = (
                 cuts > 0 ? `${cuts} ${cuts === 1 ? 'cut' : 'cuts'}` : ''
             ].filter(Boolean).join(' + ') || 'no holes/cuts';
 
+            // A continuous fitting (base channel, top track) is priced per metre
+            // of run, so this marker contributes its length rather than "1".
+            const lengthM = Number(shape.accessoryLengthM) || 0;
+            const billsByLength = lengthM > 0;
+            const billedQty = billsByLength ? lengthM * quantity : quantity;
+
             if (current) {
-                current.quantity += quantity;
+                current.quantity += billedQty;
                 current.holes += holes * quantity;
                 current.cuts += cuts * quantity;
             } else {
@@ -250,7 +260,8 @@ export const createOrderItemsFromDesign = (
                     name,
                     type: 'Hardware',
                     rate,
-                    quantity,
+                    quantity: billedQty,
+                    billsByLength,
                     holes: holes * quantity,
                     cuts: cuts * quantity,
                     requirementLabel
@@ -260,22 +271,29 @@ export const createOrderItemsFromDesign = (
     });
 
     hardwareMap.forEach(hardware => {
-        const lineTotal = roundCurrency(hardware.rate * hardware.quantity);
+        const billedQty = hardware.billsByLength
+            ? Math.round(hardware.quantity * 1000) / 1000
+            : hardware.quantity;
+        const lineTotal = roundCurrency(hardware.rate * billedQty);
         const amount = roundCurrency(lineTotal / taxMultiplier);
+        const unit = hardware.billsByLength ? 'm' : 'nos';
+        const description = hardware.billsByLength
+            ? `Hardware from design drawing (${billedQty.toFixed(2)} m of continuous run @ Rs.${hardware.rate}/m; ${hardware.requirementLabel})`
+            : `Hardware from design drawing (${billedQty} ${billedQty === 1 ? 'piece' : 'pieces'}; ${hardware.requirementLabel} per fitting; total ${hardware.holes} holes, ${hardware.cuts} cuts)`;
         inclusiveTotals.push(lineTotal);
         rows.push({
             id: crypto.randomUUID(),
             itemId: hardware.itemId,
             itemName: hardware.name,
-            description: `Hardware from design drawing (${hardware.quantity} ${hardware.quantity === 1 ? 'piece' : 'pieces'}; ${hardware.requirementLabel} per fitting; total ${hardware.holes} holes, ${hardware.cuts} cuts)`,
+            description,
             type: 'Hardware',
             width: 0,
             height: 0,
-            quantity: hardware.quantity,
-            unit: 'nos',
+            quantity: billedQty,
+            unit,
             sqft: 0,
             rate: hardware.rate,
-            rateUnit: 'nos',
+            rateUnit: unit,
             amount,
             lineTotal,
             sourceType: 'design',

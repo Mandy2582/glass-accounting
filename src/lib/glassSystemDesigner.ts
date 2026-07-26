@@ -427,8 +427,11 @@ function buildRailingPiece(name: string, input: GlassSystemInput, originX: numbe
         // metre while the BOM counts one line per marker, so whoever prices it
         // can see how much length this single line actually represents instead
         // of having to measure it off the drawing.
-        const runMetres = (widthIn * 0.0254).toFixed(2);
-        channel.accessoryRequirementLabel = `continuous run ${widthIn}in (${runMetres} m)`;
+        // Channel is sold by the metre, so record the run length -- the pricing
+        // path bills length x per-metre rate off this instead of one flat piece.
+        const runMetres = Number((widthIn * 0.0254).toFixed(3));
+        channel.accessoryLengthM = runMetres;
+        channel.accessoryRequirementLabel = `continuous run ${widthIn}in (${runMetres.toFixed(2)} m)`;
         shapes.push(channel);
     }
 
@@ -696,15 +699,19 @@ export function buildGlassSystemDesignData(input: GlassSystemInput, fittings: Gl
                 const rate = Number(shape.accessoryRate) || 0;
                 const holes = Number(shape.accessoryHoleCount) || 0;
                 const cuts = Number(shape.accessoryCutCount) || 0;
+                // A continuous fitting sold per metre contributes its run
+                // length, so a 3m railing bills three times a 1m one.
+                const lengthM = Number(shape.accessoryLengthM) || 0;
+                const billedQty = lengthM > 0 ? lengthM * qty : qty;
                 const existing = hardwareMap.get(key);
                 if (existing) {
-                    existing.quantity += qty;
+                    existing.quantity += billedQty;
                 } else {
                     hardwareMap.set(key, {
                         id: key,
                         name,
                         type: 'Hardware',
-                        quantity: qty,
+                        quantity: billedQty,
                         rate,
                         holes,
                         cuts

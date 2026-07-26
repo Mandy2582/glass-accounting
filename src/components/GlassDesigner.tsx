@@ -1659,15 +1659,18 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                     const rate = Number(s.accessoryRate) || 0;
                     const holes = Number(s.accessoryHoleCount) || 0;
                     const cuts = Number(s.accessoryCutCount) || 0;
+                    // Per-metre fittings contribute run length, not a piece count.
+                    const lengthM = Number(s.accessoryLengthM) || 0;
+                    const billedQty = lengthM > 0 ? lengthM * qty : qty;
                     const existing = hardwareMap.get(key);
                     if (existing) {
-                        existing.quantity += qty;
+                        existing.quantity += billedQty;
                     } else {
                         hardwareMap.set(key, {
                             id: key,
                             name,
                             type: 'Hardware',
-                            quantity: qty,
+                            quantity: billedQty,
                             rate,
                             holes,
                             cuts

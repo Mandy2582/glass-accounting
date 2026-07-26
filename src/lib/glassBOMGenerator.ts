@@ -127,21 +127,28 @@ export function generateFactoryBOM(pieces: GlassPiece[], catalogue: GlassItem[] 
                 const role = shape.accessoryType || catalogItem?.fittingRole || 'fitting';
                 const rate = Number(shape.accessoryRate) || Number(catalogItem?.rate) || 0;
 
+                // Continuous fittings (base channel, top track) are sold per
+                // metre, so this marker counts as its run length, not as one
+                // piece -- otherwise a 1m and a 4m railing cost the same.
+                const lengthM = Number((shape as any).accessoryLengthM) || 0;
+                const billedQty = lengthM > 0 ? lengthM : 1;
+                const lineAmount = rate * billedQty;
+
                 const existing = hardwareMap.get(name);
                 if (existing) {
-                    existing.quantity += 1;
-                    existing.totalAmount += rate;
+                    existing.quantity += billedQty;
+                    existing.totalAmount += lineAmount;
                 } else {
                     hardwareMap.set(name, {
                         itemId: shape.hardwareItemId || catalogItem?.id,
                         name,
                         role,
-                        quantity: 1,
+                        quantity: billedQty,
                         estimatedRate: rate,
-                        totalAmount: rate
+                        totalAmount: lineAmount
                     });
                 }
-                totalHardwareCost += rate;
+                totalHardwareCost += lineAmount;
             }
         });
     });
