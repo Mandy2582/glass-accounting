@@ -1916,7 +1916,11 @@ export const MASTER_HARDWARE_CATALOG: GlassItem[] = [
 export async function syncMasterHardwareCatalog(): Promise<{ addedCount: number; existingCount: number }> {
     try {
         const existingItems = await db.items.getAll();
-        const existingIds = new Set(existingItems.map(item => item.id));
+        // The catalog's own ids (e.g. "cat_dorma_bts80") are only used in-memory to
+        // match against HARDWARE_CUTOUT_TEMPLATES -- the `items` table's id column
+        // is a real Postgres uuid, so every insert must get a fresh crypto.randomUUID()
+        // instead. That means make+model (not id) is the only reliable way to tell
+        // "this catalog entry was already synced" on a repeat run.
         const existingModels = new Set(
             existingItems
                 .filter(i => i.category === 'hardware' && i.make && i.model)
@@ -1928,8 +1932,9 @@ export async function syncMasterHardwareCatalog(): Promise<{ addedCount: number;
 
         for (const catalogItem of MASTER_HARDWARE_CATALOG) {
             const modelKey = `${catalogItem.make?.toLowerCase().trim()}_${catalogItem.model?.toLowerCase().trim()}`;
-            if (!existingIds.has(catalogItem.id) && !existingModels.has(modelKey)) {
-                await db.items.add(catalogItem);
+            if (!existingModels.has(modelKey)) {
+                await db.items.add({ ...catalogItem, id: crypto.randomUUID() });
+                existingModels.add(modelKey);
                 addedCount++;
             } else {
                 existingCount++;
