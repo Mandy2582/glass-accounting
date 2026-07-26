@@ -8,10 +8,8 @@ import { Stage, Layer, Rect, Circle, Transformer, Group, Text, Line, Arrow } fro
 import { db } from '@/lib/storage';
 import { GlassItem, KonvaShape, GlassPiece } from '@/types';
 import { generateGlassSystem, describeGlassSystem, type GlassSystemInput, type GlassSystemType } from '@/lib/glassSystemDesigner';
-import { exportToDXF, downloadDXFFile } from '@/lib/dxfExporter';
-import { exportToSVG, downloadSVGFile } from '@/lib/svgExporter';
 import { validateGlassSafety, type SafetyViolation } from '@/lib/glassSafetyValidator';
-import { HARDWARE_CUTOUT_TEMPLATES, getCutoutSpecsForItem } from '@/lib/fabricationSpecs';
+import { HARDWARE_CUTOUT_TEMPLATES, getCutoutSpecsForItem, deriveAccessoryGeometry } from '@/lib/fabricationSpecs';
 import { calculateGlassEngineering } from '@/lib/glassEngineeringCalculator';
 import { generateFactoryBOM } from '@/lib/glassBOMGenerator';
 
@@ -1130,6 +1128,12 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
     const [selectedShapeIds, setSelectedShapeIds] = useState<string[]>([]);
     const [showBOMModal, setShowBOMModal] = useState<boolean>(false);
     const [designerMode, setDesignerMode] = useState<'2d' | 'bom'>('2d');
+    // Two drawings off the same design, for the two people who read them:
+    // 'hardware' shows the fittings and where they go (installation), while
+    // 'fabrication' drops the fittings and shows only the glass prep -- every
+    // hole and cut-out, including the ones a fitting implies -- which is what
+    // gets sent to the glass supplier.
+    const [canvasView, setCanvasView] = useState<'hardware' | 'fabrication'>('hardware');
 
     const selectedShapeId = selectedShapeIds.length > 0 ? selectedShapeIds[selectedShapeIds.length - 1] : null;
     const setSelectedShapeId = (id: string | null) => {
@@ -2673,6 +2677,28 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
         return legend;
     }, [pieces, hardwareItems]);
 
+    // Glass prep implied by the placed fittings. A fitting shape only carries
+    // hole/cut COUNTS, so the fabrication view turns those into real,
+    // positioned holes and notches -- from the fitting's own manufacturer
+    // cut-out template when it's a catalogue item, else evenly spread across
+    // its footprint. These are read-only: they follow the fitting, so they're
+    // corrected by moving the fitting in the hardware view.
+    const fittingGlassPrep = useMemo(() => {
+        const fittingsById = new Map(hardwareItems.map(hw => [hw.id, hw]));
+        const holes: Array<{ key: string; x: number; y: number; radius: number; label: string }> = [];
+        const cuts: Array<{ key: string; x: number; y: number; width: number; height: number; label: string }> = [];
+        pieces.forEach(piece => {
+            piece.shapes.forEach(shape => {
+                if (shape.type !== 'accessory') return;
+                const geo = deriveAccessoryGeometry(shape, fittingsById);
+                const label = shape.accessoryName || 'Fitting';
+                geo.holes.forEach((h, i) => holes.push({ key: `${shape.id}-h${i}`, x: h.x, y: h.y, radius: h.radius, label }));
+                geo.cuts.forEach((c, i) => cuts.push({ key: `${shape.id}-c${i}`, x: c.x, y: c.y, width: c.width, height: c.height, label }));
+            });
+        });
+        return { holes, cuts };
+    }, [pieces, hardwareItems]);
+
     const stageViewportHeight = STAGE_VIEWPORT_HEIGHT;
     const { width: stageLogicalWidth, height: stageLogicalHeight } = getStageLogicalSize(drawingScale, stageViewportWidth);
     const gridColumnCount = Math.ceil(stageLogicalWidth / 20) + 1;
@@ -2686,10 +2712,10 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                     const needsReviewCount = piece.shapes.filter(s => s.positionSource === 'estimated-fallback').length;
                     const isActive = activePieceId === piece.id;
                     return (
-                        <div key={piece.id} style={{ display: 'flex', alignItems: 'center', background: isActive ? '#0284c7' : '#f8fafc', borderRadius: '6px', border: isActive ? '1px solid #0284c7' : '1px solid #cbd5e1', padding: '0.1rem 0.3rem' }}>
+                        <div key={piece.id} style={{ display: 'flex', alignItems: 'center', background: isActive ? 'var(--color-primary)' : 'var(--color-surface-muted, #f8fafc)', borderRadius: '6px', border: `1px solid ${isActive ? 'var(--color-primary)' : 'var(--color-border, #cbd5e1)'}`, padding: '0.1rem 0.3rem' }}>
                             <button
                                 onClick={() => setActivePieceId(piece.id)}
-                                style={{ padding: '0.35rem 0.65rem', border: 'none', background: 'transparent', color: isActive ? '#ffffff' : '#334155', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                                style={{ padding: '0.35rem 0.65rem', border: 'none', background: 'transparent', color: isActive ? '#ffffff' : 'var(--color-text-muted, #334155)', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
                             >
                                 {piece.name}
                                 {needsReviewCount > 0 && (
@@ -2768,9 +2794,9 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                     gap: '0.5rem',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    background: '#f8fafc',
-                    border: '1px solid #e2e8f0',
-                    padding: '0.45rem 0.75rem',
+                    background: 'var(--color-surface-muted, #f8fafc)',
+                    border: '1px solid var(--color-border, #e2e8f0)',
+                    padding: '0.5rem 0.75rem',
                     borderRadius: '8px',
                     width: '100%'
                 }}>
@@ -2795,7 +2821,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
 
                         <select
                             className="input"
-                            style={{ background: '#0284c7', color: '#ffffff', border: 'none', fontSize: '0.8rem', padding: '0.35rem 0.75rem', width: 'auto', fontWeight: 600, borderRadius: '6px', cursor: 'pointer' }}
+                            style={{ fontSize: '0.8rem', padding: '0.3rem 0.5rem', width: 'auto', fontWeight: 600, cursor: 'pointer' }}
                             value=""
                             onChange={(e) => {
                                 const shapeType = e.target.value;
@@ -2813,7 +2839,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
 
                         <select
                             className="input"
-                            style={{ background: '#7c3aed', color: '#ffffff', border: 'none', fontSize: '0.8rem', padding: '0.35rem 0.75rem', width: 'auto', fontWeight: 600, borderRadius: '6px', cursor: 'pointer' }}
+                            style={{ fontSize: '0.8rem', padding: '0.3rem 0.5rem', width: 'auto', fontWeight: 600, cursor: 'pointer' }}
                             value=""
                             onChange={(e) => {
                                 const val = e.target.value;
@@ -2846,24 +2872,44 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                         </select>
                     </div>
 
-                    {/* View Mode Switcher */}
-                    <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                    {/* Which drawing you're looking at, and the job sheet */}
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <div
+                            role="group"
+                            aria-label="Drawing type"
+                            style={{ display: 'inline-flex', border: '1px solid var(--color-border, #cbd5e1)', borderRadius: '6px', overflow: 'hidden' }}
+                        >
+                            {([
+                                { key: 'hardware' as const, label: 'Hardware', title: 'Shows the fittings and where they are installed' },
+                                { key: 'fabrication' as const, label: 'Holes & Cuts', title: 'Shows only the glass prep to send the supplier -- every hole and cut-out, no fittings' },
+                            ]).map(view => (
+                                <button
+                                    key={view.key}
+                                    type="button"
+                                    title={view.title}
+                                    aria-pressed={canvasView === view.key}
+                                    onClick={() => setCanvasView(view.key)}
+                                    style={{
+                                        background: canvasView === view.key ? '#0e7490' : '#ffffff',
+                                        color: canvasView === view.key ? '#ffffff' : '#475569',
+                                        border: 'none',
+                                        fontSize: '0.78rem',
+                                        fontWeight: 600,
+                                        padding: '0.35rem 0.7rem',
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    {view.label}
+                                </button>
+                            ))}
+                        </div>
                         <button
                             type="button"
-                            className="btn"
-                            style={{
-                                background: designerMode === 'bom' ? '#0f172a' : '#ffffff',
-                                color: designerMode === 'bom' ? '#ffffff' : '#334155',
-                                border: '1px solid #cbd5e1',
-                                fontSize: '0.8rem',
-                                fontWeight: 600,
-                                padding: '0.35rem 0.75rem',
-                                borderRadius: '6px',
-                                cursor: 'pointer'
-                            }}
+                            className="btn btn-secondary"
+                            style={{ fontSize: '0.8rem', fontWeight: 600, padding: '0.35rem 0.75rem' }}
                             onClick={() => setDesignerMode(designerMode === 'bom' ? '2d' : 'bom')}
                         >
-                            {designerMode === 'bom' ? '📐 Back to Drawing' : '📄 Factory Job Sheet'}
+                            {designerMode === 'bom' ? 'Back to Drawing' : 'Job Sheet'}
                         </button>
                     </div>
                 </div>
@@ -3291,40 +3337,10 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                     )}
                     {designerMode === 'bom' ? (() => {
                         const bomReport = generateFactoryBOM(pieces, hardwareItems);
-                        const fittingsById = new Map(hardwareItems.map(hw => [hw.id, hw]));
                         return (
                             <div style={{ padding: '1.2rem', overflowY: 'auto', maxHeight: '100%', background: '#ffffff', borderRadius: '10px' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-                                    <h2 style={{ fontSize: '1.2rem', fontWeight: 700, margin: 0, color: '#0f172a' }}>Factory Job Card & Architectural BOM</h2>
-                                    <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-                                        <button
-                                            type="button"
-                                            className="btn btn-secondary"
-                                            style={{ fontSize: '0.75rem', padding: '0.3rem 0.65rem', background: '#0f172a', color: '#ffffff', border: 'none', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem', borderRadius: '5px', cursor: 'pointer' }}
-                                            title="CNC-ready outline + every hole/cut the glass needs, no hardware markers"
-                                            onClick={() => downloadDXFFile(`job-sheet-fabrication-${Date.now()}`, exportToDXF(pieces, { fittingsById }))}
-                                        >
-                                            💾 Export DXF (CNC)
-                                        </button>
-                                        <button
-                                            type="button"
-                                            className="btn btn-secondary"
-                                            style={{ fontSize: '0.75rem', padding: '0.3rem 0.65rem', background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem', borderRadius: '5px', cursor: 'pointer' }}
-                                            title="Outline + every hole/cut the glass needs (including ones implied by hardware), no hardware markers -- for the glass processor"
-                                            onClick={() => downloadSVGFile(`job-sheet-fabrication-${Date.now()}`, exportToSVG(pieces, { mode: 'fabrication', fittingsById }))}
-                                        >
-                                            🖼️ Fabrication Drawing
-                                        </button>
-                                        <button
-                                            type="button"
-                                            className="btn btn-secondary"
-                                            style={{ fontSize: '0.75rem', padding: '0.3rem 0.65rem', background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem', borderRadius: '5px', cursor: 'pointer' }}
-                                            title="Outline + labelled, colour-coded hardware markers -- for whoever installs the fittings"
-                                            onClick={() => downloadSVGFile(`job-sheet-installation-${Date.now()}`, exportToSVG(pieces, { mode: 'installation', fittingsById }))}
-                                        >
-                                            🔧 Installation Drawing
-                                        </button>
-                                    </div>
+                                    <h2 style={{ fontSize: '1.2rem', fontWeight: 700, margin: 0, color: '#0f172a' }}>Factory Job Card &amp; Hardware BOM</h2>
                                 </div>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.8rem', marginBottom: '1.2rem', background: '#f8fafc', padding: '1rem', borderRadius: '8px', fontSize: '0.85rem' }}>
                                     <div><strong>Total Glass Area:</strong> {bomReport.totalGlassAreaSqM} m² ({(bomReport.totalGlassAreaSqM * 10.7639).toFixed(1)} sqft)</div>
@@ -3694,8 +3710,27 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                 );
                             })}
 
-                            {/* Render accessories */}
-                            {pieces.flatMap(p => p.shapes).filter(s => s.type === 'accessory').map((shape) => {
+                            {/* Fabrication view: the glass prep each fitting needs, drawn as
+                                real holes/notches instead of the fitting itself. Read-only --
+                                reposition the fitting in the hardware view to move these. */}
+                            {canvasView === 'fabrication' && fittingGlassPrep.holes.map(h => (
+                                <Group key={h.key} listening={false}>
+                                    <Circle x={h.x} y={h.y} radius={h.radius} fill="rgba(220, 38, 38, 0.18)" stroke="#dc2626" strokeWidth={1.5 / drawingScale} />
+                                    <Line points={[h.x - h.radius - 4 / drawingScale, h.y, h.x + h.radius + 4 / drawingScale, h.y]} stroke="#dc2626" strokeWidth={0.8 / drawingScale} dash={[2 / drawingScale, 2 / drawingScale]} />
+                                    <Line points={[h.x, h.y - h.radius - 4 / drawingScale, h.x, h.y + h.radius + 4 / drawingScale]} stroke="#dc2626" strokeWidth={0.8 / drawingScale} dash={[2 / drawingScale, 2 / drawingScale]} />
+                                    <Text x={h.x - 40 / drawingScale} y={h.y + h.radius + 5 / drawingScale} text={`Ø ${formatInchesFraction(h.radius * 2)}"`} fontSize={8 / drawingScale} fill="#b91c1c" fontStyle="bold" align="center" width={80 / drawingScale} />
+                                </Group>
+                            ))}
+                            {canvasView === 'fabrication' && fittingGlassPrep.cuts.map(c => (
+                                <Group key={c.key} listening={false}>
+                                    <Rect x={c.x} y={c.y} width={c.width} height={c.height} fill="rgba(37, 99, 235, 0.14)" stroke="#1d4ed8" strokeWidth={1.5 / drawingScale} dash={[3 / drawingScale, 3 / drawingScale]} />
+                                    <Text x={c.x + c.width / 2 - 50 / drawingScale} y={c.y + c.height + 4 / drawingScale} text={`${formatInchesFraction(c.width)}" x ${formatInchesFraction(c.height)}"`} fontSize={8 / drawingScale} fill="#1d4ed8" fontStyle="bold" align="center" width={100 / drawingScale} />
+                                </Group>
+                            ))}
+
+                            {/* Render accessories (hardware view only -- the fabrication
+                                drawing deliberately carries no fitting markers) */}
+                            {canvasView === 'hardware' && pieces.flatMap(p => p.shapes).filter(s => s.type === 'accessory').map((shape) => {
                                 const isSelected = selectedShapeIds.includes(shape.id);
                                 return (
                                     <Group
@@ -3852,8 +3887,9 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                     }}
                                 />
                             )}
-                            {/* Architectural Hardware Schedule Key (Bottom Right Corner) */}
-                            {hardwareLegend.length > 0 && (() => {
+                            {/* Architectural Hardware Schedule Key (Bottom Right Corner).
+                                Hardware view only -- the fabrication drawing lists no fittings. */}
+                            {canvasView === 'hardware' && hardwareLegend.length > 0 && (() => {
                                 const boxWidth = 360 / drawingScale;
                                 const headerHeight = 24 / drawingScale;
                                 const rowHeight = 20 / drawingScale;

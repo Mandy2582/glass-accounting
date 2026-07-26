@@ -7,7 +7,7 @@ import {
     parseWhatsAppOrderText,
     summarizeParsedWhatsAppLines,
 } from '@/lib/whatsappOrders';
-import { analyzeWhatsAppImage, buildDesignDataFromImageAnalysis, WhatsAppImageAnalysis } from '@/lib/whatsappVision';
+import { analyzeWhatsAppImage, buildDesignDataFromImageAnalysis, resolveRecognisedSystem, WhatsAppImageAnalysis } from '@/lib/whatsappVision';
 import { generateUUID, roundCurrency } from '@/lib/utils';
 import { withAvailableStock } from '@/lib/stockReservations';
 import { isAffirmativeReply, resolveImageOrderIntent, resolveOrderIntent } from '@/lib/orderIntent';
@@ -42,7 +42,7 @@ import {
 } from '@/lib/customGlassOrder';
 import { normalizeIntakeImage, type NormalizedIntakeImage } from '@/lib/intakeImage';
 import { looksLikeGlassSystemOrder, parseGlassSystemOrder } from '@/lib/glassSystemOrder';
-import { buildGlassSystemDesignData, describeGlassSystem } from '@/lib/glassSystemDesigner';
+import { buildGlassSystemDesignData, describeGlassSystem, type GlassSystemType } from '@/lib/glassSystemDesigner';
 import type { CustomDesign, Invoice, InvoiceItem, Order, Party, PricingConfig } from '@/types';
 
 export const runtime = 'nodejs';
@@ -1071,14 +1071,40 @@ async function createDesignDraftForImage(
     caption: string,
     sourceImage?: NormalizedIntakeImage
 ): Promise<CustomDesign> {
-    const designData = buildDesignDataFromImageAnalysis(analysis);
+    // Prefer regenerating the drawing from engineering standards when the
+    // photo shows a system we recognise (a shower enclosure, a sliding door
+    // with a fixed panel, a partition...). Naming the system off a drawing is
+    // something the vision model does reliably; counting the individual small
+    // circles is not -- so when we can name it, we place the hardware and its
+    // glass prep from the rules instead of from the perceived holes. Falls
+    // back to reading the drawing as-is whenever recognition isn't confident.
+    const recognised = resolveRecognisedSystem(analysis);
+    let designData: ReturnType<typeof buildDesignDataFromImageAnalysis>;
+    let generatedNote = '';
+    if (recognised) {
+        const fittings = await db.items.getAll();
+        const systemInput = {
+            ...recognised,
+            systemType: recognised.systemType as GlassSystemType,
+        };
+        designData = buildGlassSystemDesignData(systemInput, fittings);
+        generatedNote = [
+            `Recognised from the drawing as a ${recognised.systemType.replace(/_/g, ' ')} `
+              + `(${recognised.widthIn}in x ${recognised.heightIn}in, ${recognised.thickness}mm, `
+              + `${Math.round(recognised.confidence * 100)}% confidence).`,
+            `Panels and hardware were GENERATED from standard placements rather than traced off the photo: ${describeGlassSystem(systemInput, fittings)}.`,
+            'Check the sizes and the system type against the original photo before approving.',
+        ].join('\n');
+    } else {
+        designData = buildDesignDataFromImageAnalysis(analysis);
+    }
     const design: CustomDesign = {
         id: generateUUID(),
         name: `WhatsApp Drawing - ${order.number}`,
         customerId: customer.id,
         customerName: customer.name,
         drawingData: designData.drawingData,
-        baseShape: 'whatsapp-image',
+        baseShape: recognised ? 'system-designer' : 'whatsapp-image',
         totalArea: designData.totalArea,
         grossArea: designData.grossArea,
         holes: designData.holes,
@@ -1094,7 +1120,7 @@ async function createDesignDraftForImage(
             'Imported from WhatsApp image/drawing.',
             `WhatsApp Message ID: ${messageId}`,
             caption ? `Caption: ${caption}` : '',
-            'Review dimensions and redraw/adjust on canvas before approval.',
+            generatedNote || 'Review dimensions and redraw/adjust on canvas before approval.',
         ].filter(Boolean).join('\n'),
         orderId: order.id,
         // Kept so the order review page can show the customer's original

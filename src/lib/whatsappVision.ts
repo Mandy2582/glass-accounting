@@ -119,6 +119,26 @@ export type WhatsAppImageAnalysis = {
             holeEdgeCounts?: { top: number; bottom: number; left: number; right: number; interior: number } | null;
         }>;
     };
+    // What KIND of glass system the drawing depicts, when it's a recognisable
+    // one (a swing door, a shower enclosure, a sliding door with a fixed
+    // panel, an office partition, a railing...). This is the reliable half of
+    // reading a drawing photo: naming the system and its overall size is a
+    // coarse judgement models are good at, whereas counting individual small
+    // circles is one they are measurably bad at. When this comes back
+    // confident, the intake generates the panels and hardware from the
+    // industry rules in glassSystemDesigner instead of trusting the perceived
+    // holes[] -- so the holes land where the standards say they go.
+    glassSystem?: {
+        systemType: string | null;
+        widthIn: number | null;
+        heightIn: number | null;
+        thickness: number | null;
+        hingeSide?: 'left' | 'right' | null;
+        hasLock?: boolean | null;
+        hasHandle?: boolean | null;
+        fixedPanelWidthIn?: number | null;
+        confidence: number;
+    } | null;
     // True only when the vision call itself errored/couldn't be parsed --
     // as opposed to a successful call that genuinely classified the image as
     // 'unknown'. Callers should fail open (keep for review) on a real
@@ -136,8 +156,27 @@ const emptyAnalysis = (classification: WhatsAppImageAnalysis['classification'], 
         notes: '',
         pieces: [],
     },
+    glassSystem: null,
     analysisFailed,
 });
+
+// The system types the intake can generate from a photo. Deliberately a
+// subset of GlassSystemType -- only the arrangements that are unambiguous to
+// recognise in a drawing. Anything else falls back to the normal
+// read-the-holes path rather than guessing at an exotic preset.
+export const RECOGNISABLE_SYSTEM_TYPES = [
+    'swing_door',
+    'shower_door',
+    'fixed_panel',
+    'sliding_door',
+    'railing',
+    'patch_double_door',
+    'office_partition_3pc',
+    'shower_inline_3pc',
+    'shower_sliding_2pc',
+    'corner_shower_90',
+    'top_hung_sliding',
+] as const;
 
 // Shared position-reading rules for holes/cuts -- used verbatim by both the
 // main multi-piece analysis prompt and the single-panel verification prompt
@@ -270,6 +309,9 @@ export async function analyzeWhatsAppImage(input: {
                                 '',
                                 `${HOLE_CUT_UNITS_GUIDANCE} Also report widthUnit/heightUnit for the panel itself the same way.`,
                                 '',
+                                `GLASS SYSTEM RECOGNITION (important): separately from reading the individual marks, decide whether this drawing depicts a standard glass SYSTEM as a whole, and if so fill in glassSystem. Allowed systemType values: ${RECOGNISABLE_SYSTEM_TYPES.join(', ')}. Judge it from the overall arrangement and any written labels, e.g.: a single leaf with hinges/patches down one side and a handle = swing_door; a leaf plus an adjoining narrower fixed panel in a bathroom context = shower_door (give the fixed panel's width in fixedPanelWidthIn); two leaves meeting in the middle = patch_double_door; a leaf that slides across an adjoining panel, or a drawing labelled "sliding" with a top track = sliding_door (or top_hung_sliding for a barn-style slider hung entirely off an overhead rail); a low waist-height run of panels with floor-mounted spigots/base channel = railing; a plain panel with no door = fixed_panel. Also report the system's OVERALL opening width and height in INCHES (converting if the drawing is dimensioned in mm), the glass thickness in mm, which side the hinges/track are on, and whether a lock and a handle are marked.`,
+                                'Set glassSystem to null, and set its confidence low, if the drawing is just loose panels or a dimension list with no recognisable system arrangement -- do NOT force one of the values above onto a drawing that is not clearly that system. This field is used to regenerate the panels and hardware from engineering standards, so a wrong systemType produces a confidently wrong drawing; "null" is much better than a guess.',
+                                '',
                                 'Extract visible text, order lines, thickness, hardware notes, and customer name if visible.',
                                 'Do not invent dimensions, positions, or hardware that are not visibly marked.',
                                 `Sender phone: ${input.fromPhone}`,
@@ -314,12 +356,28 @@ export async function analyzeWhatsAppImage(input: {
                     schema: {
                         type: 'object',
                         additionalProperties: false,
-                        required: ['classification', 'extractedText', 'customerName', 'confidence', 'orderLines', 'drawing'],
+                        required: ['classification', 'extractedText', 'customerName', 'confidence', 'orderLines', 'drawing', 'glassSystem'],
                         properties: {
                             classification: { type: 'string', enum: ['text_order', 'drawing', 'mixed', 'unknown'] },
                             extractedText: { type: 'string' },
                             customerName: { type: ['string', 'null'] },
                             confidence: { type: 'number' },
+                            glassSystem: {
+                                type: ['object', 'null'],
+                                additionalProperties: false,
+                                required: ['systemType', 'widthIn', 'heightIn', 'thickness', 'hingeSide', 'hasLock', 'hasHandle', 'fixedPanelWidthIn', 'confidence'],
+                                properties: {
+                                    systemType: { type: ['string', 'null'], enum: [...RECOGNISABLE_SYSTEM_TYPES, null] },
+                                    widthIn: { type: ['number', 'null'] },
+                                    heightIn: { type: ['number', 'null'] },
+                                    thickness: { type: ['number', 'null'] },
+                                    hingeSide: { type: ['string', 'null'], enum: ['left', 'right', null] },
+                                    hasLock: { type: ['boolean', 'null'] },
+                                    hasHandle: { type: ['boolean', 'null'] },
+                                    fixedPanelWidthIn: { type: ['number', 'null'] },
+                                    confidence: { type: 'number' },
+                                },
+                            },
                             orderLines: {
                                 type: 'array',
                                 items: {
@@ -990,6 +1048,55 @@ function mergeConnectedPieceGroups(
             shapes: mergedShapes,
         };
     });
+}
+
+// Minimum self-reported confidence before a recognised system is trusted
+// enough to REPLACE the perceived drawing. Set high on purpose: generating
+// the wrong system produces a drawing that looks authoritative but is wrong
+// throughout, which is worse than the honest read-the-photo fallback.
+const SYSTEM_RECOGNITION_MIN_CONFIDENCE = 0.7;
+
+/**
+ * The recognised system, but only when it's complete and confident enough to
+ * regenerate the drawing from engineering standards. Returns null whenever
+ * anything essential is missing or uncertain, so the caller falls back to the
+ * ordinary read-the-holes path rather than inventing a system.
+ */
+export function resolveRecognisedSystem(analysis: WhatsAppImageAnalysis): {
+    systemType: string;
+    widthIn: number;
+    heightIn: number;
+    thickness: number;
+    hingeSide?: 'left' | 'right';
+    hasLock?: boolean;
+    hasHandle?: boolean;
+    fixedPanelWidthIn?: number;
+    confidence: number;
+} | null {
+    const sys = analysis.glassSystem;
+    if (!sys || !sys.systemType) return null;
+    if (!(RECOGNISABLE_SYSTEM_TYPES as readonly string[]).includes(sys.systemType)) return null;
+    if (typeof sys.confidence !== 'number' || sys.confidence < SYSTEM_RECOGNITION_MIN_CONFIDENCE) return null;
+
+    // Without a real overall size there is nothing to generate against.
+    const widthIn = Number(sys.widthIn);
+    const heightIn = Number(sys.heightIn);
+    if (!Number.isFinite(widthIn) || !Number.isFinite(heightIn) || widthIn <= 0 || heightIn <= 0) return null;
+    // Guard against a misread decimal/unit producing an absurd panel.
+    if (widthIn > 400 || heightIn > 400) return null;
+
+    const thickness = Number(sys.thickness);
+    return {
+        systemType: sys.systemType,
+        widthIn,
+        heightIn,
+        thickness: Number.isFinite(thickness) && thickness > 0 ? thickness : 10,
+        ...(sys.hingeSide ? { hingeSide: sys.hingeSide } : {}),
+        ...(sys.hasLock != null ? { hasLock: !!sys.hasLock } : {}),
+        ...(sys.hasHandle != null ? { hasHandle: !!sys.hasHandle } : {}),
+        ...(Number(sys.fixedPanelWidthIn) > 0 ? { fixedPanelWidthIn: Number(sys.fixedPanelWidthIn) } : {}),
+        confidence: sys.confidence,
+    };
 }
 
 export function buildDesignDataFromImageAnalysis(analysis: WhatsAppImageAnalysis): {

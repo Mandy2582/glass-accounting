@@ -37,6 +37,16 @@ const DOOR_HINGE_END_INSET_IN = 4;             // frameless door hinges ~4in in 
 const RAIL_END_INSET_IN = 4;                   // first/last roller or standoff in from the ends
 const SPIDER_CORNER_INSET_IN = 3;              // bolt-hole inset from each corner for bolted glass
 
+// --- Sliding-system norms ---
+// A sliding panel never matches its fixed partner: the roller/slider set is
+// carried on the sliding leaf, so that leaf is cut SHORTER by the slider
+// allowance while the fixed panel runs the full opening height. And the two
+// leaves are not butt-joined -- the slider laps over the fixed panel by a
+// fixed amount so there's no sight gap when it's closed, which means the
+// panels together are wider than the opening by one overlap per slider.
+const SLIDER_SET_ALLOWANCE_IN = 2;   // sliding leaf is cut this much shorter (roller/track space)
+const SLIDING_OVERLAP_IN = 2;        // slider laps this far over its fixed neighbour when closed
+
 const ORIGIN_X = 100;
 const ORIGIN_Y = 80;
 const PIECE_GAP_U = 2; // tight 2px (2mm) physical glass-to-glass joint gap for single-window system assembly
@@ -82,6 +92,28 @@ export interface GlassSystemInput {
     // Glass colour/type used for per-sqft pricing (matched against the
     // thickness-pricing rows). Defaults to 'Toughened Clear'.
     glassType?: string;
+    // Sliding-system overrides. Left unset, the standard allowances apply
+    // (see SLIDER_SET_ALLOWANCE_IN / SLIDING_OVERLAP_IN); a job that uses a
+    // different slider kit can set its own here.
+    slidingAllowanceIn?: number;
+    slidingOverlapIn?: number;
+}
+
+// Cutting sizes for a sliding system, derived from the OPENING size in
+// `input` rather than used verbatim: `slidingPanels` leaves each lap over a
+// neighbour, so the panels together span the opening plus one overlap per
+// slider, and every sliding leaf loses the slider allowance off its height.
+function slidingSystemSizes(input: GlassSystemInput, totalPanels: number, slidingPanels: number) {
+    const allowance = input.slidingAllowanceIn ?? SLIDER_SET_ALLOWANCE_IN;
+    const overlap = input.slidingOverlapIn ?? SLIDING_OVERLAP_IN;
+    const panelWidthIn = (input.widthIn + overlap * slidingPanels) / totalPanels;
+    return {
+        allowance,
+        overlap,
+        panelWidthIn: Number(panelWidthIn.toFixed(3)),
+        fixedHeightIn: input.heightIn,
+        slidingHeightIn: Number(Math.max(input.heightIn - allowance, 1).toFixed(3)),
+    };
 }
 
 // How each fitting role renders (KonvaShape.accessoryType only has four
@@ -314,6 +346,14 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
         originX += (outline?.width ?? input.widthIn * U) + PIECE_GAP_U;
     };
 
+    // Same as advance, but pulls the next panel back so it is drawn LAPPING
+    // over this one instead of butt-joined -- how a closed sliding leaf
+    // actually sits against its fixed neighbour.
+    const advanceLapped = (piece: Omit<GlassPiece, 'id'>, overlapIn: number) => {
+        advance(piece);
+        originX -= overlapIn * U + PIECE_GAP_U;
+    };
+
     switch (input.systemType) {
         case 'swing_door':
             advance(buildDoorPiece('Glass Door', input, originX, resolver));
@@ -327,12 +367,21 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
         case 'fixed_panel':
             advance(buildFixedPanelPiece('Fixed Panel', input, originX, resolver));
             break;
-        case 'sliding_door':
-            advance(buildSlidingDoorPiece('Sliding Door', input, originX, resolver));
-            if (input.fixedPanelWidthIn && input.fixedPanelWidthIn > 0) {
-                advance(buildFixedPanelPiece('Fixed Panel', { ...input, widthIn: input.fixedPanelWidthIn }, originX, resolver, 'Partition'));
+        case 'sliding_door': {
+            // Panel widths come from the caller here; the norms that always
+            // apply are the slider's shorter height and the lap over the fixed
+            // panel. A lone sliding leaf still loses the slider allowance.
+            const s = slidingSystemSizes(input, 2, 1);
+            const hasFixed = !!(input.fixedPanelWidthIn && input.fixedPanelWidthIn > 0);
+            const slider = buildSlidingDoorPiece('Sliding Door', { ...input, heightIn: s.slidingHeightIn }, originX, resolver);
+            if (hasFixed) {
+                advanceLapped(slider, s.overlap);
+                advance(buildFixedPanelPiece('Fixed Panel', { ...input, widthIn: input.fixedPanelWidthIn!, heightIn: s.fixedHeightIn }, originX, resolver, 'Partition'));
+            } else {
+                advance(slider);
             }
             break;
+        }
         case 'railing':
             advance(buildRailingPiece('Glass Railing', input, originX, resolver));
             break;
@@ -350,9 +399,13 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
             break;
         }
         case 'top_hung_sliding': {
-            advance(buildSlidingDoorPiece('Top-Hung Barn Slider Door', input, originX, resolver));
+            const s = slidingSystemSizes(input, 2, 1);
+            advanceLapped(
+                buildSlidingDoorPiece('Top-Hung Barn Slider Door', { ...input, heightIn: s.slidingHeightIn }, originX, resolver),
+                s.overlap
+            );
             const fixedW = input.fixedPanelWidthIn || input.widthIn;
-            advance(buildFixedPanelPiece('Sliding Fixed Track Panel', { ...input, widthIn: fixedW }, originX, resolver, 'Partition'));
+            advance(buildFixedPanelPiece('Sliding Fixed Track Panel', { ...input, widthIn: fixedW, heightIn: s.fixedHeightIn }, originX, resolver, 'Partition'));
             break;
         }
         case 'spider_facade': {
@@ -381,8 +434,14 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
             break;
         }
         case 'shower_sliding_2pc': {
-            advance(buildFixedPanelPiece('Fixed Header Glass Panel', { ...input, widthIn: input.widthIn }, originX, resolver, 'Partition'));
-            advance(buildSlidingDoorPiece('Frameless Sliding Shower Door', input, originX, resolver));
+            // Two leaves splitting one opening: each covers half the opening
+            // plus half the lap, and the sliding leaf is cut shorter.
+            const s = slidingSystemSizes(input, 2, 1);
+            advanceLapped(
+                buildFixedPanelPiece('Fixed Shower Panel', { ...input, widthIn: s.panelWidthIn, heightIn: s.fixedHeightIn }, originX, resolver, 'Partition'),
+                s.overlap
+            );
+            advance(buildSlidingDoorPiece('Frameless Sliding Shower Door', { ...input, widthIn: s.panelWidthIn, heightIn: s.slidingHeightIn }, originX, resolver));
             break;
         }
         case 'office_partition_3pc': {
@@ -430,11 +489,14 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
             break;
         }
         case 'sliding_4pc_patio': {
-            const fixedW = input.fixedPanelWidthIn || 36;
-            advance(buildFixedPanelPiece('Left Fixed Patio Glass', { ...input, widthIn: fixedW }, originX, resolver, 'Partition'));
-            advance(buildSlidingDoorPiece('Left Sliding Patio Door', input, originX, resolver));
-            advance(buildSlidingDoorPiece('Right Sliding Patio Door', input, originX, resolver));
-            advance(buildFixedPanelPiece('Right Fixed Patio Glass', { ...input, widthIn: fixedW }, originX, resolver, 'Partition'));
+            // Four leaves over one opening, the two centre sliders each
+            // lapping their outer fixed neighbour.
+            const s = slidingSystemSizes(input, 4, 2);
+            const fixedW = input.fixedPanelWidthIn || s.panelWidthIn;
+            advanceLapped(buildFixedPanelPiece('Left Fixed Patio Glass', { ...input, widthIn: fixedW, heightIn: s.fixedHeightIn }, originX, resolver, 'Partition'), s.overlap);
+            advance(buildSlidingDoorPiece('Left Sliding Patio Door', { ...input, widthIn: s.panelWidthIn, heightIn: s.slidingHeightIn }, originX, resolver));
+            advanceLapped(buildSlidingDoorPiece('Right Sliding Patio Door', { ...input, widthIn: s.panelWidthIn, heightIn: s.slidingHeightIn }, originX, resolver), s.overlap);
+            advance(buildFixedPanelPiece('Right Fixed Patio Glass', { ...input, widthIn: fixedW, heightIn: s.fixedHeightIn }, originX, resolver, 'Partition'));
             break;
         }
         case 'spider_facade_4pc': {
@@ -598,5 +660,14 @@ export function describeGlassSystem(input: GlassSystemInput, fittings: GlassItem
         }
     }
     const parts = Array.from(hardwareCounts.entries()).map(([name, n]) => `${n}x ${name}`);
-    return `${pieces.length} piece(s), ${holes} hole(s) + ${cuts} cut(s) total${parts.length ? ' -- ' + parts.join(', ') : ''}`;
+    // Call out the sliding allowances, since a slider being cut shorter than
+    // its fixed partner looks like a mistake unless it's stated. The lap only
+    // exists when there's actually a fixed panel to lap over.
+    const hasSlider = pieces.some(p => p.type === 'Sliding Door');
+    const hasFixedPartner = pieces.some(p => p.type !== 'Sliding Door');
+    const slidingNote = hasSlider
+        ? ` | slider cut ${input.slidingAllowanceIn ?? SLIDER_SET_ALLOWANCE_IN}" shorter for the slider set`
+          + (hasFixedPartner ? `, laps ${input.slidingOverlapIn ?? SLIDING_OVERLAP_IN}" over the fixed panel` : '')
+        : '';
+    return `${pieces.length} piece(s), ${holes} hole(s) + ${cuts} cut(s) total${parts.length ? ' -- ' + parts.join(', ') : ''}${slidingNote}`;
 }
