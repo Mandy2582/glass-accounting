@@ -1522,3 +1522,70 @@ export function getCutoutSpecsForItem(item: {
         deductionGapsMm: { top: 3, bottom: 3, hingeSide: 3, lockSide: 3 }
     };
 }
+
+// Canvas coordinates are stored at 10 units per inch (see GlassDesigner.createRectShape /
+// glassSystemDesigner U=10), so 1 canvas unit = 0.1 inch = 2.54 mm. The cutout templates
+// above are all in mm, so offsets have to go through this before landing on the canvas.
+const MM_PER_CANVAS_UNIT = 2.54;
+
+export interface DerivedHole { x: number; y: number; radius: number }
+export interface DerivedCut { x: number; y: number; width: number; height: number }
+
+/**
+ * Hardware placed via "+ Place Hardware" or the Glass Systems Designer only carries a
+ * hole/cut COUNT on its accessory shape (accessoryHoleCount/accessoryCutCount) -- there is
+ * no individually-positioned hole/cut shape for the CNC/fabrication drawing to draw. This
+ * turns that count into real, positioned geometry: the fitting's actual per-model cutout
+ * template when it references a real catalogue item (precise, brand-correct offsets), or an
+ * evenly-spread placeholder across the marker's footprint when it doesn't (a manually placed
+ * generic lock/hinge/connector/profile with no linked catalogue item).
+ */
+export function deriveAccessoryGeometry(
+    shape: { x: number; y: number; width?: number; height?: number; hardwareItemId?: string; accessoryHoleCount?: number; accessoryCutCount?: number; accessoryHoleRadiusIn?: number; accessoryCutAreaSqIn?: number },
+    fittingsById?: Map<string, { id?: string; name?: string; make?: string; model?: string; fittingRole?: string }>
+): { holes: DerivedHole[]; cuts: DerivedCut[] } {
+    const w = shape.width || 20;
+    const h = shape.height || 20;
+    const cx = (shape.x || 0) + w / 2;
+    const cy = (shape.y || 0) + h / 2;
+
+    const item = shape.hardwareItemId ? fittingsById?.get(shape.hardwareItemId) : undefined;
+    if (item) {
+        const spec = getCutoutSpecsForItem(item);
+        const holes: DerivedHole[] = spec.holes.map(hole => ({
+            x: cx + hole.offsetXMm / MM_PER_CANVAS_UNIT,
+            y: cy + hole.offsetYMm / MM_PER_CANVAS_UNIT,
+            radius: hole.radiusMm / MM_PER_CANVAS_UNIT
+        }));
+        const cuts: DerivedCut[] = spec.notchWidthMm > 0 ? [{
+            x: cx - (spec.notchWidthMm / MM_PER_CANVAS_UNIT) / 2,
+            y: cy - (spec.notchHeightMm / MM_PER_CANVAS_UNIT) / 2,
+            width: spec.notchWidthMm / MM_PER_CANVAS_UNIT,
+            height: spec.notchHeightMm / MM_PER_CANVAS_UNIT
+        }] : [];
+        return { holes, cuts };
+    }
+
+    // No linked catalogue item -- spread the recorded hole/cut counts evenly across the
+    // marker footprint, same layout the canvas marker itself uses to preview them.
+    const holeCount = Math.max(0, Math.round(Number(shape.accessoryHoleCount) || 0));
+    const cutCount = Math.max(0, Math.round(Number(shape.accessoryCutCount) || 0));
+    const total = holeCount + cutCount;
+    if (total === 0) return { holes: [], cuts: [] };
+
+    const holeRadius = (shape.accessoryHoleRadiusIn || 0.25) * 10; // inches -> canvas units
+    const cutSide = Math.sqrt(Math.max(shape.accessoryCutAreaSqIn || 1, 1)) * 10; // sq inch -> canvas unit side
+    const gap = Math.min(w / total, 12);
+    const startX = cx - ((total - 1) * gap) / 2;
+
+    const holes: DerivedHole[] = [];
+    for (let i = 0; i < holeCount; i++) {
+        holes.push({ x: startX + i * gap, y: cy, radius: holeRadius });
+    }
+    const cuts: DerivedCut[] = [];
+    for (let i = 0; i < cutCount; i++) {
+        const ccx = startX + (holeCount + i) * gap;
+        cuts.push({ x: ccx - cutSide / 2, y: cy - cutSide / 2, width: cutSide, height: cutSide });
+    }
+    return { holes, cuts };
+}

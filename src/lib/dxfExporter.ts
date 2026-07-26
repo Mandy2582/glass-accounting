@@ -2,21 +2,36 @@
  * DXF Exporter for Glass Designer
  * Generates standard AutoCAD R12 ASCII DXF files compatible with CNC glass cutting
  * machines (Bystronic, Intermac, Lisec, Bottero) and CAD applications.
+ *
+ * This is always a fabrication drawing: outline + holes + cuts only, no hardware
+ * markers -- a CNC machine cuts and drills glass, it doesn't install fittings.
  */
 
-import { GlassPiece, KonvaShape } from '@/types';
+import { GlassPiece, GlassItem } from '@/types';
+import { deriveAccessoryGeometry } from './fabricationSpecs';
 
 export interface DXFExportOptions {
     unit?: 'mm' | 'inch';
-    scale?: number; // Canvas pixels per unit ratio (e.g. 5px per inch or 0.2px per mm)
+    // Real catalogue items keyed by id, so hardware markers that reference a real
+    // fitting get its precise per-model hole/notch geometry instead of a generic guess.
+    fittingsById?: Map<string, GlassItem>;
 }
+
+// Canvas coordinates are stored at 10 units per inch (see GlassDesigner.createRectShape /
+// glassSystemDesigner U=10) -- every coordinate must go through this before being written
+// out as real-world mm/inches, or the DXF geometry comes out 10x (inch) or 2.54x (mm) wrong.
+const UNITS_PER_INCH = 10;
+const MM_PER_INCH = 25.4;
 
 /**
  * Generate a complete R12 DXF file string from glass pieces.
  */
 export function exportToDXF(pieces: GlassPiece[], options: DXFExportOptions = {}): string {
     const unit = options.unit || 'mm';
-    
+    const toOut = (canvasVal: number) => unit === 'mm'
+        ? (canvasVal / UNITS_PER_INCH) * MM_PER_INCH
+        : canvasVal / UNITS_PER_INCH;
+
     const lines: string[] = [];
 
     // Helper to append DXF key-value pair
@@ -63,15 +78,17 @@ export function exportToDXF(pieces: GlassPiece[], options: DXFExportOptions = {}
     add(0, 'SECTION');
     add(2, 'ENTITIES');
 
+    const pieceGapUnits = 150 * UNITS_PER_INCH; // 150" gap between pieces, in canvas units
+
     pieces.forEach((piece, pIndex) => {
-        const pieceX = pIndex * 1500; // offset pieces horizontally if multiple
+        const pieceXOffset = pIndex * pieceGapUnits; // canvas units, added before conversion
 
         piece.shapes.forEach(shape => {
             if (shape.type === 'glass_rect') {
-                const w = shape.width || 0;
-                const h = shape.height || 0;
-                const x0 = shape.x + pieceX;
-                const y0 = -shape.y; // Invert Y for standard CAD Cartesian plane
+                const w = toOut(shape.width || 0);
+                const h = toOut(shape.height || 0);
+                const x0 = toOut((shape.x || 0) + pieceXOffset);
+                const y0 = -toOut(shape.y || 0); // Invert Y for standard CAD Cartesian plane
 
                 add(0, 'POLYLINE');
                 add(8, '0_OUTLINE');
@@ -101,12 +118,12 @@ export function exportToDXF(pieces: GlassPiece[], options: DXFExportOptions = {}
                 add(10, (x0 + w / 2).toFixed(4));
                 add(20, (y0 - h / 2).toFixed(4));
                 add(30, '0.0000');
-                add(40, (Math.min(w, h) * 0.05 || 20).toFixed(4));
+                add(40, (Math.min(w, h) * 0.05 || (unit === 'mm' ? 20 : 0.8)).toFixed(4));
                 add(1, `${piece.name || 'GLASS_PANEL'} (${piece.thickness}mm)`);
             } else if (shape.type === 'hole') {
-                const cx = shape.x + pieceX;
-                const cy = -shape.y;
-                const r = shape.radius || 10;
+                const cx = toOut((shape.x || 0) + pieceXOffset);
+                const cy = -toOut(shape.y || 0);
+                const r = toOut(shape.radius || 10);
 
                 add(0, 'CIRCLE');
                 add(8, '1_HOLES');
@@ -115,10 +132,10 @@ export function exportToDXF(pieces: GlassPiece[], options: DXFExportOptions = {}
                 add(30, '0.0000');
                 add(40, r.toFixed(4));
             } else if (shape.type === 'cut') {
-                const w = shape.width || 20;
-                const h = shape.height || 20;
-                const x0 = shape.x + pieceX - w / 2;
-                const y0 = -shape.y + h / 2;
+                const w = toOut(shape.width || 20);
+                const h = toOut(shape.height || 20);
+                const x0 = toOut((shape.x || 0) + pieceXOffset) - w / 2;
+                const y0 = -toOut(shape.y || 0) + h / 2;
 
                 add(0, 'POLYLINE');
                 add(8, '2_CUTOUTS');
@@ -141,6 +158,48 @@ export function exportToDXF(pieces: GlassPiece[], options: DXFExportOptions = {}
                 });
 
                 add(0, 'SEQEND');
+            } else if (shape.type === 'accessory') {
+                // Hardware fittings only carry a hole/cut COUNT -- derive the real,
+                // positioned drill holes and notch cutouts they imply so the CNC
+                // machine actually gets geometry for them, not just a marker.
+                const { holes, cuts } = deriveAccessoryGeometry(shape, options.fittingsById);
+
+                holes.forEach(hole => {
+                    const cx = toOut(hole.x + pieceXOffset);
+                    const cy = -toOut(hole.y);
+                    const r = toOut(hole.radius);
+                    add(0, 'CIRCLE');
+                    add(8, '1_HOLES');
+                    add(10, cx.toFixed(4));
+                    add(20, cy.toFixed(4));
+                    add(30, '0.0000');
+                    add(40, r.toFixed(4));
+                });
+
+                cuts.forEach(cut => {
+                    const w = toOut(cut.width);
+                    const h = toOut(cut.height);
+                    const x0 = toOut(cut.x + pieceXOffset);
+                    const y0 = -toOut(cut.y);
+
+                    add(0, 'POLYLINE');
+                    add(8, '2_CUTOUTS');
+                    add(66, 1);
+                    add(70, 1);
+                    [
+                        { x: x0, y: y0 },
+                        { x: x0 + w, y: y0 },
+                        { x: x0 + w, y: y0 - h },
+                        { x: x0, y: y0 - h }
+                    ].forEach(pt => {
+                        add(0, 'VERTEX');
+                        add(8, '2_CUTOUTS');
+                        add(10, pt.x.toFixed(4));
+                        add(20, pt.y.toFixed(4));
+                        add(30, '0.0000');
+                    });
+                    add(0, 'SEQEND');
+                });
             }
         });
     });

@@ -3310,16 +3310,18 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                     )}
                     {designerMode === 'bom' ? (() => {
                         const bomReport = generateFactoryBOM(pieces, hardwareItems);
+                        const fittingsById = new Map(hardwareItems.map(hw => [hw.id, hw]));
                         return (
                             <div style={{ padding: '1.2rem', overflowY: 'auto', maxHeight: '100%', background: '#ffffff', borderRadius: '10px' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
                                     <h2 style={{ fontSize: '1.2rem', fontWeight: 700, margin: 0, color: '#0f172a' }}>Factory Job Card & Architectural BOM</h2>
                                     <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-                                        <button 
-                                            type="button" 
-                                            className="btn btn-secondary" 
-                                            style={{ fontSize: '0.75rem', padding: '0.3rem 0.65rem', background: '#0f172a', color: '#ffffff', border: 'none', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem', borderRadius: '5px', cursor: 'pointer' }} 
-                                            onClick={() => downloadDXFFile(`job-sheet-${Date.now()}`, exportToDXF(pieces))}
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary"
+                                            style={{ fontSize: '0.75rem', padding: '0.3rem 0.65rem', background: '#0f172a', color: '#ffffff', border: 'none', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem', borderRadius: '5px', cursor: 'pointer' }}
+                                            title="CNC-ready outline + every hole/cut the glass needs, no hardware markers"
+                                            onClick={() => downloadDXFFile(`job-sheet-fabrication-${Date.now()}`, exportToDXF(pieces, { fittingsById }))}
                                         >
                                             💾 Export DXF (CNC)
                                         </button>
@@ -3327,9 +3329,19 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                             type="button"
                                             className="btn btn-secondary"
                                             style={{ fontSize: '0.75rem', padding: '0.3rem 0.65rem', background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem', borderRadius: '5px', cursor: 'pointer' }}
-                                            onClick={() => downloadSVGFile(`job-sheet-${Date.now()}`, exportToSVG(pieces))}
+                                            title="Outline + every hole/cut the glass needs (including ones implied by hardware), no hardware markers -- for the glass processor"
+                                            onClick={() => downloadSVGFile(`job-sheet-fabrication-${Date.now()}`, exportToSVG(pieces, { mode: 'fabrication', fittingsById }))}
                                         >
-                                            🖼️ Export SVG
+                                            🖼️ Fabrication Drawing
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary"
+                                            style={{ fontSize: '0.75rem', padding: '0.3rem 0.65rem', background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem', borderRadius: '5px', cursor: 'pointer' }}
+                                            title="Outline + labelled, colour-coded hardware markers -- for whoever installs the fittings"
+                                            onClick={() => downloadSVGFile(`job-sheet-installation-${Date.now()}`, exportToSVG(pieces, { mode: 'installation', fittingsById }))}
+                                        >
+                                            🔧 Installation Drawing
                                         </button>
                                     </div>
                                 </div>
