@@ -382,8 +382,8 @@ const renderRectDimensions = (shape: KonvaShape, scale: number = 1, showHeightDi
     
     const textGap = RECT_DIM_OFFSET_PX / scale;
     const arrowOffset = RECT_DIM_OFFSET_PX / scale;
-    const dimensionColor = '#2563eb';
-    const extensionColor = '#93c5fd';
+    const dimensionColor = '#0e7490';
+    const extensionColor = '#67c3d6';
 
     // Horizontal dim line above the glass
     const cx = shape.x + width / 2;
@@ -457,7 +457,7 @@ const renderRectDimensions = (shape: KonvaShape, scale: number = 1, showHeightDi
                 width={labelWidth}
                 height={labelHeight}
                 fill="#ffffff"
-                stroke="#bfdbfe"
+                stroke="#a3d9e0"
                 strokeWidth={1 / scale}
                 cornerRadius={6 / scale}
                 listening={false}
@@ -468,7 +468,7 @@ const renderRectDimensions = (shape: KonvaShape, scale: number = 1, showHeightDi
                 text={wText}
                 fontSize={textFontSize}
                 fontStyle="bold"
-                fill="#1d4ed8"
+                fill="#0e7490"
                 align="center"
                 width={labelWidth}
                 offsetY={1 / scale}
@@ -520,7 +520,7 @@ const renderRectDimensions = (shape: KonvaShape, scale: number = 1, showHeightDi
                         width={labelWidth}
                         height={labelHeight}
                         fill="#ffffff"
-                        stroke="#bfdbfe"
+                        stroke="#a3d9e0"
                         strokeWidth={1 / scale}
                         cornerRadius={6 / scale}
                         listening={false}
@@ -531,7 +531,7 @@ const renderRectDimensions = (shape: KonvaShape, scale: number = 1, showHeightDi
                         text={hText}
                         fontSize={textFontSize}
                         fontStyle="bold"
-                        fill="#1d4ed8"
+                        fill="#0e7490"
                         align="center"
                         width={labelWidth}
                         offsetY={1 / scale}
@@ -550,7 +550,7 @@ const renderCircleDimensions = (shape: KonvaShape, scale: number = 1): React.Rea
     
     const textGap = 44 / scale;
     const lineHalf = radius;
-    const dimensionColor = '#2563eb';
+    const dimensionColor = '#0e7490';
     const labelWidth = 96 / scale;
     const labelHeight = 24 / scale;
     
@@ -605,7 +605,7 @@ const renderCircleDimensions = (shape: KonvaShape, scale: number = 1): React.Rea
                 width={labelWidth}
                 height={labelHeight}
                 fill="#ffffff"
-                stroke="#bfdbfe"
+                stroke="#a3d9e0"
                 strokeWidth={1 / scale}
                 cornerRadius={6 / scale}
                 listening={false}
@@ -616,7 +616,7 @@ const renderCircleDimensions = (shape: KonvaShape, scale: number = 1): React.Rea
                 text={dText}
                 fontSize={textFontSize}
                 fontStyle="bold"
-                fill="#1d4ed8"
+                fill="#0e7490"
                 align="center"
                 width={labelWidth}
                 offsetY={1 / scale}
@@ -1295,8 +1295,8 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
 
     const activePiece = pieces.find(p => p.id === activePieceId);
 
-    const updateActivePiece = (updates: Partial<GlassPiece>) => {
-        setPieces(pieces.map(p => p.id === activePieceId ? { ...p, ...updates } : p));
+    const updateActivePiece = (updates: Partial<GlassPiece>, pieceId?: string) => {
+        setPieces(prev => prev.map(p => p.id === (pieceId ?? activePieceId) ? { ...p, ...updates } : p));
     };
 
     const copyShapes = (shapeIds: string[]) => {
@@ -2187,7 +2187,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
             thickness: 12,
             shapes: []
         };
-        setPieces([newPiece]);
+        setPieces(prev => [...prev, newPiece]);
         setActivePieceId(newPiece.id);
         return newPiece;
     };
@@ -2239,7 +2239,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
             newShape = { id, type, x: px - 25, y: py - 25, width: 50, height: 50, parentId };
         }
         
-        updateActivePiece({ shapes: [...currentPiece.shapes, newShape] });
+        updateActivePiece({ shapes: [...currentPiece.shapes, newShape] }, currentPiece.id);
         setSelectedShapeId(id);
     };
 
@@ -2375,7 +2375,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
             parentId
         };
         
-        updateActivePiece({ shapes: [...currentPiece.shapes, newShape] });
+        updateActivePiece({ shapes: [...currentPiece.shapes, newShape] }, currentPiece.id);
         setSelectedShapeId(id);
     };
 
@@ -3331,15 +3331,15 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                             type="button" 
                                             className="btn btn-secondary" 
                                             style={{ fontSize: '0.75rem', padding: '0.3rem 0.65rem', background: '#0f172a', color: '#ffffff', border: 'none', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem', borderRadius: '5px', cursor: 'pointer' }} 
-                                            onClick={() => exportToDXF(pieces)}
+                                            onClick={() => downloadDXFFile(`job-sheet-${Date.now()}`, exportToDXF(pieces))}
                                         >
                                             💾 Export DXF (CNC)
                                         </button>
-                                        <button 
-                                            type="button" 
-                                            className="btn btn-secondary" 
-                                            style={{ fontSize: '0.75rem', padding: '0.3rem 0.65rem', background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem', borderRadius: '5px', cursor: 'pointer' }} 
-                                            onClick={() => exportToSVG(pieces)}
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary"
+                                            style={{ fontSize: '0.75rem', padding: '0.3rem 0.65rem', background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem', borderRadius: '5px', cursor: 'pointer' }}
+                                            onClick={() => downloadSVGFile(`job-sheet-${Date.now()}`, exportToSVG(pieces))}
                                         >
                                             🖼️ Export SVG
                                         </button>
