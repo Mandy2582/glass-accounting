@@ -47,6 +47,64 @@ const SPIDER_CORNER_INSET_IN = 3;              // bolt-hole inset from each corn
 const SLIDER_SET_ALLOWANCE_IN = 2;   // sliding leaf is cut this much shorter (roller/track space)
 const SLIDING_OVERLAP_IN = 2;        // slider laps this far over its fixed neighbour when closed
 
+// --- L-bracket norms ---
+// An L-bracket clamps a glass-to-glass 90 degree or glass-to-wall joint, so it
+// belongs ON the joint edge, not out in the middle of the panel face, and its
+// centres sit in from the panel ends the same way a hinge does rather than
+// hard up against the corner. How many depends on the run: a short return
+// takes two, a full-height partition wants three or four.
+const L_BRACKET_END_INSET_IN = 4;
+// Light-duty (Small) is adequate for modest returns; a tall or heavy leaf
+// levers hard on the joint and takes the heavy-duty (Big) body. Glass weighs
+// ~2.5 kg per m2 per mm of thickness.
+const L_BRACKET_BIG_MIN_WEIGHT_KG = 30;
+const L_BRACKET_BIG_MIN_HEIGHT_IN = 72;
+
+function panelWeightKg(widthIn: number, heightIn: number, thicknessMm: number): number {
+    const areaSqM = (widthIn * heightIn * 0.00064516); // in^2 -> m^2
+    return areaSqM * thicknessMm * 2.5;
+}
+
+function lBracketCountForHeight(heightIn: number): number {
+    if (heightIn <= 36) return 2;
+    if (heightIn <= 72) return 3;
+    return 4;
+}
+
+// Which L-bracket this panel needs. Falls back through the generic
+// 'connector' role so a shop that hasn't tagged its brackets yet still gets
+// something sensible rather than nothing.
+function lBracketRole(widthIn: number, heightIn: number, thicknessMm: number, resolver: FittingResolver): FittingRole {
+    const heavy = panelWeightKg(widthIn, heightIn, thicknessMm) > L_BRACKET_BIG_MIN_WEIGHT_KG
+        || heightIn > L_BRACKET_BIG_MIN_HEIGHT_IN;
+    const preferred: FittingRole = heavy ? 'l_bracket_big' : 'l_bracket_small';
+    if (resolver.has(preferred)) return preferred;
+    const other: FittingRole = heavy ? 'l_bracket_small' : 'l_bracket_big';
+    if (resolver.has(other)) return other;
+    return 'connector';
+}
+
+// Place L-brackets down the vertical edge that meets the neighbouring panel
+// or wall, straddling that joint.
+function pushLBrackets(
+    shapes: KonvaShape[],
+    box: PanelBox,
+    input: GlassSystemInput,
+    jointSide: 'left' | 'right',
+    resolver: FittingResolver
+) {
+    const role = lBracketRole(input.widthIn, input.heightIn, input.thickness, resolver);
+    const edgeX = jointSide === 'left' ? box.leftX : box.leftX + box.widthU;
+    for (const yU of evenPositions(
+        lBracketCountForHeight(input.heightIn),
+        box.topY,
+        box.heightU,
+        L_BRACKET_END_INSET_IN * U
+    )) {
+        shapes.push(hardware(box.id, role, edgeX, yU, resolver));
+    }
+}
+
 const ORIGIN_X = 100;
 const ORIGIN_Y = 80;
 const PIECE_GAP_U = 2; // tight 2px (2mm) physical glass-to-glass joint gap for single-window system assembly
@@ -134,6 +192,10 @@ const ROLE_SPEC: Record<FittingRole, {
     glass_hinge:     { render: 'hinge',     w: 30, h: 25, holes: 2, cuts: 1, holeRadiusIn: 0.25, cutAreaSqIn: 6, label: 'Glass hinge' },
     door_lock:       { render: 'lock',      w: 25, h: 25, holes: 1, cuts: 1, holeRadiusIn: 0.75, cutAreaSqIn: 6, label: 'Lock' },
     sliding_lock:    { render: 'lock',      w: 25, h: 25, holes: 1, cuts: 0, holeRadiusIn: 0.5,  cutAreaSqIn: 0, label: 'Sliding lock' },
+    // L-brackets clamp the glass face; nothing is drilled or notched into the
+    // panel for them. Big is the heavier/longer body, so it draws larger.
+    l_bracket_small: { render: 'connector', w: 26, h: 26, holes: 0, cuts: 0, holeRadiusIn: 0,    cutAreaSqIn: 0, label: 'Small L bracket' },
+    l_bracket_big:   { render: 'connector', w: 38, h: 38, holes: 0, cuts: 0, holeRadiusIn: 0,    cutAreaSqIn: 0, label: 'Big L bracket' },
     connector:       { render: 'connector', w: 40, h: 20, holes: 0, cuts: 0, holeRadiusIn: 0,    cutAreaSqIn: 0, label: 'Connector' },
     clamp:           { render: 'connector', w: 30, h: 18, holes: 0, cuts: 0, holeRadiusIn: 0,    cutAreaSqIn: 0, label: 'Clamp' },
     spigot:          { render: 'connector', w: 26, h: 26, holes: 1, cuts: 0, holeRadiusIn: 0.5,  cutAreaSqIn: 0, label: 'Spigot' },
@@ -188,7 +250,13 @@ function hardware(parentId: string, role: FittingRole, cxU: number, cyU: number,
         }
     }
 
-    const name = fitting?.name ? (fitting.make ? `${fitting.name} (${fitting.make})` : fitting.name) : `${spec.label} -- add a fitting`;
+    // Most catalogue names already lead with the brand, so only append the
+    // make when it isn't in there already -- otherwise the marker on the
+    // drawing reads "Ozone Big L-Connector Bracket (Ozone)".
+    const nameHasMake = !!(fitting?.make && fitting.name?.toLowerCase().includes(fitting.make.toLowerCase()));
+    const name = fitting?.name
+        ? (fitting.make && !nameHasMake ? `${fitting.name} (${fitting.make})` : fitting.name)
+        : `${spec.label} -- add a fitting`;
     return {
         id: generateUUID(),
         type: 'accessory',
@@ -268,7 +336,7 @@ function buildDoorPiece(name: string, input: GlassSystemInput, originX: number, 
     return { name, type: 'Door', thickness, quantity: 1, shapes };
 }
 
-function buildFixedPanelPiece(name: string, input: GlassSystemInput, originX: number, resolver: FittingResolver, pieceType = 'Partition'): Omit<GlassPiece, 'id'> {
+function buildFixedPanelPiece(name: string, input: GlassSystemInput, originX: number, resolver: FittingResolver, pieceType = 'Partition', jointSide: 'left' | 'right' = 'left'): Omit<GlassPiece, 'id'> {
     const { widthIn, heightIn, thickness } = input;
     const { shape, box } = rectPanel(widthIn, heightIn, originX);
     const shapes: KonvaShape[] = [shape];
@@ -285,8 +353,7 @@ function buildFixedPanelPiece(name: string, input: GlassSystemInput, originX: nu
             shapes.push(hardware(box.id, 'spigot', xU, box.topY + box.heightU - 4 * U, resolver));
         }
     } else {
-        shapes.push(hardware(box.id, 'connector', box.leftX + box.widthU / 2, box.topY + 9, resolver));
-        shapes.push(hardware(box.id, 'connector', box.leftX + box.widthU / 2, box.topY + box.heightU - 9, resolver));
+        pushLBrackets(shapes, box, input, jointSide, resolver);
     }
 
     return { name, type: pieceType, thickness, quantity: 1, shapes };
@@ -420,7 +487,7 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
         case 'shower_inline_3pc': {
             const leftW = input.fixedPanelLeftWidthIn || 18;
             const rightW = input.fixedPanelRightWidthIn || 18;
-            advance(buildFixedPanelPiece('Shower Fixed Panel Left', { ...input, widthIn: leftW }, originX, resolver, 'Partition'));
+            advance(buildFixedPanelPiece('Shower Fixed Panel Left', { ...input, widthIn: leftW }, originX, resolver, 'Partition', 'right'));
             advance(buildDoorPiece('Shower Door (Center)', input, originX, resolver));
             advance(buildFixedPanelPiece('Shower Fixed Panel Right', { ...input, widthIn: rightW }, originX, resolver, 'Partition'));
             break;
@@ -428,7 +495,7 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
         case 'shower_corner_90_3pc': {
             const leftW = input.fixedPanelLeftWidthIn || 18;
             const returnW = input.fixedPanelWidthIn || 24;
-            advance(buildFixedPanelPiece('Inline Fixed Panel', { ...input, widthIn: leftW }, originX, resolver, 'Partition'));
+            advance(buildFixedPanelPiece('Inline Fixed Panel', { ...input, widthIn: leftW }, originX, resolver, 'Partition', 'right'));
             advance(buildDoorPiece('Shower Door', input, originX, resolver));
             advance(buildFixedPanelPiece('90° Return Panel', { ...input, widthIn: returnW }, originX, resolver, 'Partition'));
             break;
@@ -438,7 +505,7 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
             // plus half the lap, and the sliding leaf is cut shorter.
             const s = slidingSystemSizes(input, 2, 1);
             advanceLapped(
-                buildFixedPanelPiece('Fixed Shower Panel', { ...input, widthIn: s.panelWidthIn, heightIn: s.fixedHeightIn }, originX, resolver, 'Partition'),
+                buildFixedPanelPiece('Fixed Shower Panel', { ...input, widthIn: s.panelWidthIn, heightIn: s.fixedHeightIn }, originX, resolver, 'Partition', 'right'),
                 s.overlap
             );
             advance(buildSlidingDoorPiece('Frameless Sliding Shower Door', { ...input, widthIn: s.panelWidthIn, heightIn: s.slidingHeightIn }, originX, resolver));
@@ -447,7 +514,7 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
         case 'office_partition_3pc': {
             const leftW = input.fixedPanelLeftWidthIn || 36;
             const rightW = input.fixedPanelRightWidthIn || 36;
-            advance(buildFixedPanelPiece('Office Glass Partition Left', { ...input, widthIn: leftW }, originX, resolver, 'Partition'));
+            advance(buildFixedPanelPiece('Office Glass Partition Left', { ...input, widthIn: leftW }, originX, resolver, 'Partition', 'right'));
             advance(buildDoorPiece('Office Swing Glass Door', { ...input, pivotStyle: 'patch', hasLock: true }, originX, resolver));
             advance(buildFixedPanelPiece('Office Glass Partition Right', { ...input, widthIn: rightW }, originX, resolver, 'Partition'));
             break;
@@ -470,7 +537,7 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
             const sideW = input.fixedPanelWidthIn || 24;
             const transomH = input.transomHeightIn || 18;
             const startX = originX;
-            advance(buildFixedPanelPiece('Left Side Lite Glass', { ...input, widthIn: sideW }, originX, resolver, 'Partition'));
+            advance(buildFixedPanelPiece('Left Side Lite Glass', { ...input, widthIn: sideW }, originX, resolver, 'Partition', 'right'));
             advance(buildDoorPiece('Left Entrance Door', { ...input, hingeSide: 'left', pivotStyle: 'patch' }, originX, resolver));
             advance(buildDoorPiece('Right Entrance Door', { ...input, hingeSide: 'right', pivotStyle: 'patch' }, originX, resolver));
             advance(buildFixedPanelPiece('Right Side Lite Glass', { ...input, widthIn: sideW }, originX, resolver, 'Partition'));
@@ -493,7 +560,7 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
             // lapping their outer fixed neighbour.
             const s = slidingSystemSizes(input, 4, 2);
             const fixedW = input.fixedPanelWidthIn || s.panelWidthIn;
-            advanceLapped(buildFixedPanelPiece('Left Fixed Patio Glass', { ...input, widthIn: fixedW, heightIn: s.fixedHeightIn }, originX, resolver, 'Partition'), s.overlap);
+            advanceLapped(buildFixedPanelPiece('Left Fixed Patio Glass', { ...input, widthIn: fixedW, heightIn: s.fixedHeightIn }, originX, resolver, 'Partition', 'right'), s.overlap);
             advance(buildSlidingDoorPiece('Left Sliding Patio Door', { ...input, widthIn: s.panelWidthIn, heightIn: s.slidingHeightIn }, originX, resolver));
             advanceLapped(buildSlidingDoorPiece('Right Sliding Patio Door', { ...input, widthIn: s.panelWidthIn, heightIn: s.slidingHeightIn }, originX, resolver), s.overlap);
             advance(buildFixedPanelPiece('Right Fixed Patio Glass', { ...input, widthIn: fixedW, heightIn: s.fixedHeightIn }, originX, resolver, 'Partition'));

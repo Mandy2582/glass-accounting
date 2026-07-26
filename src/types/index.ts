@@ -60,6 +60,13 @@ export interface GlassItem {
 export type FittingRole =
     | 'top_patch' | 'bottom_patch' | 'overpanel_patch' | 'floor_spring'
     | 'wall_hinge' | 'glass_hinge' | 'door_lock' | 'sliding_lock'
+    // L-brackets get their own roles rather than sharing 'connector' with the
+    // spiders and overpanel patches: they are the fitting a plain glass-to-
+    // glass / glass-to-wall joint actually needs, and the engine has to pick
+    // between the light-duty and heavy-duty size by panel load. Lumped in as
+    // 'connector' they were indistinguishable from a 4-way structural spider,
+    // so a small return panel was quoted a spider at ~7x the bracket price.
+    | 'l_bracket_small' | 'l_bracket_big'
     | 'connector' | 'clamp' | 'spigot' | 'handle' | 'sliding_kit' | 'other';
 
 export interface StockBatch {
