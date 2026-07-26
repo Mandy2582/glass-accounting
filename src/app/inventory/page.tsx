@@ -8,7 +8,6 @@ import styles from './inventory.module.css';
 import ItemModal from '@/components/inventory/ItemModal';
 import BreakageModal from '@/components/inventory/BreakageModal';
 import ItemHistoryModal from '@/components/inventory/ItemHistoryModal';
-import { syncMasterHardwareCatalog } from '@/lib/catalogSeeder';
 
 import { generateUUID, formatInchesToFraction, formatIndianCurrency } from '@/lib/utils';
 
@@ -48,18 +47,7 @@ export default function InventoryPage() {
             db.invoices.getAll()
         ]);
         
-        let allItems = itemsData;
-        const hwCount = allItems.filter(i => i.category === 'hardware').length;
-        if (hwCount < 50) {
-            try {
-                await syncMasterHardwareCatalog();
-                allItems = await db.items.getAll();
-            } catch (e) {
-                console.error("Auto catalog sync failed in inventory page:", e);
-            }
-        }
-        
-        setItems(allItems);
+        setItems(itemsData);
 
         // Calculate top selling items from sale invoices
         const salesMap: Record<string, number> = {};
@@ -217,22 +205,6 @@ export default function InventoryPage() {
             <div className={styles.header}>
                 <h1 className={styles.title}>Inventory Management</h1>
                 <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                    <button
-                        className="btn"
-                        style={{ background: '#10b981', color: '#ffffff', border: 'none', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem', boxShadow: '0 2px 6px rgba(16,185,129,0.25)' }}
-                        onClick={async () => {
-                            try {
-                                const res = await syncMasterHardwareCatalog();
-                                await loadItems();
-                                alert(`⚡ Successfully synchronized 80+ complete manufacturer hardware fittings (DORMA, Ozone, Icon, Häfele, Hardwyn, Enox, CRL) with live pricing!${res.addedCount > 0 ? ` Added ${res.addedCount} new items.` : ''}`);
-                            } catch (e) {
-                                console.error(e);
-                                alert("Failed to sync brand catalogs.");
-                            }
-                        }}
-                    >
-                        ⚡ Sync Brand Catalogs (80+ Items)
-                    </button>
                     <button className="btn" style={{ background: '#fee2e2', color: '#ef4444', border: 'none' }} onClick={() => setIsBreakageModalOpen(true)}>
                         Record Breakage
                     </button>

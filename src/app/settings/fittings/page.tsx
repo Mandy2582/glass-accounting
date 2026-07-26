@@ -1,10 +1,9 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { Save, Wrench, AlertCircle, CheckCircle, Zap, RefreshCw, Layers } from 'lucide-react';
+import { Save, Wrench, AlertCircle, CheckCircle, Layers, RefreshCw } from 'lucide-react';
 import { db } from '@/lib/storage';
 import { GlassItem, FittingRole } from '@/types';
-import { syncMasterHardwareCatalog } from '@/lib/catalogSeeder';
 import { getCutoutSpecsForItem } from '@/lib/fabricationSpecs';
 
 // The glass prep each hardware fitting needs, edited here once so the Glass
@@ -42,7 +41,6 @@ const BRAND_TABS = [
 export default function FittingsSettingsPage() {
     const [fittings, setFittings] = useState<GlassItem[]>([]);
     const [loading, setLoading] = useState(true);
-    const [syncing, setSyncing] = useState(false);
     const [saving, setSaving] = useState(false);
     const [selectedBrand, setSelectedBrand] = useState<string>('All');
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -65,24 +63,6 @@ export default function FittingsSettingsPage() {
             setMessage({ type: 'error', text: 'Could not load your hardware fittings. Refresh and try again.' });
         } finally {
             setLoading(false);
-        }
-    };
-
-    const handleSyncCatalog = async () => {
-        setSyncing(true);
-        setMessage(null);
-        try {
-            const res = await syncMasterHardwareCatalog();
-            await load();
-            setMessage({
-                type: 'success',
-                text: `⚡ Successfully synchronized complete 80+ brand catalogs (DORMA, Ozone, Icon, Häfele, Hardwyn, Enox, CRL)! ${res.addedCount > 0 ? `Added ${res.addedCount} new items.` : 'All items up-to-date.'}`
-            });
-        } catch (e) {
-            console.error(e);
-            setMessage({ type: 'error', text: 'Failed to sync hardware catalogs.' });
-        } finally {
-            setSyncing(false);
         }
     };
 
@@ -130,19 +110,6 @@ export default function FittingsSettingsPage() {
                         Manage manufacturer hardware catalogs, architectural notch cutouts, drill hole preps, and standard placement roles for DORMA, Ozone, Icon, Häfele, Hardwyn, Enox, and CRL.
                     </p>
                 </div>
-                <button
-                    onClick={handleSyncCatalog}
-                    disabled={syncing || loading}
-                    className="btn"
-                    style={{
-                        background: '#10b981', color: '#ffffff', border: 'none', padding: '0.6rem 1.1rem',
-                        fontWeight: 700, borderRadius: '8px', cursor: syncing ? 'not-allowed' : 'pointer',
-                        display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: '0 2px 6px rgba(16,185,129,0.3)'
-                    }}
-                >
-                    {syncing ? <RefreshCw className="animate-spin" size={18} /> : <Zap size={18} />}
-                    {syncing ? 'Syncing Brand Catalogs...' : '⚡ Sync Brand Catalogs (80+ Items)'}
-                </button>
             </div>
 
             {message && (

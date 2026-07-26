@@ -12,7 +12,6 @@ import { exportToDXF, downloadDXFFile } from '@/lib/dxfExporter';
 import { exportToSVG, downloadSVGFile } from '@/lib/svgExporter';
 import { validateGlassSafety, type SafetyViolation } from '@/lib/glassSafetyValidator';
 import { HARDWARE_CUTOUT_TEMPLATES, getCutoutSpecsForItem } from '@/lib/fabricationSpecs';
-import { syncMasterHardwareCatalog } from '@/lib/catalogSeeder';
 import { calculateGlassEngineering } from '@/lib/glassEngineeringCalculator';
 import { generateFactoryBOM } from '@/lib/glassBOMGenerator';
 
@@ -2845,24 +2844,6 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                 <option value="profile">Profile/Channel</option>
                             </optgroup>
                         </select>
-                        <button
-                            type="button"
-                            className="btn"
-                            title="Sync Complete Brand Catalogs (DORMA, Ozone, Icon, Häfele, etc.)"
-                            style={{ background: '#10b981', color: '#ffffff', border: 'none', fontSize: '0.75rem', padding: '0.35rem 0.65rem', fontWeight: 600, borderRadius: '6px', cursor: 'pointer' }}
-                            onClick={async () => {
-                                try {
-                                    await syncMasterHardwareCatalog();
-                                    const all = await db.items.getAll();
-                                    setHardwareItems(all.filter(i => i.category === 'hardware'));
-                                    alert("⚡ Successfully synchronized 80+ complete brand hardware catalogs!");
-                                } catch (e) {
-                                    console.error(e);
-                                }
-                            }}
-                        >
-                            ⚡ Sync Brands
-                        </button>
                     </div>
 
                     {/* View Mode Switcher */}
