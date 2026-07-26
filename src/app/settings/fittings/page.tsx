@@ -54,19 +54,10 @@ export default function FittingsSettingsPage() {
     const load = async () => {
         setLoading(true);
         try {
-            let all = await db.items.getAll();
-            let hw = all
+            const all = await db.items.getAll();
+            const hw = all
                 .filter(i => i.category === 'hardware')
                 .sort((a, b) => a.name.localeCompare(b.name));
-            
-            // Automatically seed complete catalog if inventory doesn't have the standard manufacturer set
-            if (hw.length < 50) {
-                await syncMasterHardwareCatalog();
-                all = await db.items.getAll();
-                hw = all
-                    .filter(i => i.category === 'hardware')
-                    .sort((a, b) => a.name.localeCompare(b.name));
-            }
 
             setFittings(hw);
         } catch (error) {

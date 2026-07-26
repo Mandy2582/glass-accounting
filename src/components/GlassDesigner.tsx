@@ -1227,21 +1227,9 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
     useEffect(() => {
         let cancelled = false;
         db.items.getAll()
-            .then(async items => {
+            .then(items => {
                 if (!cancelled) {
-                    let hw = items.filter(item => item.category === 'hardware');
-                    if (hw.length < 50) {
-                        try {
-                            await syncMasterHardwareCatalog();
-                            const updated = await db.items.getAll();
-                            hw = updated.filter(item => item.category === 'hardware');
-                        } catch (e) {
-                            console.error('Auto catalog sync failed:', e);
-                        }
-                    }
-                    if (!cancelled) {
-                        setHardwareItems(hw);
-                    }
+                    setHardwareItems(items.filter(item => item.category === 'hardware'));
                 }
             })
             .catch(error => console.error('Failed to load hardware items for designer:', error));
