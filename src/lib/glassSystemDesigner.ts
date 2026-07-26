@@ -60,6 +60,10 @@ const L_BRACKET_END_INSET_IN = 4;
 const L_BRACKET_BIG_MIN_WEIGHT_KG = 30;
 const L_BRACKET_BIG_MIN_HEIGHT_IN = 72;
 
+// How deep the glass seats into a base channel -- the channel is drawn this
+// tall along the bottom edge of the panel it holds.
+const CHANNEL_DEPTH_IN = 1.5;
+
 function panelWeightKg(widthIn: number, heightIn: number, thicknessMm: number): number {
     const areaSqM = (widthIn * heightIn * 0.00064516); // in^2 -> m^2
     return areaSqM * thicknessMm * 2.5;
@@ -196,6 +200,9 @@ const ROLE_SPEC: Record<FittingRole, {
     // panel for them. Big is the heavier/longer body, so it draws larger.
     l_bracket_small: { render: 'connector', w: 26, h: 26, holes: 0, cuts: 0, holeRadiusIn: 0,    cutAreaSqIn: 0, label: 'Small L bracket' },
     l_bracket_big:   { render: 'connector', w: 38, h: 38, holes: 0, cuts: 0, holeRadiusIn: 0,    cutAreaSqIn: 0, label: 'Big L bracket' },
+    // Width is overridden at placement time to span the panel; nothing is
+    // drilled for a channel, the glass just seats into it.
+    base_channel:    { render: 'profile',   w: 120, h: 12, holes: 0, cuts: 0, holeRadiusIn: 0,   cutAreaSqIn: 0, label: 'Base channel' },
     connector:       { render: 'connector', w: 40, h: 20, holes: 0, cuts: 0, holeRadiusIn: 0,    cutAreaSqIn: 0, label: 'Connector' },
     clamp:           { render: 'connector', w: 30, h: 18, holes: 0, cuts: 0, holeRadiusIn: 0,    cutAreaSqIn: 0, label: 'Clamp' },
     spigot:          { render: 'connector', w: 26, h: 26, holes: 1, cuts: 0, holeRadiusIn: 0.5,  cutAreaSqIn: 0, label: 'Spigot' },
@@ -221,7 +228,16 @@ function buildResolver(fittings: GlassItem[]): FittingResolver {
 // Builds a hardware accessory marker for `role` centered on (cxU, cyU),
 // using the shop's stocked fitting when available (real name/prep/rate/id)
 // and the built-in default otherwise.
-function hardware(parentId: string, role: FittingRole, cxU: number, cyU: number, resolver: FittingResolver): KonvaShape {
+function hardware(
+    parentId: string,
+    role: FittingRole,
+    cxU: number,
+    cyU: number,
+    resolver: FittingResolver,
+    // Continuous fittings (a base channel, a top track) are as long as the
+    // panel they run along, so their footprint can't come from ROLE_SPEC.
+    sizeOverride?: { w?: number; h?: number }
+): KonvaShape {
     const spec = ROLE_SPEC[role];
     const fitting = resolver.get(role);
     
@@ -260,10 +276,10 @@ function hardware(parentId: string, role: FittingRole, cxU: number, cyU: number,
     return {
         id: generateUUID(),
         type: 'accessory',
-        x: cxU - spec.w / 2,
-        y: cyU - spec.h / 2,
-        width: spec.w,
-        height: spec.h,
+        x: cxU - (sizeOverride?.w ?? spec.w) / 2,
+        y: cyU - (sizeOverride?.h ?? spec.h) / 2,
+        width: sizeOverride?.w ?? spec.w,
+        height: sizeOverride?.h ?? spec.h,
         accessoryType: spec.render,
         accessoryName: name,
         parentId,
@@ -393,7 +409,27 @@ function buildRailingPiece(name: string, input: GlassSystemInput, originX: numbe
             shapes.push(hardware(box.id, 'spigot', xU, box.topY + box.heightU - 3 * U, resolver));
         }
     } else {
-        shapes.push(hardware(box.id, 'connector', box.leftX + box.widthU / 2, box.topY + box.heightU - 9, resolver));
+        // Channel-fixed: the glass seats into ONE continuous base channel that
+        // runs the whole panel, so draw it spanning the full width along the
+        // bottom edge rather than as a single point fitting floating at the
+        // centre of the panel (which is what this used to do).
+        const channelRole: FittingRole = resolver.has('base_channel') ? 'base_channel' : 'connector';
+        const channelHeightU = CHANNEL_DEPTH_IN * U;
+        const channel = hardware(
+            box.id,
+            channelRole,
+            box.leftX + box.widthU / 2,
+            box.topY + box.heightU - channelHeightU / 2,
+            resolver,
+            { w: box.widthU, h: channelHeightU }
+        );
+        // State the run length on the marker. Channel is commonly sold by the
+        // metre while the BOM counts one line per marker, so whoever prices it
+        // can see how much length this single line actually represents instead
+        // of having to measure it off the drawing.
+        const runMetres = (widthIn * 0.0254).toFixed(2);
+        channel.accessoryRequirementLabel = `continuous run ${widthIn}in (${runMetres} m)`;
+        shapes.push(channel);
     }
 
     return { name, type: 'Railing', thickness, quantity: 1, shapes };

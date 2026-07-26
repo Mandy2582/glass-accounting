@@ -67,6 +67,9 @@ export type FittingRole =
     // 'connector' they were indistinguishable from a 4-way structural spider,
     // so a small return panel was quoted a spider at ~7x the bracket price.
     | 'l_bracket_small' | 'l_bracket_big'
+    // A continuous base/U channel the glass seats into, priced and drawn as
+    // one run spanning the panel width -- not a point fitting like a spigot.
+    | 'base_channel'
     | 'connector' | 'clamp' | 'spigot' | 'handle' | 'sliding_kit' | 'other';
 
 export interface StockBatch {

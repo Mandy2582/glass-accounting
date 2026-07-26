@@ -20,6 +20,7 @@ const ROLE_OPTIONS: { value: FittingRole; label: string }[] = [
     { value: 'sliding_lock', label: 'Sliding lock' },
     { value: 'l_bracket_small', label: 'L bracket -- Small (light duty)' },
     { value: 'l_bracket_big', label: 'L bracket -- Big (heavy duty)' },
+    { value: 'base_channel', label: 'Base channel (continuous run)' },
     { value: 'connector', label: 'Connector (spider / patch)' },
     { value: 'clamp', label: 'Clamp' },
     { value: 'spigot', label: 'Spigot' },
