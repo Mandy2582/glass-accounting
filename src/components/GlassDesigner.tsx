@@ -806,106 +806,6 @@ const centerPieceShapes = (shapes: KonvaShape[], stageLogicalWidth: number, stag
     return shapes.map(s => ({ ...s, x: snapToOctalInch(s.x + dx), y: snapToOctalInch(s.y + dy) }));
 };
 
-const pieceBoundsOverlap = (
-    a: ReturnType<typeof getPieceBoundingBox>,
-    b: ReturnType<typeof getPieceBoundingBox>,
-): boolean => a.minX < b.maxX && a.maxX > b.minX && a.minY < b.maxY && a.maxY > b.minY;
-
-const getPieceOutlineBounds = (piece: GlassPiece): ReturnType<typeof getPieceBoundingBox> => {
-    const outlines = piece.shapes.filter(shape =>
-        shape.type === 'glass_rect'
-        || shape.type === 'glass_circle'
-        || shape.type === 'glass_polygon'
-        || shape.type === 'glass_parallelogram'
-    );
-    if (outlines.length === 0) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
-
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    outlines.forEach(shape => {
-        if (shape.type === 'glass_circle') {
-            const radius = shape.radius || 0;
-            minX = Math.min(minX, shape.x - radius);
-            minY = Math.min(minY, shape.y - radius);
-            maxX = Math.max(maxX, shape.x + radius);
-            maxY = Math.max(maxY, shape.y + radius);
-        } else {
-            minX = Math.min(minX, shape.x);
-            minY = Math.min(minY, shape.y);
-            maxX = Math.max(maxX, shape.x + (shape.width || 0));
-            maxY = Math.max(maxY, shape.y + (shape.height || 0));
-        }
-    });
-    return { minX, minY, maxX, maxY };
-};
-
-// Older WhatsApp image drafts centred every piece independently, leaving all
-// panes on top of one another. Pack only collections that actually overlap;
-// intentional existing layouts remain untouched.
-const arrangeOverlappingPieces = (pieces: GlassPiece[], stageLogicalWidth: number, scale: number): GlassPiece[] => {
-    if (pieces.length < 2) return pieces;
-
-    const bounds = pieces.map(piece => getPieceBoundingBox(piece.shapes, scale));
-    const outlineBounds = pieces.map(getPieceOutlineBounds);
-    const hasOverlap = outlineBounds.some((a, index) => outlineBounds.slice(index + 1).some(b => pieceBoundsOverlap(a, b)));
-    if (!hasOverlap) return pieces;
-
-    const gap = 160;
-    const margin = 80;
-    const availableWidth = Math.max(stageLogicalWidth - margin * 2, ...bounds.map(box => box.maxX - box.minX));
-    let cursorX = margin;
-    let cursorY = margin;
-    let rowHeight = 0;
-
-    return pieces.map((piece, index) => {
-        const box = bounds[index];
-        const width = box.maxX - box.minX;
-        const height = box.maxY - box.minY;
-        if (cursorX > margin && cursorX + width > margin + availableWidth) {
-            cursorX = margin;
-            cursorY += rowHeight + gap;
-            rowHeight = 0;
-        }
-
-        const dx = cursorX - box.minX;
-        const dy = cursorY - box.minY;
-        cursorX += width + gap;
-        rowHeight = Math.max(rowHeight, height);
-
-        return {
-            ...piece,
-            shapes: piece.shapes.map(shape => ({
-                ...shape,
-                x: snapToOctalInch(shape.x + dx),
-                y: snapToOctalInch(shape.y + dy),
-            })),
-        };
-    });
-};
-
-const centerPieceCollection = (
-    pieces: GlassPiece[],
-    stageLogicalWidth: number,
-    stageLogicalHeight: number,
-    scale: number,
-): GlassPiece[] => {
-    const arranged = arrangeOverlappingPieces(pieces, stageLogicalWidth, scale);
-    const allShapes = arranged.flatMap(piece => piece.shapes);
-    if (allShapes.length === 0) return arranged;
-
-    const centeredShapes = centerPieceShapes(allShapes, stageLogicalWidth, stageLogicalHeight, scale);
-    const positions = new Map(centeredShapes.map(shape => [shape.id, { x: shape.x, y: shape.y }]));
-    return arranged.map(piece => ({
-        ...piece,
-        shapes: piece.shapes.map(shape => {
-            const position = positions.get(shape.id);
-            return position ? { ...shape, ...position } : shape;
-        }),
-    }));
-};
-
 const centerSystemPieces = (systemPieces: Array<Omit<GlassPiece, 'id'>>, stageLogicalWidth: number, stageLogicalHeight: number, scale: number): GlassPiece[] => {
     const allShapes = systemPieces.flatMap(p => p.shapes);
     if (allShapes.length === 0) {
@@ -1233,7 +1133,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
     // 'fabrication' drops the fittings and shows only the glass prep -- every
     // hole and cut-out, including the ones a fitting implies -- which is what
     // gets sent to the glass supplier.
-    const [canvasView, setCanvasView] = useState<'hardware' | 'fabrication'>('hardware');
+    const [canvasView] = useState<'hardware' | 'fabrication'>('hardware');
 
     const selectedShapeId = selectedShapeIds.length > 0 ? selectedShapeIds[selectedShapeIds.length - 1] : null;
     const setSelectedShapeId = (id: string | null) => {
@@ -1247,7 +1147,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
     // wide connected run is visible before scrolling) uses the real
     // available width, with STAGE_VIEWPORT_WIDTH as a floor for narrow
     // containers or before the first measurement.
-    const [stageViewportWidth, setStageViewportWidth] = useState<number>(STAGE_VIEWPORT_WIDTH);
+    const [stageViewportWidth, setStageViewportWidth] = useState<number>(440);
     const canvasFrameRef = useRef<HTMLDivElement>(null);
     const [localInputs, setLocalInputs] = useState<Record<string, string>>({});
     const [focusedField, setFocusedField] = useState<string | null>(null);
@@ -1299,8 +1199,8 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
         const observer = new ResizeObserver(entries => {
             const entry = entries[0];
             if (!entry) return;
-            const measuredWidth = Math.floor(entry.contentRect.width - FRAME_HORIZONTAL_PADDING_PX);
-            setStageViewportWidth(Math.max(STAGE_VIEWPORT_WIDTH, measuredWidth));
+            const measuredWidth = Math.floor((entry.contentRect.width - FRAME_HORIZONTAL_PADDING_PX - 12) / 2);
+            setStageViewportWidth(Math.max(440, measuredWidth));
         });
         observer.observe(frame);
         return () => observer.disconnect();
@@ -1314,13 +1214,16 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
     // space instead of staying anchored to the 920px default. Keeps
     // initialPiecesJsonRef in sync so a resize never shows a false "unsaved
     // changes" state.
-    const lastCenteredViewportWidthRef = useRef<number>(STAGE_VIEWPORT_WIDTH);
+    const lastCenteredViewportWidthRef = useRef<number>(440);
     useEffect(() => {
         if (stageViewportWidth === lastCenteredViewportWidthRef.current) return;
         lastCenteredViewportWidthRef.current = stageViewportWidth;
         const { width: logicalWidth, height: logicalHeight } = getStageLogicalSize(drawingScale, stageViewportWidth);
         setPieces(prev => {
-            const recentered = centerPieceCollection(prev, logicalWidth, logicalHeight, drawingScale);
+            const recentered = prev.map(piece => ({
+                ...piece,
+                shapes: centerPieceShapes(piece.shapes, logicalWidth, logicalHeight, drawingScale),
+            }));
             initialPiecesJsonRef.current = JSON.stringify(recentered);
             return recentered;
         });
@@ -1385,6 +1288,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
     const handleShapeMouseLeave = () => {};
 
     const activePiece = pieces.find(p => p.id === activePieceId);
+    const activePieceShapes = activePiece?.shapes || [];
 
     const updateActivePiece = (updates: Partial<GlassPiece>, pieceId?: string) => {
         setPieces(prev => prev.map(p => p.id === (pieceId ?? activePieceId) ? { ...p, ...updates } : p));
@@ -1526,7 +1430,10 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
             // Check if they are old format or new Konva format
             const hasShapes = initialData.pieces[0].shapes !== undefined;
             if (hasShapes) {
-                const centered = centerPieceCollection(initialData.pieces as GlassPiece[], logicalWidth, logicalHeight, drawingScale);
+                const centered = (initialData.pieces as GlassPiece[]).map(piece => ({
+                    ...piece,
+                    shapes: centerPieceShapes(piece.shapes, logicalWidth, logicalHeight, drawingScale),
+                }));
                 setPieces(centered);
                 initialPiecesJsonRef.current = JSON.stringify(centered);
             } else {
@@ -1549,7 +1456,10 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                     }
                     return { ...p, shapes };
                 });
-                const centered = centerPieceCollection(migrated, logicalWidth, logicalHeight, drawingScale);
+                const centered = (migrated as GlassPiece[]).map(piece => ({
+                    ...piece,
+                    shapes: centerPieceShapes(piece.shapes, logicalWidth, logicalHeight, drawingScale),
+                }));
                 setPieces(centered);
                 initialPiecesJsonRef.current = JSON.stringify(centered);
             }
@@ -2048,7 +1958,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
         updateActivePiece({ shapes: [...activePiece.shapes, ...newHoles] });
     };
 
-    const selectedShape = pieces.flatMap(p => p.shapes).find(s => s.id === selectedShapeId);
+    const selectedShape = activePieceShapes.find(s => s.id === selectedShapeId);
     
     // Update local inputs from shape state only if that field is not currently focused/edited
     useEffect(() => {
@@ -2751,7 +2661,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
             rate?: number;
         }> = [];
         const counts = { hinge: 0, lock: 0, profile: 0, connector: 0 };
-        pieces.forEach(p => {
+        (activePiece ? [activePiece] : []).forEach(p => {
             p.shapes.forEach(s => {
                 if (s.type === 'accessory') {
                     const at = s.accessoryType || 'connector';
@@ -2775,7 +2685,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
             });
         });
         return legend;
-    }, [pieces, hardwareItems]);
+    }, [activePiece, hardwareItems]);
 
     // Glass prep implied by the placed fittings. A fitting shape only carries
     // hole/cut COUNTS, so the fabrication view turns those into real,
@@ -2787,7 +2697,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
         const fittingsById = new Map(hardwareItems.map(hw => [hw.id, hw]));
         const holes: Array<{ key: string; x: number; y: number; radius: number; label: string }> = [];
         const cuts: Array<{ key: string; x: number; y: number; width: number; height: number; label: string }> = [];
-        pieces.forEach(piece => {
+        (activePiece ? [activePiece] : []).forEach(piece => {
             piece.shapes.forEach(shape => {
                 if (shape.type !== 'accessory') return;
                 const geo = deriveAccessoryGeometry(shape, fittingsById);
@@ -2797,7 +2707,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
             });
         });
         return { holes, cuts };
-    }, [pieces, hardwareItems]);
+    }, [activePiece, hardwareItems]);
 
     const stageViewportHeight = STAGE_VIEWPORT_HEIGHT;
     const { width: stageLogicalWidth, height: stageLogicalHeight } = getStageLogicalSize(drawingScale, stageViewportWidth);
@@ -2814,7 +2724,10 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                     return (
                         <div key={piece.id} style={{ display: 'flex', alignItems: 'center', background: isActive ? 'var(--color-primary)' : 'var(--color-surface-muted, #f8fafc)', borderRadius: '6px', border: `1px solid ${isActive ? 'var(--color-primary)' : 'var(--color-border, #cbd5e1)'}`, padding: '0.1rem 0.3rem' }}>
                             <button
-                                onClick={() => setActivePieceId(piece.id)}
+                                onClick={() => {
+                                    setActivePieceId(piece.id);
+                                    setSelectedShapeIds([]);
+                                }}
                                 style={{ padding: '0.35rem 0.65rem', border: 'none', background: 'transparent', color: isActive ? '#ffffff' : 'var(--color-text-muted, #334155)', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
                             >
                                 {piece.name}
@@ -2972,37 +2885,8 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                         </select>
                     </div>
 
-                    {/* Which drawing you're looking at, and the job sheet */}
+                    {/* Job sheet */}
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                        <div
-                            role="group"
-                            aria-label="Drawing type"
-                            style={{ display: 'inline-flex', border: '1px solid var(--color-border, #cbd5e1)', borderRadius: '6px', overflow: 'hidden' }}
-                        >
-                            {([
-                                { key: 'hardware' as const, label: 'Hardware', title: 'Shows the fittings and where they are installed' },
-                                { key: 'fabrication' as const, label: 'Holes & Cuts', title: 'Shows only the glass prep to send the supplier -- every hole and cut-out, no fittings' },
-                            ]).map(view => (
-                                <button
-                                    key={view.key}
-                                    type="button"
-                                    title={view.title}
-                                    aria-pressed={canvasView === view.key}
-                                    onClick={() => setCanvasView(view.key)}
-                                    style={{
-                                        background: canvasView === view.key ? '#0e7490' : '#ffffff',
-                                        color: canvasView === view.key ? '#ffffff' : '#475569',
-                                        border: 'none',
-                                        fontSize: '0.78rem',
-                                        fontWeight: 600,
-                                        padding: '0.35rem 0.7rem',
-                                        cursor: 'pointer',
-                                    }}
-                                >
-                                    {view.label}
-                                </button>
-                            ))}
-                        </div>
                         <button
                             type="button"
                             className="btn btn-secondary"
@@ -3016,7 +2900,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
 
                 {/* Selected Shape Contextual Editor */}
                 {selectedShapeIds.length > 0 && (() => {
-                    const shape = pieces.flatMap(p => p.shapes).find(s => s.id === selectedShapeId);
+                    const shape = activePieceShapes.find(s => s.id === selectedShapeId);
                     if (!shape) return null;
                     return (
                         <div style={{ 
@@ -3475,7 +3359,18 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                             </div>
                         );
                     })() : (
-                        <Stage 
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(2, minmax(440px, 1fr))',
+                            gap: '0.75rem',
+                            width: '100%',
+                            overflowX: 'auto',
+                        }}>
+                        <section style={{ minWidth: 0, background: '#ffffff', border: '1px solid #cbd5e1' }}>
+                            <div style={{ height: '34px', display: 'flex', alignItems: 'center', padding: '0 0.65rem', borderBottom: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 700, color: '#0f172a' }}>
+                                Hardware layout
+                            </div>
+                        <Stage
                             width={stageViewportWidth} 
                             height={stageViewportHeight} 
                             scaleX={drawingScale}
@@ -3495,7 +3390,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                             ))}
 
                             {/* Render glass pieces (flat 2D) */}
-                            {pieces.flatMap(p => p.shapes).filter(s => s.type === 'glass_rect' || s.type === 'glass_circle' || s.type === 'glass_polygon' || s.type === 'glass_parallelogram').map((shape) => {
+                            {activePieceShapes.filter(s => s.type === 'glass_rect' || s.type === 'glass_circle' || s.type === 'glass_polygon' || s.type === 'glass_parallelogram').map((shape) => {
                                 const isSelected = selectedShapeIds.includes(shape.id);
                                 const isRect = shape.type === 'glass_rect';
                                 const isCircle = shape.type === 'glass_circle';
@@ -3519,7 +3414,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                         saveHistory();
                                         if (e.target.id() === shape.id) {
                                             const children: Array<{ id: string; dx: number; dy: number }> = [];
-                                            const allShapes = pieces.flatMap(p => p.shapes);
+                                            const allShapes = activePieceShapes;
                                             allShapes.forEach(s => {
                                                 if (s.id !== shape.id && (s.type === 'hole' || s.type === 'cut' || s.type === 'accessory')) {
                                                     let isInside = false;
@@ -3681,7 +3576,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                                 onMouseLeave={handleShapeMouseLeave}
                                                 onDragStart={(e: any) => {
                                                     const children: Array<{ id: string; dx: number; dy: number }> = [];
-                                                    const allShapes = pieces.flatMap(p => p.shapes);
+                                                    const allShapes = activePieceShapes;
                                                     allShapes.forEach(s => {
                                                         if (s.id !== shape.id && (s.type === 'hole' || s.type === 'cut' || s.type === 'accessory')) {
                                                             let isInside = false;
@@ -3759,12 +3654,12 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                 return isCircle ? (
                                     <Group key={shape.id}><Circle {...baseProps} radius={shape.radius} />{renderCircleDimensions(shape, drawingScale)}</Group>
                                 ) : (
-                                    <Group key={shape.id}><Rect {...baseProps} width={shape.width} height={shape.height} />{renderRectDimensions(shape, drawingScale, !hasSiblingToTheRight(shape, pieces.flatMap(p => p.shapes)))}</Group>
+                                    <Group key={shape.id}><Rect {...baseProps} width={shape.width} height={shape.height} />{renderRectDimensions(shape, drawingScale, !hasSiblingToTheRight(shape, activePieceShapes))}</Group>
                                 );
                             })}
 
                             {/* Render cuts and holes */}
-                            {pieces.flatMap(p => p.shapes).filter(s => s.type === 'hole' || s.type === 'cut').map((shape) => {
+                            {activePieceShapes.filter(s => s.type === 'hole' || s.type === 'cut').map((shape) => {
                                 const isSelected = selectedShapeIds.includes(shape.id);
                                 const isCut = shape.type === 'cut';
                                 const needsReview = shape.positionSource === 'estimated-fallback';
@@ -3867,7 +3762,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
 
                             {/* Render accessories (hardware view only -- the fabrication
                                 drawing deliberately carries no fitting markers) */}
-                            {canvasView === 'hardware' && pieces.flatMap(p => p.shapes).filter(s => s.type === 'accessory').map((shape) => {
+                            {canvasView === 'hardware' && activePieceShapes.filter(s => s.type === 'accessory').map((shape) => {
                                 const isSelected = selectedShapeIds.includes(shape.id);
                                 return (
                                     <Group
@@ -4115,6 +4010,108 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                             })()}
                         </Layer>
                     </Stage>
+                        </section>
+                        <section style={{ minWidth: 0, background: '#ffffff', border: '1px solid #cbd5e1' }}>
+                            <div style={{ height: '34px', display: 'flex', alignItems: 'center', padding: '0 0.65rem', borderBottom: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 700, color: '#0f172a' }}>
+                                Holes and cuts
+                            </div>
+                            <Stage
+                                width={stageViewportWidth}
+                                height={stageViewportHeight}
+                                scaleX={drawingScale}
+                                scaleY={drawingScale}
+                            >
+                                <Layer>
+                                    <Rect x={0} y={0} width={stageLogicalWidth} height={stageLogicalHeight} fill="#f8fafc" listening={false} />
+                                    {Array.from({ length: gridColumnCount }).map((_, i) => (
+                                        <Rect key={`fab-grid-v-${i}`} x={i * 20} y={0} width={1} height={stageLogicalHeight} fill={i % 5 === 0 ? 'rgba(71,85,105,0.14)' : 'rgba(71,85,105,0.05)'} listening={false} />
+                                    ))}
+                                    {Array.from({ length: gridRowCount }).map((_, i) => (
+                                        <Rect key={`fab-grid-h-${i}`} x={0} y={i * 20} width={stageLogicalWidth} height={1} fill={i % 5 === 0 ? 'rgba(71,85,105,0.14)' : 'rgba(71,85,105,0.05)'} listening={false} />
+                                    ))}
+
+                                    {activePieceShapes.filter(shape =>
+                                        shape.type === 'glass_rect'
+                                        || shape.type === 'glass_circle'
+                                        || shape.type === 'glass_polygon'
+                                        || shape.type === 'glass_parallelogram'
+                                    ).map(shape => {
+                                        const common = {
+                                            x: shape.x,
+                                            y: shape.y,
+                                            fill: 'rgba(14, 165, 233, 0.06)',
+                                            stroke: '#475569',
+                                            strokeWidth: 1.5 / drawingScale,
+                                            listening: false,
+                                        };
+                                        if (shape.type === 'glass_circle') {
+                                            return <Group key={`fab-${shape.id}`}><Circle {...common} radius={shape.radius} />{renderCircleDimensions(shape, drawingScale)}</Group>;
+                                        }
+                                        if (shape.type === 'glass_polygon') {
+                                            return <Group key={`fab-${shape.id}`}><Line {...common} points={shape.points || getPolygonPoints(shape.sides || 4, shape.width || 100, shape.height || 100)} closed /></Group>;
+                                        }
+                                        if (shape.type === 'glass_parallelogram') {
+                                            const width = shape.width || 100;
+                                            const height = shape.height || 100;
+                                            const skew = shape.skewX || 0;
+                                            return <Group key={`fab-${shape.id}`}><Line {...common} points={[0, 0, width, 0, width + skew, height, skew, height]} closed />{renderParallelogramDimensions(width, height, skew, drawingScale)}</Group>;
+                                        }
+                                        return <Group key={`fab-${shape.id}`}><Rect {...common} width={shape.width} height={shape.height} />{renderRectDimensions(shape, drawingScale, !hasSiblingToTheRight(shape, activePieceShapes))}</Group>;
+                                    })}
+
+                                    {activePieceShapes.filter(shape => shape.type === 'hole' || shape.type === 'cut').map(shape => {
+                                        const needsReview = shape.positionSource === 'estimated-fallback';
+                                        const stroke = needsReview ? '#d97706' : '#dc2626';
+                                        if (shape.type === 'hole') {
+                                            const radius = Math.max(shape.radius || 0, 9 / drawingScale);
+                                            return (
+                                                <Group key={`fab-${shape.id}`} listening={false}>
+                                                    <Circle x={shape.x} y={shape.y} radius={radius} fill="rgba(220,38,38,0.18)" stroke={stroke} strokeWidth={2 / drawingScale} />
+                                                    <Line points={[shape.x - radius, shape.y, shape.x + radius, shape.y]} stroke={stroke} strokeWidth={1 / drawingScale} />
+                                                    <Line points={[shape.x, shape.y - radius, shape.x, shape.y + radius]} stroke={stroke} strokeWidth={1 / drawingScale} />
+                                                    <Text x={shape.x - 45 / drawingScale} y={shape.y + radius + 4 / drawingScale} width={90 / drawingScale} text={`Ø ${formatInchesFraction((shape.radius || 0) * 2)}"`} fontSize={11 / drawingScale} fill={stroke} fontStyle="bold" align="center" />
+                                                </Group>
+                                            );
+                                        }
+                                        const width = Math.max(shape.width || 0, 18 / drawingScale);
+                                        const height = Math.max(shape.height || 0, 18 / drawingScale);
+                                        const centerX = shape.x + (shape.width || 0) / 2;
+                                        const centerY = shape.y + (shape.height || 0) / 2;
+                                        return (
+                                            <Group key={`fab-${shape.id}`} listening={false}>
+                                                <Rect x={centerX - width / 2} y={centerY - height / 2} width={width} height={height} fill="rgba(37,99,235,0.16)" stroke={stroke} strokeWidth={2 / drawingScale} dash={[4 / drawingScale, 3 / drawingScale]} />
+                                                <Text x={centerX - 55 / drawingScale} y={centerY + height / 2 + 4 / drawingScale} width={110 / drawingScale} text={`${formatInchesFraction(shape.width || 0)}" x ${formatInchesFraction(shape.height || 0)}"`} fontSize={11 / drawingScale} fill={stroke} fontStyle="bold" align="center" />
+                                            </Group>
+                                        );
+                                    })}
+
+                                    {fittingGlassPrep.holes.map(h => {
+                                        const radius = Math.max(h.radius, 9 / drawingScale);
+                                        return (
+                                            <Group key={`fab-prep-${h.key}`} listening={false}>
+                                                <Circle x={h.x} y={h.y} radius={radius} fill="rgba(220,38,38,0.18)" stroke="#dc2626" strokeWidth={2 / drawingScale} />
+                                                <Line points={[h.x - radius, h.y, h.x + radius, h.y]} stroke="#dc2626" strokeWidth={1 / drawingScale} />
+                                                <Line points={[h.x, h.y - radius, h.x, h.y + radius]} stroke="#dc2626" strokeWidth={1 / drawingScale} />
+                                                <Text x={h.x - 45 / drawingScale} y={h.y + radius + 4 / drawingScale} width={90 / drawingScale} text={`Ø ${formatInchesFraction(h.radius * 2)}"`} fontSize={11 / drawingScale} fill="#b91c1c" fontStyle="bold" align="center" />
+                                            </Group>
+                                        );
+                                    })}
+                                    {fittingGlassPrep.cuts.map(c => {
+                                        const centerX = c.x + c.width / 2;
+                                        const centerY = c.y + c.height / 2;
+                                        const width = Math.max(c.width, 18 / drawingScale);
+                                        const height = Math.max(c.height, 18 / drawingScale);
+                                        return (
+                                            <Group key={`fab-prep-${c.key}`} listening={false}>
+                                                <Rect x={centerX - width / 2} y={centerY - height / 2} width={width} height={height} fill="rgba(37,99,235,0.16)" stroke="#1d4ed8" strokeWidth={2 / drawingScale} dash={[4 / drawingScale, 3 / drawingScale]} />
+                                                <Text x={centerX - 55 / drawingScale} y={centerY + height / 2 + 4 / drawingScale} width={110 / drawingScale} text={`${formatInchesFraction(c.width)}" x ${formatInchesFraction(c.height)}"`} fontSize={11 / drawingScale} fill="#1d4ed8" fontStyle="bold" align="center" />
+                                            </Group>
+                                        );
+                                    })}
+                                </Layer>
+                            </Stage>
+                        </section>
+                        </div>
                     )}
                 </div>
 
