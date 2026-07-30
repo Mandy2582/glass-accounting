@@ -3698,38 +3698,75 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                         else { updateShape(shape.id, { x: snapToOctalInch(node.x()), y: snapToOctalInch(node.y()), radius: Math.max(5, snapToOctalInch(node.radius() * scaleX)) }); }
                                     },
                                 };
+                                // A real hole/cut is often tiny at typical zoom (a 1/4in-radius
+                                // hole is sub-pixel), so draw a fixed-minimum-size halo UNDER the
+                                // true, draggable/resizable shape purely for visibility -- the halo
+                                // is non-interactive and never fed back into updateShape, so it
+                                // can't corrupt the real dimensions the way inflating the actual
+                                // Circle/Rect passed to Konva's transform handling would.
+                                const haloColor = needsReview ? '#f59e0b' : '#ef4444';
+                                const haloRadius = Math.max(shape.radius || 0, 9 / drawingScale);
+                                const haloW = Math.max(shape.width || 0, 18 / drawingScale);
+                                const haloH = Math.max(shape.height || 0, 18 / drawingScale);
+                                const labelFill = needsReview ? '#b45309' : '#b91c1c';
+                                const chipW = 76 / drawingScale;
+                                const chipH = 18 / drawingScale;
                                 return isCut ? (
                                     <Group key={shape.id}>
+                                        <Rect x={shape.x + (shape.width || 0) / 2 - haloW / 2} y={shape.y + (shape.height || 0) / 2 - haloH / 2} width={haloW} height={haloH} stroke={haloColor} strokeWidth={1 / drawingScale} dash={[3 / drawingScale, 3 / drawingScale]} listening={false} />
                                         <Rect {...props} width={shape.width} height={shape.height} />
-                                        <Text x={shape.x + (shape.width || 0) / 2} y={shape.y + (shape.height || 0) / 2} text="C" fill={needsReview ? '#f59e0b' : '#ef4444'} fontSize={10 / drawingScale} fontStyle="bold" align="center" width={60 / drawingScale} offsetX={30 / drawingScale} offsetY={5 / drawingScale} listening={false} />
-                                        <Text x={shape.x + (shape.width || 0) / 2} y={shape.y + (shape.height || 0) + 4 / drawingScale} text={`${formatInchesFraction(shape.width || 0)}" x ${formatInchesFraction(shape.height || 0)}"`} fill={needsReview ? '#b45309' : '#b91c1c'} fontSize={12 / drawingScale} fontStyle="bold" align="center" width={200 / drawingScale} offsetX={100 / drawingScale} listening={false} />
+                                        <Text x={shape.x + (shape.width || 0) / 2} y={shape.y + (shape.height || 0) / 2} text="C" fill={haloColor} fontSize={11 / drawingScale} fontStyle="bold" align="center" width={60 / drawingScale} offsetX={30 / drawingScale} offsetY={5.5 / drawingScale} listening={false} />
+                                        <Rect x={shape.x + (shape.width || 0) / 2 - chipW / 2} y={shape.y + (shape.height || 0) / 2 + haloH / 2 + 3 / drawingScale} width={chipW} height={chipH} fill="#ffffff" stroke={labelFill} strokeWidth={1 / drawingScale} cornerRadius={3 / drawingScale} opacity={0.94} listening={false} />
+                                        <Text x={shape.x + (shape.width || 0) / 2} y={shape.y + (shape.height || 0) / 2 + haloH / 2 + 3 / drawingScale + chipH / 2 - 6 / drawingScale} text={`${formatInchesFraction(shape.width || 0)}" x ${formatInchesFraction(shape.height || 0)}"`} fill={labelFill} fontSize={11 / drawingScale} fontStyle="bold" align="center" width={chipW} offsetX={chipW / 2} listening={false} />
                                     </Group>
                                 ) : (
                                     <Group key={shape.id}>
+                                        <Circle x={shape.x} y={shape.y} radius={haloRadius} stroke={haloColor} strokeWidth={1 / drawingScale} dash={[3 / drawingScale, 3 / drawingScale]} listening={false} />
                                         <Circle {...props} radius={shape.radius} />
-                                        <Text x={shape.x} y={shape.y} text="H" fill={needsReview ? '#f59e0b' : '#ef4444'} fontSize={10 / drawingScale} fontStyle="bold" align="center" width={60 / drawingScale} offsetX={30 / drawingScale} offsetY={5 / drawingScale} listening={false} />
-                                        <Text x={shape.x} y={shape.y + (shape.radius || 0) + 4 / drawingScale} text={`Ø ${formatInchesFraction((shape.radius || 0) * 2)}"`} fill={needsReview ? '#b45309' : '#b91c1c'} fontSize={12 / drawingScale} fontStyle="bold" align="center" width={160 / drawingScale} offsetX={80 / drawingScale} listening={false} />
+                                        <Text x={shape.x} y={shape.y} text="H" fill={haloColor} fontSize={11 / drawingScale} fontStyle="bold" align="center" width={60 / drawingScale} offsetX={30 / drawingScale} offsetY={5.5 / drawingScale} listening={false} />
+                                        <Rect x={shape.x - chipW / 2} y={shape.y + haloRadius + 3 / drawingScale} width={chipW} height={chipH} fill="#ffffff" stroke={labelFill} strokeWidth={1 / drawingScale} cornerRadius={3 / drawingScale} opacity={0.94} listening={false} />
+                                        <Text x={shape.x} y={shape.y + haloRadius + 3 / drawingScale + chipH / 2 - 6 / drawingScale} text={`Ø ${formatInchesFraction((shape.radius || 0) * 2)}"`} fill={labelFill} fontSize={11 / drawingScale} fontStyle="bold" align="center" width={chipW} offsetX={chipW / 2} listening={false} />
                                     </Group>
                                 );
                             })}
 
                             {/* Fabrication view: the glass prep each fitting needs, drawn as
                                 real holes/notches instead of the fitting itself. Read-only --
-                                reposition the fitting in the hardware view to move these. */}
-                            {canvasView === 'fabrication' && fittingGlassPrep.holes.map(h => (
-                                <Group key={h.key} listening={false}>
-                                    <Circle x={h.x} y={h.y} radius={h.radius} fill="rgba(220, 38, 38, 0.18)" stroke="#dc2626" strokeWidth={1.5 / drawingScale} />
-                                    <Line points={[h.x - h.radius - 4 / drawingScale, h.y, h.x + h.radius + 4 / drawingScale, h.y]} stroke="#dc2626" strokeWidth={0.8 / drawingScale} dash={[2 / drawingScale, 2 / drawingScale]} />
-                                    <Line points={[h.x, h.y - h.radius - 4 / drawingScale, h.x, h.y + h.radius + 4 / drawingScale]} stroke="#dc2626" strokeWidth={0.8 / drawingScale} dash={[2 / drawingScale, 2 / drawingScale]} />
-                                    <Text x={h.x - 40 / drawingScale} y={h.y + h.radius + 5 / drawingScale} text={`Ø ${formatInchesFraction(h.radius * 2)}"`} fontSize={8 / drawingScale} fill="#b91c1c" fontStyle="bold" align="center" width={80 / drawingScale} />
-                                </Group>
-                            ))}
-                            {canvasView === 'fabrication' && fittingGlassPrep.cuts.map(c => (
-                                <Group key={c.key} listening={false}>
-                                    <Rect x={c.x} y={c.y} width={c.width} height={c.height} fill="rgba(37, 99, 235, 0.14)" stroke="#1d4ed8" strokeWidth={1.5 / drawingScale} dash={[3 / drawingScale, 3 / drawingScale]} />
-                                    <Text x={c.x + c.width / 2 - 50 / drawingScale} y={c.y + c.height + 4 / drawingScale} text={`${formatInchesFraction(c.width)}" x ${formatInchesFraction(c.height)}"`} fontSize={8 / drawingScale} fill="#1d4ed8" fontStyle="bold" align="center" width={100 / drawingScale} />
-                                </Group>
-                            ))}
+                                reposition the fitting in the hardware view to move these. These
+                                are never interactive/draggable, so unlike the manual holes/cuts
+                                above, the mark itself can be drawn at a floored minimum size
+                                directly -- there's no Konva transform state to corrupt. */}
+                            {canvasView === 'fabrication' && fittingGlassPrep.holes.map(h => {
+                                const displayRadius = Math.max(h.radius, 9 / drawingScale);
+                                const chipW = 76 / drawingScale;
+                                const chipH = 18 / drawingScale;
+                                const chipY = h.y + displayRadius + 4 / drawingScale;
+                                return (
+                                    <Group key={h.key} listening={false}>
+                                        <Circle x={h.x} y={h.y} radius={displayRadius} fill="rgba(220, 38, 38, 0.25)" stroke="#dc2626" strokeWidth={2 / drawingScale} />
+                                        <Line points={[h.x - displayRadius - 5 / drawingScale, h.y, h.x + displayRadius + 5 / drawingScale, h.y]} stroke="#dc2626" strokeWidth={1 / drawingScale} dash={[2 / drawingScale, 2 / drawingScale]} />
+                                        <Line points={[h.x, h.y - displayRadius - 5 / drawingScale, h.x, h.y + displayRadius + 5 / drawingScale]} stroke="#dc2626" strokeWidth={1 / drawingScale} dash={[2 / drawingScale, 2 / drawingScale]} />
+                                        <Rect x={h.x - chipW / 2} y={chipY} width={chipW} height={chipH} fill="#ffffff" stroke="#dc2626" strokeWidth={1 / drawingScale} cornerRadius={3 / drawingScale} opacity={0.94} />
+                                        <Text x={h.x - chipW / 2} y={chipY + chipH / 2 - 6 / drawingScale} text={`Ø ${formatInchesFraction(h.radius * 2)}"`} fontSize={11 / drawingScale} fill="#b91c1c" fontStyle="bold" align="center" width={chipW} />
+                                    </Group>
+                                );
+                            })}
+                            {canvasView === 'fabrication' && fittingGlassPrep.cuts.map(c => {
+                                const cx = c.x + c.width / 2;
+                                const cy = c.y + c.height / 2;
+                                const displayW = Math.max(c.width, 18 / drawingScale);
+                                const displayH = Math.max(c.height, 18 / drawingScale);
+                                const chipW = 90 / drawingScale;
+                                const chipH = 18 / drawingScale;
+                                const chipY = cy + displayH / 2 + 4 / drawingScale;
+                                return (
+                                    <Group key={c.key} listening={false}>
+                                        <Rect x={cx - displayW / 2} y={cy - displayH / 2} width={displayW} height={displayH} fill="rgba(37, 99, 235, 0.2)" stroke="#1d4ed8" strokeWidth={2 / drawingScale} dash={[4 / drawingScale, 3 / drawingScale]} />
+                                        <Rect x={cx - chipW / 2} y={chipY} width={chipW} height={chipH} fill="#ffffff" stroke="#1d4ed8" strokeWidth={1 / drawingScale} cornerRadius={3 / drawingScale} opacity={0.94} />
+                                        <Text x={cx - chipW / 2} y={chipY + chipH / 2 - 6 / drawingScale} text={`${formatInchesFraction(c.width)}" x ${formatInchesFraction(c.height)}"`} fontSize={11 / drawingScale} fill="#1d4ed8" fontStyle="bold" align="center" width={chipW} />
+                                    </Group>
+                                );
+                            })}
 
                             {/* Render accessories (hardware view only -- the fabrication
                                 drawing deliberately carries no fitting markers) */}
