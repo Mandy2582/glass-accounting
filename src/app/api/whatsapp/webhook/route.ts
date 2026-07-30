@@ -417,7 +417,7 @@ async function createDraftFromWhatsAppImage(event: WhatsAppMessageEvent, caption
     // fragments ("hole for handle", "cut corner for hinge") fuzzy-match
     // against unrelated hardware names and produce a wrong, priced order.
     // Anything with real drawing content always goes to design review instead.
-    if (analysis.classification === 'text_order') {
+    if (analysis.classification === 'text_order' && !hasDrawableDrawingSignal(analysis)) {
         const orderText = [
             caption,
             analysis.extractedText,
@@ -519,7 +519,7 @@ async function createDraftFromWhatsAppImage(event: WhatsAppMessageEvent, caption
     // instead, and ask what's missing; the reply is picked up by the
     // pending-clarification check in createOrderFromWhatsAppEvent and
     // merged back into this same order.
-    if (analysis.classification === 'text_order') {
+    if (analysis.classification === 'text_order' && !hasDrawableDrawingSignal(analysis)) {
         const dimensionText = [caption, analysis.extractedText].filter(Boolean).join('\n');
         const dimensionPieces = parseDimensionOnlyLines(dimensionText);
         if (dimensionPieces.length > 0) {
@@ -1657,6 +1657,18 @@ function imageFallbackAnalysis(caption: string): WhatsAppImageAnalysis {
             pieces: [],
         },
     };
+}
+
+function hasDrawableDrawingSignal(analysis: WhatsAppImageAnalysis): boolean {
+    if (resolveRecognisedSystem(analysis)) return true;
+    return analysis.drawing.pieces.some(piece => {
+        return Number(piece.width) > 0
+            || Number(piece.height) > 0
+            || (piece.holes || []).length > 0
+            || (piece.cuts || []).length > 0
+            || (piece.tapers || []).length > 0
+            || !!piece.imageRegion;
+    });
 }
 
 function normalizePhone(phone: string): string {

@@ -856,6 +856,7 @@ type VisionPieceLike = {
     holes?: VisionHole[] | null;
     cuts?: VisionCut[] | null;
     tapers?: VisionCornerTaper[] | null;
+    imageRegion?: { xMin: number; yMin: number; xMax: number; yMax: number } | null;
     holeEdgeCounts?: { top: number; bottom: number; left: number; right: number; interior: number } | null;
 };
 
@@ -923,23 +924,27 @@ function buildTaperedOutline(widthUnits: number, heightUnits: number, tapers: Vi
 function buildPieceShapes(piece: VisionPieceLike): KonvaShape[] {
     const widthIn = Number(piece.width) || 0;
     const heightIn = Number(piece.height) || 0;
-    if (widthIn <= 0 || heightIn <= 0) return [];
+    const placeholderSize = widthIn > 0 && heightIn > 0 ? null : estimatePlaceholderPanelSize(piece);
 
     const rectId = generateUUID();
     const rectX = 50;
     const rectY = 50;
-    const rectWidth = toCanvasUnits(widthIn, piece.widthUnit ?? 'inch');
-    const rectHeight = toCanvasUnits(heightIn, piece.heightUnit ?? 'inch');
+    const rectWidth = placeholderSize?.width ?? toCanvasUnits(widthIn, piece.widthUnit ?? 'inch');
+    const rectHeight = placeholderSize?.height ?? toCanvasUnits(heightIn, piece.heightUnit ?? 'inch');
 
     const tapers = piece.tapers || [];
     const outlinePoints = buildTaperedOutline(rectWidth, rectHeight, tapers);
     const hasUnmeasurableTaper = tapers.some(taper => taper.corner && (taper.horizontalCut == null || taper.verticalCut == null));
+    const needsManualSizing = !!placeholderSize;
 
     const outlineShape: KonvaShape = outlinePoints
-        ? { id: rectId, type: 'glass_polygon', x: rectX, y: rectY, width: rectWidth, height: rectHeight, points: outlinePoints, sides: outlinePoints.length / 2 }
+        ? {
+            id: rectId, type: 'glass_polygon', x: rectX, y: rectY, width: rectWidth, height: rectHeight, points: outlinePoints, sides: outlinePoints.length / 2,
+            ...(needsManualSizing ? { positionSource: 'estimated-fallback' as const } : {}),
+        }
         : {
             id: rectId, type: 'glass_rect', x: rectX, y: rectY, width: rectWidth, height: rectHeight,
-            ...(hasUnmeasurableTaper ? { positionSource: 'estimated-fallback' as const } : {}),
+            ...(hasUnmeasurableTaper || needsManualSizing ? { positionSource: 'estimated-fallback' as const } : {}),
         };
     const shapes: KonvaShape[] = [outlineShape];
 
@@ -990,6 +995,27 @@ function buildPieceShapes(piece: VisionPieceLike): KonvaShape[] {
     });
 
     return shapes;
+}
+
+function estimatePlaceholderPanelSize(piece: VisionPieceLike): { width: number; height: number } {
+    const region = piece.imageRegion;
+    const regionWidth = region ? Math.abs(Number(region.xMax) - Number(region.xMin)) : 0;
+    const regionHeight = region ? Math.abs(Number(region.yMax) - Number(region.yMin)) : 0;
+    const ratio = regionWidth > 0 && regionHeight > 0 ? regionWidth / regionHeight : 2 / 3;
+    const maxSide = 720;
+    const minSide = 240;
+
+    if (ratio >= 1) {
+        return {
+            width: maxSide,
+            height: Math.max(minSide, Math.min(maxSide, maxSide / ratio)),
+        };
+    }
+
+    return {
+        width: Math.max(minSide, Math.min(maxSide, maxSide * ratio)),
+        height: maxSide,
+    };
 }
 
 type MergedPieceGroup = {
