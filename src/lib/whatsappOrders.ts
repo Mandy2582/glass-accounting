@@ -111,6 +111,24 @@ function resolveLine(raw: string, items: GlassItem[]): ParsedWhatsAppOrderLine[]
     const topScore = scoped[0].score;
     const sameSpec = scoped.filter(entry => entry.score === topScore).map(entry => entry.item);
 
+    // The customer's own words have to be what settles a tie between colour/
+    // finish variants of the same brand+thickness+size -- if none of them
+    // named a colour or finish (grey/blue/tinted/reflective/clear/...) and
+    // more than one such variant tied for the best score, there is no basis
+    // to silently lock onto one. This is a real case that shipped wrong: a
+    // message naming only brand+thickness+size ("Saint Gobain 4mm 6x8")
+    // ties across all 11 Saint Gobain colour/finish variants at that size
+    // (Tinted Grey, Reflective Blue, Clear Float, ...) with an identical
+    // score, since none of their names appear in the message either --
+    // whichever happened to sort first won as a confident 'matched' line,
+    // silently picking a colour/finish the customer never asked for.
+    const lineTokens = tokenize(raw);
+    const namedColourOrFinish = lineTokens.some(t => GLASS_CATEGORY_TOKENS.includes(t) || KNOWN_GLASS_COLOURS.includes(t));
+    const genuinelyDistinctTie = sameSpec.length > 1 && new Set(sameSpec.map(item => item.name)).size > 1;
+    if (!namedColourOrFinish && genuinelyDistinctTie) {
+        return [buildLine(raw, undefined, quantity, unit, 'review')];
+    }
+
     const prioritized = orderCandidatesByBrandPriority(sameSpec);
     const { allocations, remaining } = allocateQuantity(quantity, unit, prioritized);
 
@@ -407,6 +425,8 @@ export const CATALOGUE_SYNONYMS: Record<string, string> = {
     ref: 'reflective',
     refl: 'reflective',
     r: 'reflective',
+    gray: 'grey',
+    brown: 'bronze',
     black: 'grey',
 };
 

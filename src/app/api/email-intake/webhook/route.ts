@@ -140,6 +140,7 @@ async function createOrderFromEmail(email: IncomingEmail) {
         const parties = await db.parties.getAll();
         const customer = await getOrCreateCustomer(email, parties);
         const order = await createReviewOrderForEmailText(email, customer, body, parsedLines);
+        await runAutoReview(order);
         return {
             status: 'text_review_created',
             orderId: order.id,

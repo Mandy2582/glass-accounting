@@ -311,6 +311,7 @@ async function createOrderFromWhatsAppEvent(event: WhatsAppMessageEvent) {
         }
 
         const order = await createReviewOrderForWhatsAppText(event, customer, body, parsedLines);
+        await runAutoReview(order);
         return {
             messageId,
             status: 'text_review_created',
