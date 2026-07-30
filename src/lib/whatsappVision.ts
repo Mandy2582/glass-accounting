@@ -1,7 +1,8 @@
 import sharp from 'sharp';
 import { calculateDimensionAreaSqft } from '@/lib/units';
 import { generateUUID, roundCurrency } from '@/lib/utils';
-import type { DesignData, DesignItem, KonvaShape } from '@/types';
+import type { DesignData, DesignItem, GlassItem, GlassPiece, ImageHardwareContext, KonvaShape } from '@/types';
+import { predictImagePieceHardware } from '@/lib/glassSystemDesigner';
 
 export type LengthUnit = 'inch' | 'mm';
 
@@ -93,6 +94,7 @@ export type WhatsAppImageAnalysis = {
             // null/false.
             connectedToPrevious?: boolean | null;
             hardwareNotes?: string | null;
+            hardwareContext?: ImageHardwareContext | null;
             // Approximate bounding box of this piece within the photo, as
             // fractions of the image's own width/height (0 = left/top edge,
             // 1 = right/bottom edge). Used to crop a zoomed-in view of just
@@ -307,13 +309,21 @@ export async function analyzeWhatsAppImage(input: {
                                 '',
                                 'IMAGE REGION: For each piece, also report imageRegion -- the approximate bounding box of that specific panel within this photo, as fractions of the image\'s total width/height (0 = left/top edge of the photo, 1 = right/bottom edge), e.g. {"xMin": 0.05, "yMin": 0.2, "xMax": 0.35, "yMax": 0.9}. This is used afterwards to zoom into just this panel for a careful hole/cut recount, so accuracy here matters a lot -- trace that panel\'s OWN drawn outline/boundary lines in the photo to find its real edges, do NOT assume multiple panels are evenly-sized thirds/halves of the photo just because there are 2 or 3 of them (real panels are very often uneven widths -- use the drawing\'s own width dimensions, if labeled, as a cross-check). The box should tightly bound that panel\'s own outline and nothing more -- not the whole photo, and not overlapping into a neighboring panel. Leave it null only if you genuinely cannot tell where this piece is in the photo.',
                                 '',
+                                'HARDWARE CONTEXT FOR EACH PIECE: Fill hardwareContext from the visible arrangement, labels, panel role, and edge marks. This does NOT ask you to choose a product; a deterministic engineering rule engine does that afterwards.',
+                                '  - panelRole: door for an opening leaf; fixed_panel for ordinary fixed glass; sidelight for fixed glass beside a door; overpanel/transom for fixed glass above a door; unknown if genuinely unclear.',
+                                '  - wallEdges: panel edges visibly fixed to masonry/frame. Repeated fixing holes close to one outside edge are strong wall-fixing evidence.',
+                                '  - glassJoinEdges: panel edges visibly meeting another glass panel. Set glassJoinType to inline for coplanar 180-degree joins, corner for 90-degree returns, unknown if the angle is unclear.',
+                                '  - doorStyle: patch when a frameless pivot door shows top/bottom patch areas or a floor-spring arrangement; hinge when it shows side hinges; none for non-doors; unknown only when the door support cannot be told.',
+                                '  - hingeSide, hasLock, and hasHandle must follow visible marks/labels. supportsDoorPivot is true on an overpanel/transom that carries the door top pivot (TM-30/PF-30 arrangement).',
+                                '  - confidence is confidence in this hardware relationship reading. Use a low value when wall-vs-glass boundary or door support is not visible; do not force edges or roles.',
+                                '',
                                 `${HOLE_CUT_UNITS_GUIDANCE} Also report widthUnit/heightUnit for the panel itself the same way.`,
                                 '',
                                 `GLASS SYSTEM RECOGNITION (important): separately from reading the individual marks, decide whether this drawing depicts a standard glass SYSTEM as a whole, and if so fill in glassSystem. Allowed systemType values: ${RECOGNISABLE_SYSTEM_TYPES.join(', ')}. Judge it from the overall arrangement and any written labels, e.g.: a single leaf with hinges/patches down one side and a handle = swing_door; a leaf plus an adjoining narrower fixed panel in a bathroom context = shower_door (give the fixed panel's width in fixedPanelWidthIn); two leaves meeting in the middle = patch_double_door; a leaf that slides across an adjoining panel, or a drawing labelled "sliding" with a top track = sliding_door (or top_hung_sliding for a barn-style slider hung entirely off an overhead rail); a low waist-height run of panels with floor-mounted spigots/base channel = railing; a plain panel with no door = fixed_panel. Also report the system's OVERALL opening width and height in INCHES (converting if the drawing is dimensioned in mm), the glass thickness in mm, which side the hinges/track are on, and whether a lock and a handle are marked.`,
                                 'Set glassSystem to null, and set its confidence low, if the drawing is just loose panels or a dimension list with no recognisable system arrangement -- do NOT force one of the values above onto a drawing that is not clearly that system. This field is used to regenerate the panels and hardware from engineering standards, so a wrong systemType produces a confidently wrong drawing; "null" is much better than a guess.',
                                 '',
                                 'Extract visible text, order lines, thickness, hardware notes, and customer name if visible.',
-                                'Do not invent dimensions, positions, or hardware that are not visibly marked.',
+                                'Do not invent dimensions or exact hardware products. HardwareContext may infer the standard fitting relationship only where the drawing provides visible role/edge evidence.',
                                 `Sender phone: ${input.fromPhone}`,
                                 input.caption ? `Caption: ${input.caption}` : '',
                             ].filter(Boolean).join('\n'),
@@ -405,7 +415,7 @@ export async function analyzeWhatsAppImage(input: {
                                         items: {
                                             type: 'object',
                                             additionalProperties: false,
-                                            required: ['name', 'type', 'width', 'height', 'widthUnit', 'heightUnit', 'thickness', 'quantity', 'holes', 'cuts', 'tapers', 'connectedToPrevious', 'hardwareNotes', 'imageRegion', 'holeEdgeCounts'],
+                                            required: ['name', 'type', 'width', 'height', 'widthUnit', 'heightUnit', 'thickness', 'quantity', 'holes', 'cuts', 'tapers', 'connectedToPrevious', 'hardwareNotes', 'hardwareContext', 'imageRegion', 'holeEdgeCounts'],
                                             properties: {
                                                 name: { type: 'string' },
                                                 type: { type: 'string' },
@@ -464,6 +474,29 @@ export async function analyzeWhatsAppImage(input: {
                                                 },
                                                 connectedToPrevious: { type: ['boolean', 'null'] },
                                                 hardwareNotes: { type: ['string', 'null'] },
+                                                hardwareContext: {
+                                                    type: ['object', 'null'],
+                                                    additionalProperties: false,
+                                                    required: ['panelRole', 'wallEdges', 'glassJoinEdges', 'glassJoinType', 'doorStyle', 'hingeSide', 'hasLock', 'hasHandle', 'supportsDoorPivot', 'confidence'],
+                                                    properties: {
+                                                        panelRole: { type: 'string', enum: ['door', 'fixed_panel', 'sidelight', 'overpanel', 'transom', 'unknown'] },
+                                                        wallEdges: {
+                                                            type: 'array',
+                                                            items: { type: 'string', enum: ['left', 'right', 'top', 'bottom'] },
+                                                        },
+                                                        glassJoinEdges: {
+                                                            type: 'array',
+                                                            items: { type: 'string', enum: ['left', 'right', 'top', 'bottom'] },
+                                                        },
+                                                        glassJoinType: { type: 'string', enum: ['inline', 'corner', 'unknown'] },
+                                                        doorStyle: { type: 'string', enum: ['patch', 'hinge', 'none', 'unknown'] },
+                                                        hingeSide: { type: ['string', 'null'], enum: ['left', 'right', null] },
+                                                        hasLock: { type: ['boolean', 'null'] },
+                                                        hasHandle: { type: ['boolean', 'null'] },
+                                                        supportsDoorPivot: { type: ['boolean', 'null'] },
+                                                        confidence: { type: 'number' },
+                                                    },
+                                                },
                                             },
                                         },
                                     },
@@ -1221,7 +1254,11 @@ export function resolveRecognisedSystem(analysis: WhatsAppImageAnalysis): {
     };
 }
 
-export function buildDesignDataFromImageAnalysis(analysis: WhatsAppImageAnalysis): {
+export function buildDesignDataFromImageAnalysis(
+    analysis: WhatsAppImageAnalysis,
+    fittings: GlassItem[] = [],
+    source: 'whatsapp-image' | 'email-image' = 'whatsapp-image',
+): {
     drawingData: DesignData;
     totalArea: number;
     grossArea: number;
@@ -1243,22 +1280,44 @@ export function buildDesignDataFromImageAnalysis(analysis: WhatsAppImageAnalysis
             tapers: [],
             connectedToPrevious: false,
             hardwareNotes: analysis.drawing.notes || analysis.extractedText,
+            hardwareContext: null,
         }];
 
-    const items: DesignItem[] = pieces.map((piece, index) => {
+    const predictedPieces = predictImagePieceHardware(pieces.map((piece, index) => ({
+        id: generateUUID(),
+        name: piece.name || `Image Piece ${index + 1}`,
+        type: piece.type || 'Glass Piece',
+        thickness: Number(piece.thickness) || 6,
+        quantity: Number(piece.quantity) || 1,
+        hardwareNotes: piece.hardwareNotes || '',
+        hardwareContext: piece.hardwareContext || undefined,
+        source,
+        shapes: buildPieceShapes(piece),
+    } as GlassPiece)), fittings);
+
+    const items: DesignItem[] = predictedPieces.map((predictedPiece, index) => {
+        const piece = pieces[index];
         const quantity = Number(piece.quantity) || 1;
         const width = Number(piece.width) || 0;
         const height = Number(piece.height) || 0;
         const area = width > 0 && height > 0
             ? calculateDimensionAreaSqft(width, height, quantity)
             : 0;
+        const manualHoles = predictedPiece.shapes.filter(shape => shape.type === 'hole').length;
+        const manualCuts = predictedPiece.shapes.filter(shape => shape.type === 'cut').length;
+        const hardwareHoles = predictedPiece.shapes.reduce((sum, shape) => sum + (Number(shape.accessoryHoleCount) || 0), 0);
+        const hardwareCuts = predictedPiece.shapes.reduce((sum, shape) => sum + (Number(shape.accessoryCutCount) || 0), 0);
 
         return {
-            id: generateUUID(),
-            name: piece.name || `Image Piece ${index + 1}`,
-            type: piece.type || 'Glass Piece',
-            thickness: Number(piece.thickness) || 6,
-            shapes: [],
+            id: predictedPiece.id,
+            name: predictedPiece.name,
+            type: predictedPiece.type,
+            thickness: predictedPiece.thickness,
+            // DesignItem still exposes the legacy Fabric DrawingShape type,
+            // while image/system designs are rendered and billed from Konva
+            // shapes. Keep the real runtime shapes here so catalogue hardware
+            // IDs, rates, and glass-prep counts reach orderDesignItems.ts.
+            shapes: predictedPiece.shapes as unknown as DesignItem['shapes'],
             area,
             cost: 0,
             // Not part of the strict DesignItem type, but the design editor's
@@ -1271,15 +1330,15 @@ export function buildDesignDataFromImageAnalysis(analysis: WhatsAppImageAnalysis
             // and what GlassDesigner stores for editor-built designs. Billing
             // in orderDesignItems.ts relies on that convention holding for
             // both producers.
-            holes: (piece.holes || []).length * quantity,
-            cuts: (piece.cuts || []).length * quantity,
+            holes: (manualHoles + hardwareHoles) * quantity,
+            cuts: (manualCuts + hardwareCuts) * quantity,
             quantity,
         } as DesignItem;
     });
 
     const totalArea = roundCurrency(items.reduce((sum, item) => sum + item.area, 0));
-    const holes = pieces.reduce((sum, piece) => sum + (piece.holes || []).length, 0);
-    const cuts = pieces.reduce((sum, piece) => sum + (piece.cuts || []).length, 0);
+    const holes = items.reduce((sum, item) => sum + (Number((item as any).holes) || 0), 0);
+    const cuts = items.reduce((sum, item) => sum + (Number((item as any).cuts) || 0), 0);
     const maxWidth = Math.max(...pieces.map(piece => Number(piece.width) || 0), 800);
     const maxHeight = Math.max(...pieces.map(piece => Number(piece.height) || 0), 600);
 
@@ -1304,19 +1363,17 @@ export function buildDesignDataFromImageAnalysis(analysis: WhatsAppImageAnalysis
         // grouped through mergeConnectedPieceGroups so consecutive
         // connectedToPrevious pieces land on one shared canvas instead of
         // separate tabs.
-        pieces: arrangePieceGroups(mergeConnectedPieceGroups(pieces.map((piece, index) => ({
-            name: piece.name || `Image Piece ${index + 1}`,
-            type: piece.type || 'Glass Piece',
-            thickness: Number(piece.thickness) || 6,
+        pieces: arrangePieceGroups(mergeConnectedPieceGroups(predictedPieces.map((piece, index) => ({
+            name: piece.name,
+            type: piece.type,
+            thickness: piece.thickness,
             quantity: Number(piece.quantity) || 1,
-            holes: (piece.holes || []).length,
-            cuts: (piece.cuts || []).length,
+            holes: piece.shapes.filter(shape => shape.type === 'hole').length,
+            cuts: piece.shapes.filter(shape => shape.type === 'cut').length,
             hardwareNotes: piece.hardwareNotes || '',
-            connectedToPrevious: piece.connectedToPrevious,
-            imageRegion: piece.imageRegion,
-            // Real, editable canvas geometry -- empty array when there's no
-            // width/height to draw from, same as before in that case.
-            shapes: buildPieceShapes(piece),
+            connectedToPrevious: pieces[index].connectedToPrevious,
+            imageRegion: pieces[index].imageRegion,
+            shapes: piece.shapes,
         })))).map(group => ({
             id: generateUUID(),
             name: group.name,
@@ -1326,7 +1383,7 @@ export function buildDesignDataFromImageAnalysis(analysis: WhatsAppImageAnalysis
             holes: group.holes,
             cuts: group.cuts,
             hardwareNotes: group.hardwareNotes,
-            source: 'whatsapp-image',
+            source,
             shapes: group.shapes,
         })),
     };

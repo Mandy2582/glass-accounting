@@ -1,5 +1,5 @@
 import { generateUUID } from '@/lib/utils';
-import type { GlassItem, GlassPiece, KonvaShape, FittingRole, DesignData, DesignItem } from '@/types';
+import type { GlassItem, GlassPiece, KonvaShape, FittingRole, DesignData, DesignItem, HardwareEdge, ImageHardwareContext } from '@/types';
 import { getCutoutSpecsForItem } from '@/lib/fabricationSpecs';
 
 // Parametric "glass systems designer": given a system type (swing door,
@@ -293,6 +293,295 @@ function hardware(
 }
 
 type PanelBox = { id: string; leftX: number; topY: number; widthU: number; heightU: number };
+
+function predictedHardware(
+    parentId: string,
+    role: FittingRole,
+    cxU: number,
+    cyU: number,
+    resolver: FittingResolver,
+    reason: string,
+    confidence: number,
+    usesExistingGlassPrep = false,
+): KonvaShape {
+    const shape = hardware(parentId, role, cxU, cyU, resolver);
+    return {
+        ...shape,
+        ...(usesExistingGlassPrep ? {
+            accessoryHoleCount: 0,
+            accessoryCutCount: 0,
+            accessoryRequirementLabel: 'Uses the holes/cuts already marked on the customer drawing',
+        } : {}),
+        hardwarePredictionSource: 'image-standard',
+        hardwarePredictionReason: reason,
+        hardwarePredictionConfidence: confidence,
+    };
+}
+
+function getImagePieceBox(piece: GlassPiece): PanelBox | null {
+    const outline = piece.shapes.find(shape =>
+        shape.type === 'glass_rect'
+        || shape.type === 'glass_polygon'
+        || shape.type === 'glass_parallelogram'
+        || shape.type === 'glass_circle'
+    );
+    if (!outline) return null;
+    if (outline.type === 'glass_circle') {
+        const radius = outline.radius || 0;
+        return {
+            id: outline.id,
+            leftX: outline.x - radius,
+            topY: outline.y - radius,
+            widthU: radius * 2,
+            heightU: radius * 2,
+        };
+    }
+    return {
+        id: outline.id,
+        leftX: outline.x,
+        topY: outline.y,
+        widthU: outline.width || 0,
+        heightU: outline.height || 0,
+    };
+}
+
+function observedHolesAtEdge(piece: GlassPiece, box: PanelBox, edge: HardwareEdge): KonvaShape[] {
+    const thresholdX = Math.max(24, box.widthU * 0.08);
+    const thresholdY = Math.max(24, box.heightU * 0.08);
+    return piece.shapes.filter(shape => {
+        if (shape.type !== 'hole' || (shape.parentId && shape.parentId !== box.id)) return false;
+        if (edge === 'left') return Math.abs(shape.x - box.leftX) <= thresholdX;
+        if (edge === 'right') return Math.abs(shape.x - (box.leftX + box.widthU)) <= thresholdX;
+        if (edge === 'top') return Math.abs(shape.y - box.topY) <= thresholdY;
+        return Math.abs(shape.y - (box.topY + box.heightU)) <= thresholdY;
+    });
+}
+
+function inferLegacyImageHardwareContext(piece: GlassPiece, box: PanelBox): ImageHardwareContext {
+    const text = `${piece.name} ${piece.type} ${piece.hardwareNotes || ''}`.toLowerCase();
+    const isOverpanel = /\boverpanel|transom|ventilator\b/.test(text);
+    const isDoor = !isOverpanel && /\bdoor|shutter|hinge|patch\b/.test(text);
+    const wallEdges = (['left', 'right', 'top', 'bottom'] as HardwareEdge[])
+        .filter(edge => observedHolesAtEdge(piece, box, edge).length > 0);
+    const leftEvidence = observedHolesAtEdge(piece, box, 'left').length;
+    const rightEvidence = observedHolesAtEdge(piece, box, 'right').length;
+    const hasPatchEvidence = /\bpatch|pf.?10|pf.?20|pf.?30|tm.?30\b/.test(text)
+        || piece.shapes.some(shape => shape.type === 'cut'
+            && (shape.y <= box.topY + box.heightU * 0.15 || shape.y >= box.topY + box.heightU * 0.75));
+
+    return {
+        panelRole: isOverpanel ? 'overpanel' : isDoor ? 'door' : 'fixed_panel',
+        wallEdges: isDoor ? [] : wallEdges,
+        glassJoinEdges: [],
+        glassJoinType: 'unknown',
+        doorStyle: isDoor ? (hasPatchEvidence ? 'patch' : 'hinge') : 'none',
+        hingeSide: leftEvidence === rightEvidence ? 'left' : leftEvidence > rightEvidence ? 'left' : 'right',
+        hasLock: /\block\b/.test(text),
+        hasHandle: /\bhandle\b/.test(text),
+        supportsDoorPivot: isOverpanel && /\bpivot|patch|door\b/.test(text),
+        confidence: isDoor || isOverpanel || wallEdges.length > 0 ? 0.62 : 0.35,
+    };
+}
+
+function normalizeImageHardwareContext(context: ImageHardwareContext): ImageHardwareContext {
+    const validEdges = new Set<HardwareEdge>(['left', 'right', 'top', 'bottom']);
+    const normalizeEdges = (edges: HardwareEdge[] | undefined) => Array.from(new Set(
+        Array.isArray(edges) ? edges.filter(edge => validEdges.has(edge)) : [],
+    ));
+    const confidence = Number(context.confidence);
+
+    return {
+        ...context,
+        wallEdges: normalizeEdges(context.wallEdges),
+        glassJoinEdges: normalizeEdges(context.glassJoinEdges),
+        confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0,
+    };
+}
+
+function positionsForEdge(
+    piece: GlassPiece,
+    box: PanelBox,
+    edge: HardwareEdge,
+    standardCount: number,
+): { positions: Array<{ x: number; y: number }>; usesExistingGlassPrep: boolean } {
+    const observed = observedHolesAtEdge(piece, box, edge);
+    if (observed.length > 0) {
+        return {
+            positions: observed.map(hole => ({ x: hole.x, y: hole.y })),
+            usesExistingGlassPrep: true,
+        };
+    }
+
+    const inset = L_BRACKET_END_INSET_IN * U;
+    if (edge === 'left' || edge === 'right') {
+        const x = edge === 'left' ? box.leftX : box.leftX + box.widthU;
+        return {
+            positions: evenPositions(standardCount, box.topY, box.heightU, inset).map(y => ({ x, y })),
+            usesExistingGlassPrep: false,
+        };
+    }
+    const y = edge === 'top' ? box.topY : box.topY + box.heightU;
+    return {
+        positions: evenPositions(standardCount, box.leftX, box.widthU, inset).map(x => ({ x, y })),
+        usesExistingGlassPrep: false,
+    };
+}
+
+function connectorResolver(fittings: GlassItem[], fallback: FittingResolver, joinType: ImageHardwareContext['glassJoinType']): FittingResolver {
+    const preferred = fittings.find(item => {
+        if (item.category !== 'hardware') return false;
+        const name = item.name.toLowerCase();
+        if (joinType === 'inline') return /\b2-way inline\b|\b180[°\s].*(?:connector|spider)\b/.test(name);
+        return /\b90[°\s].*(?:connector|spider)\b|\bcorner.*(?:connector|spider)\b/.test(name);
+    });
+    if (!preferred) return fallback;
+    const copy = new Map(fallback);
+    copy.set('connector', preferred);
+    return copy;
+}
+
+/**
+ * Adds catalogue-backed hardware predictions to image-extracted pieces.
+ * Explicit per-piece vision context wins; older drafts fall back to cautious
+ * shape/name inference so they can be upgraded when opened in the editor.
+ */
+export function predictImagePieceHardware(pieces: GlassPiece[], fittings: GlassItem[] = []): GlassPiece[] {
+    const resolver = buildResolver(fittings);
+
+    return pieces.map(piece => {
+        if (piece.source !== 'whatsapp-image' && piece.source !== 'email-image') return piece;
+        if (piece.shapes.some(shape => shape.type === 'accessory')) return piece;
+
+        const box = getImagePieceBox(piece);
+        if (!box || box.widthU <= 0 || box.heightU <= 0) return piece;
+        const context = normalizeImageHardwareContext(
+            piece.hardwareContext || inferLegacyImageHardwareContext(piece, box),
+        );
+        if (context.confidence < 0.5) return piece;
+
+        const widthIn = box.widthU / U;
+        const heightIn = box.heightU / U;
+        const thickness = Number(piece.thickness) || 10;
+        const additions: KonvaShape[] = [];
+
+        if (context.panelRole === 'fixed_panel' || context.panelRole === 'sidelight') {
+            for (const edge of context.wallEdges) {
+                const role = lBracketRole(widthIn, heightIn, thickness, resolver);
+                const placement = positionsForEdge(piece, box, edge, edge === 'left' || edge === 'right'
+                    ? lBracketCountForHeight(heightIn)
+                    : Math.max(2, Math.ceil(widthIn / 36)));
+                placement.positions.forEach(position => additions.push(predictedHardware(
+                    box.id,
+                    role,
+                    position.x,
+                    position.y,
+                    resolver,
+                    `${edge} edge is fixed to a wall; ${ROLE_SPEC[role].label} selected from panel size and weight`,
+                    context.confidence,
+                    placement.usesExistingGlassPrep,
+                )));
+            }
+
+            for (const edge of context.glassJoinEdges) {
+                const isLarge = panelWeightKg(widthIn, heightIn, thickness) > L_BRACKET_BIG_MIN_WEIGHT_KG
+                    || heightIn > L_BRACKET_BIG_MIN_HEIGHT_IN
+                    || widthIn > 60;
+                const useStructuralConnector = isLarge && context.glassJoinType === 'inline';
+                const role: FittingRole = useStructuralConnector
+                    ? 'connector'
+                    : lBracketRole(widthIn, heightIn, thickness, resolver);
+                const selectedResolver = useStructuralConnector
+                    ? connectorResolver(fittings, resolver, context.glassJoinType)
+                    : resolver;
+                const placement = positionsForEdge(piece, box, edge, edge === 'left' || edge === 'right'
+                    ? lBracketCountForHeight(heightIn)
+                    : Math.max(2, Math.ceil(widthIn / 36)));
+                placement.positions.forEach(position => additions.push(predictedHardware(
+                    box.id,
+                    role,
+                    position.x,
+                    position.y,
+                    selectedResolver,
+                    useStructuralConnector
+                        ? `${edge} edge joins another large fixed panel; inline glass-to-glass connector selected`
+                        : `${edge} edge joins glass at ${context.glassJoinType === 'corner' ? '90 degrees' : 'a corner'}; L bracket selected`,
+                    context.confidence,
+                    placement.usesExistingGlassPrep,
+                )));
+            }
+        }
+
+        if (context.panelRole === 'door') {
+            const hingeSide = context.hingeSide || 'left';
+            const hingeX = hingeSide === 'left' ? box.leftX : box.leftX + box.widthU;
+            const leadX = hingeSide === 'left' ? box.leftX + box.widthU : box.leftX;
+            const edgeInset = 6;
+            const hingeMarkX = hingeSide === 'left' ? hingeX + edgeInset : hingeX - edgeInset;
+            const leadMarkX = hingeSide === 'left' ? leadX - edgeInset : leadX + edgeInset;
+
+            if (context.doorStyle === 'patch' || context.doorStyle === 'unknown') {
+                const setback = PATCH_SETBACK_IN * U;
+                const dx = (hingeSide === 'left' ? setback : -setback) / 2;
+                additions.push(predictedHardware(
+                    box.id, 'top_patch', hingeMarkX + dx, box.topY + setback / 2, resolver,
+                    'Frameless pivot door: top patch selected', context.confidence,
+                ));
+                additions.push(predictedHardware(
+                    box.id, 'bottom_patch', hingeMarkX + dx, box.topY + box.heightU - setback / 2, resolver,
+                    'Frameless pivot door: bottom patch selected', context.confidence,
+                ));
+            } else if (context.doorStyle === 'hinge') {
+                const hingeRole: FittingRole = context.glassJoinEdges.includes(hingeSide) ? 'glass_hinge' : 'wall_hinge';
+                for (const y of evenPositions(hingeCountForHeight(heightIn), box.topY, box.heightU, DOOR_HINGE_END_INSET_IN * U)) {
+                    additions.push(predictedHardware(
+                        box.id, hingeRole, hingeMarkX, y, resolver,
+                        context.glassJoinEdges.includes(hingeSide)
+                            ? 'Door hinge edge meets fixed glass; glass-to-glass hinge selected'
+                            : 'Door hinge edge meets wall/frame; wall hinge selected',
+                        context.confidence,
+                    ));
+                }
+            }
+
+            const handleY = Math.max(box.topY + 40, Math.min(
+                box.topY + box.heightU - 40,
+                box.topY + box.heightU - HANDLE_HEIGHT_IN * U,
+            ));
+            if (context.hasLock) {
+                additions.push(predictedHardware(
+                    box.id, 'door_lock', leadMarkX, handleY, resolver,
+                    'Lock is marked on the door drawing', context.confidence,
+                ));
+            }
+            if (context.hasHandle) {
+                additions.push(predictedHardware(
+                    box.id, 'handle', leadMarkX, context.hasLock ? handleY - 70 : handleY, resolver,
+                    'Handle is marked on the door drawing', context.confidence,
+                ));
+            }
+        }
+
+        if ((context.panelRole === 'overpanel' || context.panelRole === 'transom') && context.supportsDoorPivot) {
+            const pivotSide = context.hingeSide || 'left';
+            const setback = PATCH_SETBACK_IN * U;
+            const x = pivotSide === 'left'
+                ? box.leftX + setback / 2
+                : box.leftX + box.widthU - setback / 2;
+            additions.push(predictedHardware(
+                box.id, 'overpanel_patch', x, box.topY + box.heightU - setback / 2, resolver,
+                'Overpanel carries the door top pivot; TM-30/PF-30 overpanel patch selected',
+                context.confidence,
+            ));
+        }
+
+        if (additions.length === 0) return { ...piece, hardwareContext: context };
+        return {
+            ...piece,
+            hardwareContext: context,
+            shapes: [...piece.shapes, ...additions],
+        };
+    });
+}
 
 function rectPanel(widthIn: number, heightIn: number, originX: number): { shape: KonvaShape; box: PanelBox } {
     const id = generateUUID();

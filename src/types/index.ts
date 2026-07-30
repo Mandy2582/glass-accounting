@@ -338,6 +338,9 @@ export interface KonvaShape {
     accessoryHoleRadiusIn?: number;
     accessoryCutAreaSqIn?: number;
     accessoryRequirementLabel?: string;
+    hardwarePredictionReason?: string;
+    hardwarePredictionConfidence?: number;
+    hardwarePredictionSource?: 'image-standard';
     // Set only on continuous fittings sold by the metre (a base channel, a
     // top track): the run length this one marker covers. When present the
     // fitting bills as length x per-metre rate instead of one piece at a
@@ -364,6 +367,24 @@ export interface GlassPiece {
     quantity?: number;
     shapes: KonvaShape[];
     edgeTreatments?: { top?: string; bottom?: string; left?: string; right?: string };
+    source?: 'whatsapp-image' | 'email-image' | 'system-designer' | string;
+    hardwareNotes?: string;
+    hardwareContext?: ImageHardwareContext;
+}
+
+export type HardwareEdge = 'left' | 'right' | 'top' | 'bottom';
+
+export interface ImageHardwareContext {
+    panelRole: 'door' | 'fixed_panel' | 'sidelight' | 'overpanel' | 'transom' | 'unknown';
+    wallEdges: HardwareEdge[];
+    glassJoinEdges: HardwareEdge[];
+    glassJoinType: 'inline' | 'corner' | 'unknown';
+    doorStyle: 'patch' | 'hinge' | 'none' | 'unknown';
+    hingeSide?: 'left' | 'right' | null;
+    hasLock?: boolean | null;
+    hasHandle?: boolean | null;
+    supportsDoorPivot?: boolean | null;
+    confidence: number;
 }
 
 export interface DesignData {

@@ -7,7 +7,7 @@ import { roundToNextEvenInch } from '@/lib/designCalculations';
 import { Stage, Layer, Rect, Circle, Transformer, Group, Text, Line, Arrow } from 'react-konva';
 import { db } from '@/lib/storage';
 import { GlassItem, KonvaShape, GlassPiece } from '@/types';
-import { generateGlassSystem, describeGlassSystem, type GlassSystemInput, type GlassSystemType } from '@/lib/glassSystemDesigner';
+import { generateGlassSystem, describeGlassSystem, predictImagePieceHardware, type GlassSystemInput, type GlassSystemType } from '@/lib/glassSystemDesigner';
 import { validateGlassSafety, type SafetyViolation } from '@/lib/glassSafetyValidator';
 import { HARDWARE_CUTOUT_TEMPLATES, getCutoutSpecsForItem, deriveAccessoryGeometry } from '@/lib/fabricationSpecs';
 import { calculateGlassEngineering } from '@/lib/glassEngineeringCalculator';
@@ -1186,6 +1186,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
     const hiddenCanvasRef = useRef<HTMLCanvasElement>(null);
 
     const initialPiecesJsonRef = useRef<string>('');
+    const appliedImageHardwarePredictionRef = useRef(false);
 
     // Navigation guard checking for unsaved changes
     const isDirty = initialPiecesJsonRef.current !== '' && JSON.stringify(pieces) !== initialPiecesJsonRef.current;
@@ -1244,6 +1245,17 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
             cancelled = true;
         };
     }, []);
+
+    useEffect(() => {
+        if (appliedImageHardwarePredictionRef.current || hardwareItems.length === 0 || pieces.length === 0) return;
+        if (!pieces.some(piece => piece.source === 'whatsapp-image' || piece.source === 'email-image')) return;
+
+        appliedImageHardwarePredictionRef.current = true;
+        const predicted = predictImagePieceHardware(pieces, hardwareItems);
+        if (JSON.stringify(predicted) !== JSON.stringify(pieces)) {
+            setPieces(predicted);
+        }
+    }, [hardwareItems, pieces]);
 
     useEffect(() => {
         if (!isDirty) return;
@@ -2659,6 +2671,8 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
             holes: number;
             cuts: number;
             rate?: number;
+            predictionReason?: string;
+            predictionConfidence?: number;
         }> = [];
         const counts = { hinge: 0, lock: 0, profile: 0, connector: 0 };
         (activePiece ? [activePiece] : []).forEach(p => {
@@ -2679,7 +2693,9 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                         pieceName: p.name,
                         holes: Number(s.accessoryHoleCount) || 0,
                         cuts: Number(s.accessoryCutCount) || 0,
-                        rate: s.accessoryRate
+                        rate: s.accessoryRate,
+                        predictionReason: s.hardwarePredictionReason,
+                        predictionConfidence: s.hardwarePredictionConfidence,
                     });
                 }
             });
@@ -3750,12 +3766,18 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                 const displayH = Math.max(c.height, 18 / drawingScale);
                                 const chipW = 90 / drawingScale;
                                 const chipH = 18 / drawingScale;
-                                const chipY = cy + displayH / 2 + 4 / drawingScale;
+                                // Fittings such as patch sets commonly place a
+                                // hole and notch at the same centre. Hole
+                                // dimensions sit below the prep mark, so keep
+                                // the notch dimensions beside it to prevent
+                                // the two fabrication callouts from colliding.
+                                const chipX = cx - displayW / 2 - chipW - 4 / drawingScale;
+                                const chipY = cy - chipH / 2;
                                 return (
                                     <Group key={c.key} listening={false}>
                                         <Rect x={cx - displayW / 2} y={cy - displayH / 2} width={displayW} height={displayH} fill="rgba(37, 99, 235, 0.2)" stroke="#1d4ed8" strokeWidth={2 / drawingScale} dash={[4 / drawingScale, 3 / drawingScale]} />
-                                        <Rect x={cx - chipW / 2} y={chipY} width={chipW} height={chipH} fill="#ffffff" stroke="#1d4ed8" strokeWidth={1 / drawingScale} cornerRadius={3 / drawingScale} opacity={0.94} />
-                                        <Text x={cx - chipW / 2} y={chipY + chipH / 2 - 6 / drawingScale} text={`${formatInchesFraction(c.width)}" x ${formatInchesFraction(c.height)}"`} fontSize={11 / drawingScale} fill="#1d4ed8" fontStyle="bold" align="center" width={chipW} />
+                                        <Rect x={chipX} y={chipY} width={chipW} height={chipH} fill="#ffffff" stroke="#1d4ed8" strokeWidth={1 / drawingScale} cornerRadius={3 / drawingScale} opacity={0.94} />
+                                        <Text x={chipX} y={chipY + chipH / 2 - 6 / drawingScale} text={`${formatInchesFraction(c.width)}" x ${formatInchesFraction(c.height)}"`} fontSize={11 / drawingScale} fill="#1d4ed8" fontStyle="bold" align="center" width={chipW} />
                                     </Group>
                                 );
                             })}
@@ -4104,7 +4126,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                         return (
                                             <Group key={`fab-prep-${c.key}`} listening={false}>
                                                 <Rect x={centerX - width / 2} y={centerY - height / 2} width={width} height={height} fill="rgba(37,99,235,0.16)" stroke="#1d4ed8" strokeWidth={2 / drawingScale} dash={[4 / drawingScale, 3 / drawingScale]} />
-                                                <Text x={centerX - 55 / drawingScale} y={centerY + height / 2 + 4 / drawingScale} width={110 / drawingScale} text={`${formatInchesFraction(c.width)}" x ${formatInchesFraction(c.height)}"`} fontSize={11 / drawingScale} fill="#1d4ed8" fontStyle="bold" align="center" />
+                                                <Text x={centerX - width / 2 - 114 / drawingScale} y={centerY - 6 / drawingScale} width={110 / drawingScale} text={`${formatInchesFraction(c.width)}" x ${formatInchesFraction(c.height)}"`} fontSize={11 / drawingScale} fill="#1d4ed8" fontStyle="bold" align="right" />
                                             </Group>
                                         );
                                     })}
@@ -4170,6 +4192,14 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                         <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
                                             ({item.pieceName})
                                         </span>
+                                        {item.predictionReason && (
+                                            <span
+                                                title={item.predictionReason}
+                                                style={{ fontSize: '0.68rem', background: '#fef3c7', color: '#92400e', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}
+                                            >
+                                                Predicted {Math.round((Number(item.predictionConfidence) || 0) * 100)}%
+                                            </span>
+                                        )}
                                         {(item.holes > 0 || item.cuts > 0) && (
                                             <span style={{ fontSize: '0.68rem', background: '#e2e8f0', color: '#334155', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
                                                 {item.holes}H {item.cuts}C

@@ -403,7 +403,8 @@ async function createDesignDraftForEmailImage(
     caption: string,
     sourceImage?: NormalizedIntakeImage
 ): Promise<CustomDesign> {
-    const designData = buildDesignDataFromImageAnalysis(analysis);
+    const fittings = await db.items.getAll();
+    const designData = buildDesignDataFromImageAnalysis(analysis, fittings, 'email-image');
     const design: CustomDesign = {
         id: generateUUID(),
         name: `Email Drawing - ${order.number}`,

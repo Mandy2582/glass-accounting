@@ -1247,10 +1247,10 @@ async function createDesignDraftForImage(
     // glass prep from the rules instead of from the perceived holes. Falls
     // back to reading the drawing as-is whenever recognition isn't confident.
     const recognised = resolveRecognisedSystem(analysis);
+    const fittings = await db.items.getAll();
     let designData: ReturnType<typeof buildDesignDataFromImageAnalysis>;
     let generatedNote = '';
     if (recognised) {
-        const fittings = await db.items.getAll();
         const systemInput = {
             ...recognised,
             systemType: recognised.systemType as GlassSystemType,
@@ -1264,7 +1264,7 @@ async function createDesignDraftForImage(
             'Check the sizes and the system type against the original photo before approving.',
         ].join('\n');
     } else {
-        designData = buildDesignDataFromImageAnalysis(analysis);
+        designData = buildDesignDataFromImageAnalysis(analysis, fittings);
     }
     const design: CustomDesign = {
         id: generateUUID(),
