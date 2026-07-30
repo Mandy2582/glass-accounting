@@ -328,7 +328,7 @@ export async function analyzeWhatsAppImage(input: {
                             // much cheaper, but risks misreading fine print on
                             // a busy drawing. Override via env if the accuracy
                             // trade-off is worth it for your usage pattern.
-                            detail: (process.env.OPENAI_VISION_DETAIL as 'low' | 'high' | 'auto' | undefined) || 'auto',
+                            detail: (process.env.OPENAI_VISION_DETAIL as 'low' | 'high' | 'auto' | undefined) || 'high',
                         },
                     ],
                 },
@@ -338,8 +338,11 @@ export async function analyzeWhatsAppImage(input: {
             // as a guardrail against a single unusually busy image running up
             // an outsized bill. Reasoning models need far more headroom since
             // their (invisible) reasoning tokens draw from the same budget;
-            // 2000 would starve the reasoning and truncate the JSON answer.
-            max_output_tokens: isReasoningModel ? 10000 : 2000,
+            // The schema is intentionally detailed (multi-piece dimensions,
+            // holes/cuts, panel regions, system recognition). A clear drawing can
+            // still need several thousand output tokens; too small a cap truncates
+            // the JSON and makes the whole image fall back to "unknown".
+            max_output_tokens: isReasoningModel ? 12000 : 6000,
             ...(isReasoningModel ? { reasoning: { effort: 'medium' } } : {}),
             text: {
                 format: {
@@ -487,13 +490,16 @@ export async function analyzeWhatsAppImage(input: {
     const outputText = data.output_text || data.output?.flatMap((item: any) => item.content || [])
         .find((content: any) => content.type === 'output_text')?.text;
 
-    if (!outputText) return emptyAnalysis('unknown', input.caption || '', true);
+    if (!outputText) {
+        console.error('[whatsapp-vision] OpenAI returned no output text for image analysis:', JSON.stringify(data).slice(0, 2000));
+        return emptyAnalysis('unknown', input.caption || '', true);
+    }
 
     let result: WhatsAppImageAnalysis;
     try {
         result = JSON.parse(outputText) as WhatsAppImageAnalysis;
     } catch (error) {
-        console.error('Failed to parse image analysis JSON:', error);
+        console.error('Failed to parse image analysis JSON:', error, outputText.slice(0, 2000));
         return emptyAnalysis('unknown', input.caption || '', true);
     }
 
@@ -629,7 +635,7 @@ async function verifyPieceHolesAndCuts(
                         {
                             type: 'input_image',
                             image_url: croppedImageDataUrl,
-                            detail: (process.env.OPENAI_VISION_DETAIL as 'low' | 'high' | 'auto' | undefined) || 'auto',
+                            detail: (process.env.OPENAI_VISION_DETAIL as 'low' | 'high' | 'auto' | undefined) || 'high',
                         },
                     ],
                 },
