@@ -145,6 +145,45 @@ async function sendThroughOrderChannel(
     return sendWhatsAppText(party?.phone || '', body);
 }
 
+// Every ineligibility reason above ("total is zero -- nothing to quote",
+// "needs a design but none attached", a flagged drawing, above the
+// auto-review cap, or auto-review simply switched off) means the same
+// thing to the customer: their message WAS understood and turned into a
+// real order, it just isn't ready to price automatically. Before this,
+// none of those cases sent anything back -- an order matched a catalogue
+// item priced at ₹0 (a real, then-undiscovered gap: 774 of the 792
+// auto-generated glass items had no rate set) landed as a ₹0 total, which
+// is ineligible for auto-quoting, and the customer heard nothing at all
+// until a staff member happened to open Notifications. This sends a
+// single, generic "we've got it, hang tight" message instead -- no price,
+// no internal reason, so it's safe to send regardless of the reason.
+// Marked in notes so it's never repeated if runAutoReview reruns on the
+// same order later (e.g. a clarification-reply merge).
+async function sendReceivedAcknowledgment(order: Order): Promise<void> {
+    const notes = order.notes || '';
+    if (notes.includes('[REVIEW_ACK_SENT:true]') || notes.includes('[ESTIMATE_SENT:true]')) return;
+
+    try {
+        const [parties, businessConfig] = await Promise.all([
+            db.parties.getAll(),
+            db.businessConfig.get(),
+        ]);
+        const party = parties.find(p => p.id === order.partyId);
+        const body = `Thanks! We've received your order (${order.number}) and our team is reviewing it now. We'll follow up shortly with pricing/next steps. -- ${businessConfig.businessName || 'Arjun Glass House'}`;
+
+        const sent = await sendThroughOrderChannel(order, party, `We've received your order - ${order.number}`, body);
+        if (!sent.ok) {
+            console.error(`[auto-review] ${order.number} received-acknowledgment send failed: ${sent.reason}`);
+            return;
+        }
+
+        await db.orders.update({ ...order, notes: [notes, '[REVIEW_ACK_SENT:true]'].filter(Boolean).join('\n') });
+        console.log(`[auto-review] ${order.number} sent a "received, reviewing" acknowledgment.`);
+    } catch (error) {
+        console.error(`[auto-review] ${order.number} failed to send received-acknowledgment:`, error);
+    }
+}
+
 /**
  * Quotes an eligible order automatically and marks the estimate as sent, so
  * the existing "customer replies OK" path books it exactly as it would for a
@@ -161,6 +200,7 @@ export async function runAutoReview(order: Order): Promise<AutoReviewDecision> {
         const decision = evaluateAutoReview(order, designs, config);
         if (!decision.eligible) {
             console.log(`[auto-review] ${order.number} left for manual review: ${decision.reason}`);
+            await sendReceivedAcknowledgment(order);
             return decision;
         }
 

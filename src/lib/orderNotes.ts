@@ -4,6 +4,7 @@
 export const INTERNAL_NOTE_MARKERS = [
     '[PO_REQUIRED:',
     '[ESTIMATE_SENT:',
+    '[REVIEW_ACK_SENT:',
     '[ESTIMATE_APPROVED:',
     '[ONLINE_ORDER_CONFIRMED:',
     '[PO_PLACED:',
