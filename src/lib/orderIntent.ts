@@ -26,7 +26,50 @@ const NOT_ORDER_SIGNALS = [
     'view in browser',
     'privacy policy',
     'unsubscribe from this list',
+    // Social/platform activity digests -- Meta (WhatsApp Business's own parent
+    // platform) in particular emails the account owner about Page/account
+    // activity, which otherwise reads as "ambiguous" text and falls through
+    // to AI classification, no different from anything else that keeps this
+    // inbox producing a fake order-approval notification per email.
+    'notification preferences',
+    'manage your notifications',
+    'commented on your',
+    'reacted to your',
+    'liked your',
+    'tagged you',
+    'sent you a friend request',
+    'new follower',
+    'started following you',
+    'you have a new message on facebook',
+    'security alert',
+    'new sign-in',
+    'new device signed in',
 ];
+
+// Senders that are exclusively automated/platform notification addresses --
+// never a real customer's personal inbox -- so any message from these can be
+// rejected on the address alone, before any body-text heuristic or AI call
+// even runs. This is what actually stops a Facebook/Meta account-activity
+// email from ever reaching (and defeating) the text classifier below: those
+// arrive at the shop's forwarded intake address exactly like a real inquiry
+// email, so nothing about their metadata but the sender domain sets them
+// apart.
+const NON_ORDER_SENDER_DOMAINS = [
+    'facebookmail.com',
+    'facebook.com',
+    'instagram.com',
+    'linkedin.com',
+    'twitter.com',
+    'x.com',
+    'accounts.google.com',
+    'notifications.google.com',
+];
+
+export function isKnownNonOrderSender(fromAddress: string): boolean {
+    const domain = (fromAddress || '').split('@')[1]?.toLowerCase().trim();
+    if (!domain) return false;
+    return NON_ORDER_SENDER_DOMAINS.some(known => domain === known || domain.endsWith(`.${known}`));
+}
 
 const ORDER_SIGNALS = [
     'order', 'quote', 'quotation', 'estimate', 'glass', 'mirror', 'sheet', 'sheets',

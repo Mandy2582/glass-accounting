@@ -10,7 +10,7 @@ import {
 import { analyzeWhatsAppImage, buildDesignDataFromImageAnalysis, WhatsAppImageAnalysis } from '@/lib/whatsappVision';
 import { generateUUID, roundCurrency } from '@/lib/utils';
 import { withAvailableStock } from '@/lib/stockReservations';
-import { isAffirmativeReply, resolveImageOrderIntent, resolveOrderIntent } from '@/lib/orderIntent';
+import { isAffirmativeReply, isKnownNonOrderSender, resolveImageOrderIntent, resolveOrderIntent } from '@/lib/orderIntent';
 import { findPendingConfirmationOrder, withNeedsApproval, withOrderSource } from '@/lib/orderNotes';
 import { approveAndInvoiceOrder } from '@/lib/orderQuotation';
 import { runAutoReview, sendOrderBookedConfirmation } from '@/lib/autoReview';
@@ -76,6 +76,16 @@ function isAuthorized(request: NextRequest): boolean {
 }
 
 async function createOrderFromEmail(email: IncomingEmail) {
+    // Facebook/Meta account-activity mail (and similar platform notification
+    // senders) arrives at this same forwarded intake address looking exactly
+    // like a real inquiry to every text/AI heuristic below -- so reject it on
+    // the sender address alone, before any of that runs and before a
+    // customer/order/notification gets created for it at all.
+    if (isKnownNonOrderSender(email.fromAddress)) {
+        console.log(`[email-intake] Ignoring known non-order sender: ${email.fromAddress}`);
+        return { status: 'ignored_not_order', reason: 'Sender is a known automated/platform notification address.' };
+    }
+
     const duplicate = await findExistingEmailOrder(email.messageId);
     if (duplicate) {
         return { status: 'duplicate', orderId: duplicate.id, orderNumber: duplicate.number };
