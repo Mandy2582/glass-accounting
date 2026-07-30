@@ -6,6 +6,7 @@ import {
     parsedLineToInvoiceItem,
     parseWhatsAppOrderText,
     summarizeParsedWhatsAppLines,
+    type ParsedWhatsAppOrderLine,
 } from '@/lib/whatsappOrders';
 import { analyzeWhatsAppImage, buildDesignDataFromImageAnalysis, resolveRecognisedSystem, WhatsAppImageAnalysis } from '@/lib/whatsappVision';
 import { generateUUID, roundCurrency } from '@/lib/utils';
@@ -235,16 +236,16 @@ async function createOrderFromWhatsAppEvent(event: WhatsAppMessageEvent) {
         return await createDraftFromWhatsAppImage(event, body);
     }
 
-    // A customer with an order still waiting on a "what's missing" reply
-    // (glass type and/or thickness) may be answering it now -- but only
-    // treat it that way when this message itself doesn't introduce new
-    // dimensions (which would mean a fresh order, not an answer) and a
-    // candidate exists within the time window, so a genuinely new order
-    // from the same number never gets silently merged into a stale one.
-    if (!containsUnidentifiedGlassDimensions(body)) {
-        const orders = await db.orders.getAll();
-        const pendingClarification = findPendingClarificationOrder(orders, 'whatsapp', event.message.from);
-        if (pendingClarification) {
+    // A customer with an order still waiting on a "what's missing" reply may
+    // be answering it now. For colour/finish ambiguity, accept even a full
+    // corrected line with dimensions; for the older custom-size type/thickness
+    // flow, keep the no-dimensions guard so a genuinely new size list doesn't
+    // get merged into a stale order.
+    const ordersForClarification = await db.orders.getAll();
+    const pendingClarification = findPendingClarificationOrder(ordersForClarification, 'whatsapp', event.message.from);
+    if (pendingClarification) {
+        const missing = getMissingInfo(pendingClarification.notes);
+        if (missing === 'colour_or_finish' || !containsUnidentifiedGlassDimensions(body)) {
             const clarificationResult = await tryCompleteClarification(pendingClarification, body, event.message.from);
             if (clarificationResult) return { messageId, ...clarificationResult };
         }
@@ -310,6 +311,25 @@ async function createOrderFromWhatsAppEvent(event: WhatsAppMessageEvent) {
             };
         }
 
+        if (needsColourOrFinishClarification(parsedLines)) {
+            const order = await createReviewOrderForWhatsAppText(event, customer, body, parsedLines, {
+                missing: 'colour_or_finish',
+            });
+            await sendWhatsAppText(
+                event.message.from,
+                buildColourOrFinishPrompt(order, parsedLines)
+            ).catch(() => {});
+            return {
+                messageId,
+                status: 'catalogue_missing_colour_or_finish',
+                orderId: order.id,
+                orderNumber: order.number,
+                customerId: customer.id,
+                customerName: customer.name,
+                matchedRows: 0,
+            };
+        }
+
         const order = await createReviewOrderForWhatsAppText(event, customer, body, parsedLines);
         await runAutoReview(order);
         return {
@@ -325,6 +345,32 @@ async function createOrderFromWhatsAppEvent(event: WhatsAppMessageEvent) {
 
     const parties = await db.parties.getAll();
     const customer = await getOrCreateCustomer(event, parties);
+    if (needsColourOrFinishClarification(parsedLines)) {
+        const order = await saveWhatsAppOrder({
+            customer,
+            messageId,
+            from: event.message.from,
+            originalMessage: body,
+            parsedLines,
+            matchedLines: resolvedLines,
+            source: 'WhatsApp Business webhook',
+            missing: 'colour_or_finish',
+        });
+        await sendWhatsAppText(
+            event.message.from,
+            buildColourOrFinishPrompt(order, parsedLines)
+        ).catch(() => {});
+        return {
+            messageId,
+            status: 'catalogue_partial_missing_colour_or_finish',
+            orderId: order.id,
+            orderNumber: order.number,
+            customerId: customer.id,
+            customerName: customer.name,
+            matchedRows: resolvedLines.length,
+        };
+    }
+
     const order = await saveWhatsAppOrder({
         customer,
         messageId,
@@ -387,6 +433,39 @@ async function createDraftFromWhatsAppImage(event: WhatsAppMessageEvent, caption
         const items = await withAvailableStock(await db.items.getAll());
         const parsedLines = parseWhatsAppOrderText(orderText, items);
         const resolvedLines = parsedLines.filter(line => line.item);
+
+        if (needsColourOrFinishClarification(parsedLines)) {
+            const parties = await db.parties.getAll();
+            const customer = await getOrCreateCustomer(event, parties);
+            const order = resolvedLines.length
+                ? await saveWhatsAppOrder({
+                    customer,
+                    messageId: event.message.id,
+                    from: event.message.from,
+                    originalMessage: orderText,
+                    parsedLines,
+                    matchedLines: resolvedLines,
+                    source: 'WhatsApp image order',
+                    missing: 'colour_or_finish',
+                })
+                : await createReviewOrderForWhatsAppText(event, customer, orderText, parsedLines, {
+                    missing: 'colour_or_finish',
+                });
+            await sendWhatsAppText(
+                event.message.from,
+                buildColourOrFinishPrompt(order, parsedLines)
+            ).catch(() => {});
+
+            return {
+                messageId: event.message.id,
+                status: resolvedLines.length ? 'image_order_partial_missing_colour_or_finish' : 'image_order_missing_colour_or_finish',
+                orderId: order.id,
+                orderNumber: order.number,
+                customerId: customer.id,
+                matchedRows: resolvedLines.length,
+                confidence: analysis.confidence,
+            };
+        }
 
         if (resolvedLines.length) {
             const parties = await db.parties.getAll();
@@ -493,6 +572,7 @@ async function saveWhatsAppOrder(input: {
     parsedLines: ReturnType<typeof parseWhatsAppOrderText>;
     matchedLines: ReturnType<typeof parseWhatsAppOrderText>;
     source: string;
+    missing?: 'colour_or_finish';
 }): Promise<Order> {
     const orderItems = input.matchedLines.map(parsedLineToInvoiceItem);
     const totals = getWhatsAppOrderTotals(input.matchedLines);
@@ -513,7 +593,7 @@ async function saveWhatsAppOrder(input: {
         taxAmount: totals.taxAmount,
         total: totals.total,
         status: 'pending',
-        notes: withNeedsApproval(withOrderSource([
+        notes: withOptionalClarification(withNeedsApproval(withOrderSource([
             `Created automatically from ${input.source}.`,
             `WhatsApp Message ID: ${input.messageId}`,
             `WhatsApp From: ${input.from}`,
@@ -523,7 +603,7 @@ async function saveWhatsAppOrder(input: {
             '',
             'Parsed rows:',
             summarizeParsedWhatsAppLines(input.parsedLines),
-        ].join('\n'), 'whatsapp')),
+        ].join('\n'), 'whatsapp')), input.missing),
         paidAmount: 0,
         paymentStatus: 'unpaid',
     };
@@ -706,6 +786,10 @@ async function tryCompleteClarification(
     const missing = getMissingInfo(order.notes);
     if (!missing) return null;
 
+    if (missing === 'colour_or_finish') {
+        return await tryCompleteColourOrFinishClarification(order, replyText, fromPhone);
+    }
+
     const reply = parseReplyForMissingInfo(replyText);
     const pendingGlassType = getPendingGlassType(order.notes);
     const thickness = reply.thickness;
@@ -757,6 +841,88 @@ async function tryCompleteClarification(
     await runAutoReview(updatedOrder);
 
     return { status: 'clarification_completed', orderId: updatedOrder.id, orderNumber: updatedOrder.number, total: updatedOrder.total };
+}
+
+async function tryCompleteColourOrFinishClarification(
+    order: Order,
+    replyText: string,
+    fromPhone: string
+): Promise<{ status: string; orderId: string; orderNumber: string; total?: number }> {
+    const originalMessage = getOriginalMessageFromOrderNotes(order.notes);
+    const items = await withAvailableStock(await db.items.getAll());
+    const candidateTexts = [
+        replyText,
+        applyClarificationToEachOriginalLine(originalMessage, replyText),
+        `${replyText} ${originalMessage}`,
+        `${originalMessage} ${replyText}`,
+    ].map(text => text.trim()).filter(Boolean);
+
+    for (const candidateText of candidateTexts) {
+        const parsedLines = parseWhatsAppOrderText(candidateText, items);
+        const resolvedLines = parsedLines.filter(line => line.item);
+        if (!resolvedLines.length || needsColourOrFinishClarification(parsedLines)) continue;
+
+        const orderItems = resolvedLines.map(parsedLineToInvoiceItem);
+        const totals = getWhatsAppOrderTotals(resolvedLines);
+        const updatedOrder: Order = {
+            ...order,
+            items: orderItems,
+            subtotal: totals.subtotal,
+            taxAmount: totals.taxAmount,
+            total: totals.total,
+            notes: [
+                withClarificationCleared(order.notes),
+                `\nCompleted via WhatsApp reply: "${replyText}".`,
+                '',
+                'Resolved rows:',
+                summarizeParsedWhatsAppLines(parsedLines),
+            ].join('\n'),
+        };
+        await db.orders.update(updatedOrder);
+        await runAutoReview(updatedOrder);
+
+        return { status: 'clarification_completed', orderId: updatedOrder.id, orderNumber: updatedOrder.number, total: updatedOrder.total };
+    }
+
+    await sendWhatsAppText(
+        fromPhone,
+        `Sorry, we still need the glass colour/finish for your order (${order.number}) before we can quote it. Please reply with the finish, for example Clear, Tinted Grey, Tinted Bronze, Reflective Blue, or Reflective Green.`
+    ).catch(() => {});
+    return { status: 'clarification_reply_incomplete', orderId: order.id, orderNumber: order.number };
+}
+
+function needsColourOrFinishClarification(lines: ParsedWhatsAppOrderLine[]): boolean {
+    return lines.some(line => line.reviewReason === 'missing_colour_or_finish');
+}
+
+function buildColourOrFinishPrompt(order: Order, lines: ParsedWhatsAppOrderLine[]): string {
+    const rows = lines
+        .filter(line => line.reviewReason === 'missing_colour_or_finish')
+        .map(line => `- ${line.raw}`)
+        .join('\n');
+    const rowText = rows ? `\n${rows}` : '';
+    return `Your order (${order.number}) is missing the glass colour/finish for the item below, so we cannot quote it yet:${rowText}\n\nPlease reply with the finish, for example Clear, Tinted Grey, Tinted Bronze, Reflective Blue, or Reflective Green.`;
+}
+
+function getOriginalMessageFromOrderNotes(notes: string | undefined): string {
+    const rawNotes = notes || '';
+    const startLabel = 'Original message:';
+    const start = rawNotes.indexOf(startLabel);
+    if (start < 0) return '';
+
+    const contentStart = start + startLabel.length;
+    const parsedRowsStart = rawNotes.indexOf('\nParsed rows:', contentStart);
+    return rawNotes.slice(contentStart, parsedRowsStart >= 0 ? parsedRowsStart : undefined).trim();
+}
+
+function applyClarificationToEachOriginalLine(originalMessage: string, replyText: string): string {
+    const originalLines = originalMessage.split(/\n|,/).map(line => line.trim()).filter(Boolean);
+    if (!originalLines.length) return '';
+    return originalLines.map(line => `${replyText} ${line}`).join('\n');
+}
+
+function withOptionalClarification(notes: string, missing?: 'colour_or_finish'): string {
+    return missing ? withNeedsClarification(notes, missing) : notes;
 }
 
 // A named glass SYSTEM order ("shower door 30x72 12mm", "sliding door 48x84
@@ -983,7 +1149,8 @@ async function createReviewOrderForWhatsAppText(
     event: WhatsAppMessageEvent,
     customer: Party,
     originalMessage: string,
-    parsedLines: ReturnType<typeof parseWhatsAppOrderText>
+    parsedLines: ReturnType<typeof parseWhatsAppOrderText>,
+    options?: { missing?: 'colour_or_finish' }
 ): Promise<Order> {
     const orderNumber = await db.orders.generateNextOrderNumber('sale_order');
     const generalNumber = await db.orders.generateNextGeneralNumber();
@@ -1002,7 +1169,7 @@ async function createReviewOrderForWhatsAppText(
         taxAmount: 0,
         total: 0,
         status: 'pending',
-        notes: withNeedsApproval(withOrderSource([
+        notes: withOptionalClarification(withNeedsApproval(withOrderSource([
             'Created from WhatsApp order text for staff review.',
             `WhatsApp Message ID: ${event.message.id}`,
             `WhatsApp From: ${event.message.from}`,
@@ -1012,7 +1179,7 @@ async function createReviewOrderForWhatsAppText(
             '',
             'Parsed rows:',
             summarizeParsedWhatsAppLines(parsedLines),
-        ].filter(Boolean).join('\n'), 'whatsapp')),
+        ].filter(Boolean).join('\n'), 'whatsapp')), options?.missing),
         paidAmount: 0,
         paymentStatus: 'unpaid',
     };

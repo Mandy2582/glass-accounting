@@ -16,6 +16,7 @@ export type ParsedWhatsAppOrderLine = {
     // for a quantity that no matching catalogue item -- across any brand --
     // currently has available stock to cover.
     confidence: 'matched' | 'review' | 'out_of_stock';
+    reviewReason?: 'missing_colour_or_finish';
 };
 
 export function parseWhatsAppOrderText(text: string, items: GlassItem[]): ParsedWhatsAppOrderLine[] {
@@ -126,7 +127,7 @@ function resolveLine(raw: string, items: GlassItem[]): ParsedWhatsAppOrderLine[]
     const namedColourOrFinish = lineTokens.some(t => GLASS_CATEGORY_TOKENS.includes(t) || KNOWN_GLASS_COLOURS.includes(t));
     const genuinelyDistinctTie = sameSpec.length > 1 && new Set(sameSpec.map(item => item.name)).size > 1;
     if (!namedColourOrFinish && genuinelyDistinctTie) {
-        return [buildLine(raw, undefined, quantity, unit, 'review')];
+        return [buildLine(raw, undefined, quantity, unit, 'review', 'missing_colour_or_finish')];
     }
 
     const prioritized = orderCandidatesByBrandPriority(sameSpec);
@@ -150,7 +151,8 @@ function buildLine(
     item: GlassItem | undefined,
     quantity: number,
     unit: Unit,
-    confidence: ParsedWhatsAppOrderLine['confidence']
+    confidence: ParsedWhatsAppOrderLine['confidence'],
+    reviewReason?: ParsedWhatsAppOrderLine['reviewReason']
 ): ParsedWhatsAppOrderLine {
     const rate = item
         ? convertRateForItemUnit({
@@ -183,6 +185,7 @@ function buildLine(
         lineTotal: calculation.lineTotal,
         sqft: calculation.sqft,
         confidence,
+        reviewReason,
     };
 }
 
@@ -232,7 +235,9 @@ export function summarizeParsedWhatsAppLines(lines: ParsedWhatsAppOrderLine[]): 
                 ? 'matched'
                 : line.confidence === 'out_of_stock'
                     ? 'NOT AVAILABLE -- out of stock'
-                    : 'needs review';
+                    : line.reviewReason === 'missing_colour_or_finish'
+                        ? 'needs customer colour/finish'
+                        : 'needs review';
             return `- ${name}: ${line.quantity} ${formatUnitLabel(line.unit)} (${status})`;
         })
         .join('\n');

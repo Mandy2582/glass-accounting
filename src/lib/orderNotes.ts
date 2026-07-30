@@ -60,7 +60,7 @@ export function estimateSent(notes: string | undefined): boolean {
     return (notes || '').includes('[ESTIMATE_SENT:true]');
 }
 
-export type MissingOrderInfo = 'thickness' | 'type_and_thickness';
+export type MissingOrderInfo = 'thickness' | 'type_and_thickness' | 'colour_or_finish';
 
 // Set on a Toughened Glass order created with real pieces but missing
 // thickness (and/or glass type), alongside the automatic WhatsApp reply
@@ -81,7 +81,7 @@ export function needsClarification(notes: string | undefined): boolean {
 }
 
 export function getMissingInfo(notes: string | undefined): MissingOrderInfo | null {
-    const match = (notes || '').match(/\[MISSING_INFO:(thickness|type_and_thickness)\]/);
+    const match = (notes || '').match(/\[MISSING_INFO:(thickness|type_and_thickness|colour_or_finish)\]/);
     return match ? (match[1] as MissingOrderInfo) : null;
 }
 
