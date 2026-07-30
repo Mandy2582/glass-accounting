@@ -806,6 +806,106 @@ const centerPieceShapes = (shapes: KonvaShape[], stageLogicalWidth: number, stag
     return shapes.map(s => ({ ...s, x: snapToOctalInch(s.x + dx), y: snapToOctalInch(s.y + dy) }));
 };
 
+const pieceBoundsOverlap = (
+    a: ReturnType<typeof getPieceBoundingBox>,
+    b: ReturnType<typeof getPieceBoundingBox>,
+): boolean => a.minX < b.maxX && a.maxX > b.minX && a.minY < b.maxY && a.maxY > b.minY;
+
+const getPieceOutlineBounds = (piece: GlassPiece): ReturnType<typeof getPieceBoundingBox> => {
+    const outlines = piece.shapes.filter(shape =>
+        shape.type === 'glass_rect'
+        || shape.type === 'glass_circle'
+        || shape.type === 'glass_polygon'
+        || shape.type === 'glass_parallelogram'
+    );
+    if (outlines.length === 0) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    outlines.forEach(shape => {
+        if (shape.type === 'glass_circle') {
+            const radius = shape.radius || 0;
+            minX = Math.min(minX, shape.x - radius);
+            minY = Math.min(minY, shape.y - radius);
+            maxX = Math.max(maxX, shape.x + radius);
+            maxY = Math.max(maxY, shape.y + radius);
+        } else {
+            minX = Math.min(minX, shape.x);
+            minY = Math.min(minY, shape.y);
+            maxX = Math.max(maxX, shape.x + (shape.width || 0));
+            maxY = Math.max(maxY, shape.y + (shape.height || 0));
+        }
+    });
+    return { minX, minY, maxX, maxY };
+};
+
+// Older WhatsApp image drafts centred every piece independently, leaving all
+// panes on top of one another. Pack only collections that actually overlap;
+// intentional existing layouts remain untouched.
+const arrangeOverlappingPieces = (pieces: GlassPiece[], stageLogicalWidth: number, scale: number): GlassPiece[] => {
+    if (pieces.length < 2) return pieces;
+
+    const bounds = pieces.map(piece => getPieceBoundingBox(piece.shapes, scale));
+    const outlineBounds = pieces.map(getPieceOutlineBounds);
+    const hasOverlap = outlineBounds.some((a, index) => outlineBounds.slice(index + 1).some(b => pieceBoundsOverlap(a, b)));
+    if (!hasOverlap) return pieces;
+
+    const gap = 160;
+    const margin = 80;
+    const availableWidth = Math.max(stageLogicalWidth - margin * 2, ...bounds.map(box => box.maxX - box.minX));
+    let cursorX = margin;
+    let cursorY = margin;
+    let rowHeight = 0;
+
+    return pieces.map((piece, index) => {
+        const box = bounds[index];
+        const width = box.maxX - box.minX;
+        const height = box.maxY - box.minY;
+        if (cursorX > margin && cursorX + width > margin + availableWidth) {
+            cursorX = margin;
+            cursorY += rowHeight + gap;
+            rowHeight = 0;
+        }
+
+        const dx = cursorX - box.minX;
+        const dy = cursorY - box.minY;
+        cursorX += width + gap;
+        rowHeight = Math.max(rowHeight, height);
+
+        return {
+            ...piece,
+            shapes: piece.shapes.map(shape => ({
+                ...shape,
+                x: snapToOctalInch(shape.x + dx),
+                y: snapToOctalInch(shape.y + dy),
+            })),
+        };
+    });
+};
+
+const centerPieceCollection = (
+    pieces: GlassPiece[],
+    stageLogicalWidth: number,
+    stageLogicalHeight: number,
+    scale: number,
+): GlassPiece[] => {
+    const arranged = arrangeOverlappingPieces(pieces, stageLogicalWidth, scale);
+    const allShapes = arranged.flatMap(piece => piece.shapes);
+    if (allShapes.length === 0) return arranged;
+
+    const centeredShapes = centerPieceShapes(allShapes, stageLogicalWidth, stageLogicalHeight, scale);
+    const positions = new Map(centeredShapes.map(shape => [shape.id, { x: shape.x, y: shape.y }]));
+    return arranged.map(piece => ({
+        ...piece,
+        shapes: piece.shapes.map(shape => {
+            const position = positions.get(shape.id);
+            return position ? { ...shape, ...position } : shape;
+        }),
+    }));
+};
+
 const centerSystemPieces = (systemPieces: Array<Omit<GlassPiece, 'id'>>, stageLogicalWidth: number, stageLogicalHeight: number, scale: number): GlassPiece[] => {
     const allShapes = systemPieces.flatMap(p => p.shapes);
     if (allShapes.length === 0) {
@@ -1220,7 +1320,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
         lastCenteredViewportWidthRef.current = stageViewportWidth;
         const { width: logicalWidth, height: logicalHeight } = getStageLogicalSize(drawingScale, stageViewportWidth);
         setPieces(prev => {
-            const recentered = prev.map(piece => ({ ...piece, shapes: centerPieceShapes(piece.shapes, logicalWidth, logicalHeight, drawingScale) }));
+            const recentered = centerPieceCollection(prev, logicalWidth, logicalHeight, drawingScale);
             initialPiecesJsonRef.current = JSON.stringify(recentered);
             return recentered;
         });
@@ -1420,17 +1520,13 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
     // Initialize data
     useEffect(() => {
         const { width: logicalWidth, height: logicalHeight } = getStageLogicalSize(drawingScale, stageViewportWidth);
-        const centerPiece = (piece: GlassPiece): GlassPiece => ({
-            ...piece,
-            shapes: centerPieceShapes(piece.shapes, logicalWidth, logicalHeight, drawingScale),
-        });
 
         let loaded = false;
         if (initialData && initialData.pieces && initialData.pieces.length > 0) {
             // Check if they are old format or new Konva format
             const hasShapes = initialData.pieces[0].shapes !== undefined;
             if (hasShapes) {
-                const centered = (initialData.pieces as GlassPiece[]).map(centerPiece);
+                const centered = centerPieceCollection(initialData.pieces as GlassPiece[], logicalWidth, logicalHeight, drawingScale);
                 setPieces(centered);
                 initialPiecesJsonRef.current = JSON.stringify(centered);
             } else {
@@ -1451,10 +1547,11 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                     if (p.cuts) {
                         p.cuts.forEach((c: any) => shapes.push({ id: generateUUID(), type: 'cut', x: c.x * 10, y: c.y * 10, width: c.width * 10, height: c.height * 10 }));
                     }
-                    return centerPiece({ ...p, shapes });
+                    return { ...p, shapes };
                 });
-                setPieces(migrated);
-                initialPiecesJsonRef.current = JSON.stringify(migrated);
+                const centered = centerPieceCollection(migrated, logicalWidth, logicalHeight, drawingScale);
+                setPieces(centered);
+                initialPiecesJsonRef.current = JSON.stringify(centered);
             }
             setActivePieceId(initialData.pieces[0].id);
             loaded = true;

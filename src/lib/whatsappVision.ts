@@ -1033,6 +1033,7 @@ type MergedPieceGroup = {
     cuts: number;
     hardwareNotes: string;
     shapes: KonvaShape[];
+    imageRegion?: { xMin: number; yMin: number; xMax: number; yMax: number } | null;
 };
 
 // Groups consecutive pieces marked connectedToPrevious into a single canvas
@@ -1047,7 +1048,7 @@ type MergedPieceGroup = {
 // array in buildDesignDataFromImageAnalysis) is built separately, one entry
 // per original piece, so merging pieces here never changes area/cost counts.
 function mergeConnectedPieceGroups(
-    pieces: Array<{ name: string; type: string; thickness: number; quantity: number; holes: number; cuts: number; hardwareNotes: string; shapes: KonvaShape[]; connectedToPrevious?: boolean | null }>,
+    pieces: Array<{ name: string; type: string; thickness: number; quantity: number; holes: number; cuts: number; hardwareNotes: string; shapes: KonvaShape[]; connectedToPrevious?: boolean | null; imageRegion?: { xMin: number; yMin: number; xMax: number; yMax: number } | null }>,
 ): MergedPieceGroup[] {
     const groups: Array<typeof pieces> = [];
     pieces.forEach(piece => {
@@ -1069,6 +1070,7 @@ function mergeConnectedPieceGroups(
         });
 
         const first = group[0];
+        const regions = group.map(piece => piece.imageRegion).filter((region): region is NonNullable<typeof region> => !!region);
         return {
             name: group.length > 1 ? `${first.name} (${group.length} connected sections)` : first.name,
             type: first.type,
@@ -1078,6 +1080,94 @@ function mergeConnectedPieceGroups(
             cuts: group.reduce((sum, piece) => sum + piece.cuts, 0),
             hardwareNotes: group.map(piece => piece.hardwareNotes).filter(Boolean).join('; '),
             shapes: mergedShapes,
+            imageRegion: regions.length > 0 ? {
+                xMin: Math.min(...regions.map(region => region.xMin)),
+                yMin: Math.min(...regions.map(region => region.yMin)),
+                xMax: Math.max(...regions.map(region => region.xMax)),
+                yMax: Math.max(...regions.map(region => region.yMax)),
+            } : null,
+        };
+    });
+}
+
+function getShapeBounds(shapes: KonvaShape[]): { minX: number; minY: number; maxX: number; maxY: number } {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    shapes.forEach(shape => {
+        if (shape.type === 'glass_circle') {
+            const radius = shape.radius || 0;
+            minX = Math.min(minX, shape.x - radius);
+            minY = Math.min(minY, shape.y - radius);
+            maxX = Math.max(maxX, shape.x + radius);
+            maxY = Math.max(maxY, shape.y + radius);
+            return;
+        }
+
+        const width = shape.width || 0;
+        const height = shape.height || 0;
+        minX = Math.min(minX, shape.x);
+        minY = Math.min(minY, shape.y);
+        maxX = Math.max(maxX, shape.x + width);
+        maxY = Math.max(maxY, shape.y + height);
+    });
+
+    return Number.isFinite(minX)
+        ? { minX, minY, maxX, maxY }
+        : { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+}
+
+// Independent pieces are rendered on one editor canvas. Arrange them in the
+// same reading order as their source-image regions and give each group its
+// own footprint before the design is saved.
+function arrangePieceGroups(groups: MergedPieceGroup[]): MergedPieceGroup[] {
+    if (groups.length < 2) return groups;
+
+    const ordered = groups
+        .map((group, index) => ({ group, index }))
+        .sort((a, b) => {
+            const aRegion = a.group.imageRegion;
+            const bRegion = b.group.imageRegion;
+            if (!aRegion || !bRegion) return a.index - b.index;
+
+            const aCenterY = (aRegion.yMin + aRegion.yMax) / 2;
+            const bCenterY = (bRegion.yMin + bRegion.yMax) / 2;
+            const sameRowTolerance = Math.max(aRegion.yMax - aRegion.yMin, bRegion.yMax - bRegion.yMin) * 0.4;
+            if (Math.abs(aCenterY - bCenterY) <= sameRowTolerance) {
+                return aRegion.xMin - bRegion.xMin;
+            }
+            return aRegion.yMin - bRegion.yMin;
+        })
+        .map(entry => entry.group);
+
+    const gap = 160;
+    const margin = 80;
+    const targetRowWidth = 2800;
+    let cursorX = margin;
+    let cursorY = margin;
+    let rowHeight = 0;
+
+    return ordered.map(group => {
+        const bounds = getShapeBounds(group.shapes);
+        const width = bounds.maxX - bounds.minX;
+        const height = bounds.maxY - bounds.minY;
+
+        if (cursorX > margin && cursorX + width > targetRowWidth) {
+            cursorX = margin;
+            cursorY += rowHeight + gap;
+            rowHeight = 0;
+        }
+
+        const dx = cursorX - bounds.minX;
+        const dy = cursorY - bounds.minY;
+        cursorX += width + gap;
+        rowHeight = Math.max(rowHeight, height);
+
+        return {
+            ...group,
+            shapes: group.shapes.map(shape => ({ ...shape, x: shape.x + dx, y: shape.y + dy })),
         };
     });
 }
@@ -1214,7 +1304,7 @@ export function buildDesignDataFromImageAnalysis(analysis: WhatsAppImageAnalysis
         // grouped through mergeConnectedPieceGroups so consecutive
         // connectedToPrevious pieces land on one shared canvas instead of
         // separate tabs.
-        pieces: mergeConnectedPieceGroups(pieces.map((piece, index) => ({
+        pieces: arrangePieceGroups(mergeConnectedPieceGroups(pieces.map((piece, index) => ({
             name: piece.name || `Image Piece ${index + 1}`,
             type: piece.type || 'Glass Piece',
             thickness: Number(piece.thickness) || 6,
@@ -1223,10 +1313,11 @@ export function buildDesignDataFromImageAnalysis(analysis: WhatsAppImageAnalysis
             cuts: (piece.cuts || []).length,
             hardwareNotes: piece.hardwareNotes || '',
             connectedToPrevious: piece.connectedToPrevious,
+            imageRegion: piece.imageRegion,
             // Real, editable canvas geometry -- empty array when there's no
             // width/height to draw from, same as before in that case.
             shapes: buildPieceShapes(piece),
-        }))).map(group => ({
+        })))).map(group => ({
             id: generateUUID(),
             name: group.name,
             type: group.type,
