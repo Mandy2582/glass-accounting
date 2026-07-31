@@ -54,7 +54,8 @@ const SLIDING_OVERLAP_IN = 2;        // slider laps this far over its fixed neig
 // hard up against the corner. How many depends on the run: a short return
 // takes two, a full-height partition wants three or four.
 const L_BRACKET_END_INSET_IN = 4;
-const FIXED_PANEL_END_INSET_IN = 6;
+const FIXED_PANEL_L_CONNECTOR_GLASS_INSET_IN = 1;
+const CENTRE_CONNECTOR_END_INSET_IN = 6;
 // Light-duty (Small) is adequate for modest returns; a tall or heavy leaf
 // levers hard on the joint and takes the heavy-duty (Big) body. Glass weighs
 // ~2.5 kg per m2 per mm of thickness.
@@ -460,13 +461,20 @@ function fixedPanelWidthConnectorCount(widthIn: number): number {
 }
 
 function fixedPanelEdgePositions(box: PanelBox, edge: HardwareEdge, count: number): Array<{ x: number; y: number }> {
-    const inset = FIXED_PANEL_END_INSET_IN * U;
+    const glassInset = FIXED_PANEL_L_CONNECTOR_GLASS_INSET_IN * U;
+    const equalGapPositions = (startU: number, spanU: number): number[] =>
+        Array.from({ length: count }, (_, index) => startU + (spanU * (index + 1)) / (count + 1));
+
     if (edge === 'left' || edge === 'right') {
-        const x = edge === 'left' ? box.leftX : box.leftX + box.widthU;
-        return evenPositions(count, box.topY, box.heightU, inset).map(y => ({ x, y }));
+        const x = edge === 'left'
+            ? box.leftX + glassInset
+            : box.leftX + box.widthU - glassInset;
+        return equalGapPositions(box.topY, box.heightU).map(y => ({ x, y }));
     }
-    const y = edge === 'top' ? box.topY : box.topY + box.heightU;
-    return evenPositions(count, box.leftX, box.widthU, inset).map(x => ({ x, y }));
+    const y = edge === 'top'
+        ? box.topY + glassInset
+        : box.topY + box.heightU - glassInset;
+    return equalGapPositions(box.leftX, box.widthU).map(x => ({ x, y }));
 }
 
 function addFixedPanelLConnectors(
@@ -491,7 +499,7 @@ function addFixedPanelLConnectors(
                 position.x,
                 position.y,
                 resolver,
-                `F fixed-panel rule: ${count} L Connector${count === 1 ? '' : 's'} on the ${edge} edge`,
+                `F fixed-panel rule: ${count} equally spaced L Connector${count === 1 ? '' : 's'} on the ${edge} edge; hole centres ${FIXED_PANEL_L_CONNECTOR_GLASS_INSET_IN}in inside glass`,
                 1,
             ));
         });
@@ -580,7 +588,7 @@ function addCentreGlassConnectors(
         count,
         leftBox.topY,
         leftBox.heightU,
-        FIXED_PANEL_END_INSET_IN * U,
+        CENTRE_CONNECTOR_END_INSET_IN * U,
     );
     const holeInset = U;
     const holeRadius = 0.25 * U;
