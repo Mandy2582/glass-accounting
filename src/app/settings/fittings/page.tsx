@@ -18,6 +18,8 @@ const ROLE_OPTIONS: { value: FittingRole; label: string }[] = [
     { value: 'glass_hinge', label: 'Glass-to-glass hinge' },
     { value: 'door_lock', label: 'Door lock' },
     { value: 'sliding_lock', label: 'Sliding lock' },
+    { value: 'l_connector', label: 'L Connector (fixed-panel fixing)' },
+    { value: 'glass_to_glass_connector', label: 'Glass-to-glass connector (fixed panels)' },
     { value: 'l_bracket_small', label: 'L bracket -- Small (light duty)' },
     { value: 'l_bracket_big', label: 'L bracket -- Big (heavy duty)' },
     { value: 'base_channel', label: 'Base channel (continuous run)' },

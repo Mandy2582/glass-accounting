@@ -1,8 +1,7 @@
 import sharp from 'sharp';
-import { calculateDimensionAreaSqft } from '@/lib/units';
 import { generateUUID, roundCurrency } from '@/lib/utils';
-import type { DesignData, DesignItem, GlassItem, GlassPiece, ImageHardwareContext, KonvaShape } from '@/types';
-import { predictImagePieceHardware } from '@/lib/glassSystemDesigner';
+import type { DesignData, DesignItem, GlassItem, GlassPiece, ImageDesignCode, ImageHardwareContext, KonvaShape } from '@/types';
+import { applyImageDesignConventions, predictImagePieceHardware } from '@/lib/glassSystemDesigner';
 
 export type LengthUnit = 'inch' | 'mm';
 
@@ -93,6 +92,7 @@ export type WhatsAppImageAnalysis = {
             // sidelite, unrelated pieces on the same page) should leave this
             // null/false.
             connectedToPrevious?: boolean | null;
+            designCode?: ImageDesignCode | null;
             hardwareNotes?: string | null;
             hardwareContext?: ImageHardwareContext | null;
             // Approximate bounding box of this piece within the photo, as
@@ -298,6 +298,11 @@ export async function analyzeWhatsAppImage(input: {
                                 'MULTI-PIECE DRAWINGS: A single photo may show more than one separate glass panel (e.g. a fixed panel + a door + a ventilator, or several unrelated pieces sketched on one page, or several adjoining sections cut from one continuous sheet like a shopfront or railing run). Treat each visually distinct panel/outline as its own entry in drawing.pieces -- do not merge multiple panels into one piece, and do not drop a panel just because some of its details are unclear or repetitive-looking. CHECK EVERY SINGLE SECTION for holes and cuts individually, even ones that look plain or identical to a neighboring section -- it is a common mistake to carefully read the two end sections of a multi-section run (which often have extra hardware markings) and then skip the plainer middle sections entirely; every section that has holes or cuts marked on it must have them reported, not just the ones with the most detail.',
                                 '  - If adjoining sections are cut from one continuous sheet (sharing one unbroken top and bottom edge, divided only by vertical cut lines, with a single overall width dimension spanning all of them), set connectedToPrevious to true on every section after the first one in that run, so they get drawn together on one shared canvas instead of separate tabs. Leave it null/false for genuinely separate, independent pieces (e.g. a door drawn apart from a fixed sidelite).',
                                 '',
+                                'SHOP DESIGN CODES: Inspect the middle/interior of each panel for a clearly handwritten isolated code.',
+                                '  - Set designCode to "B" only when an isolated B is visibly written inside that panel. B means Block/Basic: the deterministic engine adds no hardware, holes, or cuts beyond details explicitly drawn by the customer.',
+                                '  - Set designCode to "F" only when an isolated F is visibly written inside that panel. F means the shop Fixed Panel convention. Do not infer F merely because a panel looks fixed; the letter must actually be visible.',
+                                '  - Otherwise set designCode to null. Never mistake a dimension label, panel name, or an ordinary word containing B/F for the code.',
+                                '',
                                 'COUNT EVERY HOLE INDIVIDUALLY: each small circle ("o") drawn on the glass is one hole. Scan methodically -- along the top edge, bottom edge, left edge, right edge and interior of EVERY section -- and report one holes[] entry per circle. Never compress repeats: if five sections each show 2 circles at the top and 2 at the bottom, that is 20 separate entries, not 5. Miscounting holes (both too few and too many) is the single most common mistake on these drawings; a section is not "the same as its neighbor" -- each one must be counted from what is actually drawn on it, even if two sections look identical at a glance.',
                                 HOLE_EDGE_COUNTS_GUIDANCE,
                                 '',
@@ -415,7 +420,7 @@ export async function analyzeWhatsAppImage(input: {
                                         items: {
                                             type: 'object',
                                             additionalProperties: false,
-                                            required: ['name', 'type', 'width', 'height', 'widthUnit', 'heightUnit', 'thickness', 'quantity', 'holes', 'cuts', 'tapers', 'connectedToPrevious', 'hardwareNotes', 'hardwareContext', 'imageRegion', 'holeEdgeCounts'],
+                                            required: ['name', 'type', 'width', 'height', 'widthUnit', 'heightUnit', 'thickness', 'quantity', 'holes', 'cuts', 'tapers', 'connectedToPrevious', 'designCode', 'hardwareNotes', 'hardwareContext', 'imageRegion', 'holeEdgeCounts'],
                                             properties: {
                                                 name: { type: 'string' },
                                                 type: { type: 'string' },
@@ -473,6 +478,7 @@ export async function analyzeWhatsAppImage(input: {
                                                     },
                                                 },
                                                 connectedToPrevious: { type: ['boolean', 'null'] },
+                                                designCode: { type: ['string', 'null'], enum: ['B', 'F', null] },
                                                 hardwareNotes: { type: ['string', 'null'] },
                                                 hardwareContext: {
                                                     type: ['object', 'null'],
@@ -1066,6 +1072,7 @@ type MergedPieceGroup = {
     cuts: number;
     hardwareNotes: string;
     shapes: KonvaShape[];
+    imageDesignCode?: ImageDesignCode;
     imageRegion?: { xMin: number; yMin: number; xMax: number; yMax: number } | null;
 };
 
@@ -1081,7 +1088,7 @@ type MergedPieceGroup = {
 // array in buildDesignDataFromImageAnalysis) is built separately, one entry
 // per original piece, so merging pieces here never changes area/cost counts.
 function mergeConnectedPieceGroups(
-    pieces: Array<{ name: string; type: string; thickness: number; quantity: number; holes: number; cuts: number; hardwareNotes: string; shapes: KonvaShape[]; connectedToPrevious?: boolean | null; imageRegion?: { xMin: number; yMin: number; xMax: number; yMax: number } | null }>,
+    pieces: Array<{ name: string; type: string; thickness: number; quantity: number; holes: number; cuts: number; hardwareNotes: string; shapes: KonvaShape[]; imageDesignCode?: ImageDesignCode; connectedToPrevious?: boolean | null; imageRegion?: { xMin: number; yMin: number; xMax: number; yMax: number } | null }>,
 ): MergedPieceGroup[] {
     const groups: Array<typeof pieces> = [];
     pieces.forEach(piece => {
@@ -1113,6 +1120,7 @@ function mergeConnectedPieceGroups(
             cuts: group.reduce((sum, piece) => sum + piece.cuts, 0),
             hardwareNotes: group.map(piece => piece.hardwareNotes).filter(Boolean).join('; '),
             shapes: mergedShapes,
+            imageDesignCode: first.imageDesignCode,
             imageRegion: regions.length > 0 ? {
                 xMin: Math.min(...regions.map(region => region.xMin)),
                 yMin: Math.min(...regions.map(region => region.yMin)),
@@ -1228,6 +1236,12 @@ export function resolveRecognisedSystem(analysis: WhatsAppImageAnalysis): {
     fixedPanelWidthIn?: number;
     confidence: number;
 } | null {
+    // Literal B/F panel codes have their own owner-defined deterministic
+    // workflow. Never let the broader system recognizer replace those
+    // drawings with a generic fixed-panel or door preset.
+    if (analysis.drawing.pieces.some(piece => piece.designCode === 'B' || piece.designCode === 'F')) {
+        return null;
+    }
     const sys = analysis.glassSystem;
     if (!sys || !sys.systemType) return null;
     if (!(RECOGNISABLE_SYSTEM_TYPES as readonly string[]).includes(sys.systemType)) return null;
@@ -1254,6 +1268,59 @@ export function resolveRecognisedSystem(analysis: WhatsAppImageAnalysis): {
     };
 }
 
+function glassShapeAreaSqft(shape: KonvaShape): number {
+    if (shape.type === 'glass_circle') {
+        const radius = Number(shape.radius) || 0;
+        return (Math.PI * radius * radius) / (CANVAS_UNITS_PER_INCH ** 2 * 144);
+    }
+    if (shape.type === 'glass_polygon' && shape.points && shape.points.length >= 6) {
+        let twiceArea = 0;
+        for (let index = 0; index < shape.points.length; index += 2) {
+            const next = (index + 2) % shape.points.length;
+            twiceArea += shape.points[index] * shape.points[next + 1]
+                - shape.points[next] * shape.points[index + 1];
+        }
+        return Math.abs(twiceArea / 2) / (CANVAS_UNITS_PER_INCH ** 2 * 144);
+    }
+    const width = Number(shape.width) || 0;
+    const height = Number(shape.height) || 0;
+    return (width * height) / (CANVAS_UNITS_PER_INCH ** 2 * 144);
+}
+
+function glassPieceAreaSqft(piece: GlassPiece): number {
+    const quantity = Math.max(1, Number(piece.quantity) || 1);
+    const area = piece.shapes
+        .filter(shape => (
+            shape.type === 'glass_rect'
+            || shape.type === 'glass_circle'
+            || shape.type === 'glass_polygon'
+            || shape.type === 'glass_parallelogram'
+        ))
+        .reduce((sum, shape) => sum + glassShapeAreaSqft(shape), 0);
+    return roundCurrency(area * quantity);
+}
+
+function glassPieceDimensionsIn(piece: GlassPiece): { width: number; height: number } {
+    const outlines = piece.shapes.filter(shape => (
+        shape.type === 'glass_rect'
+        || shape.type === 'glass_circle'
+        || shape.type === 'glass_polygon'
+        || shape.type === 'glass_parallelogram'
+    ));
+    return {
+        width: Math.max(0, ...outlines.map(shape => (
+            shape.type === 'glass_circle'
+                ? ((Number(shape.radius) || 0) * 2) / CANVAS_UNITS_PER_INCH
+                : (Number(shape.width) || 0) / CANVAS_UNITS_PER_INCH
+        ))),
+        height: Math.max(0, ...outlines.map(shape => (
+            shape.type === 'glass_circle'
+                ? ((Number(shape.radius) || 0) * 2) / CANVAS_UNITS_PER_INCH
+                : (Number(shape.height) || 0) / CANVAS_UNITS_PER_INCH
+        ))),
+    };
+}
+
 export function buildDesignDataFromImageAnalysis(
     analysis: WhatsAppImageAnalysis,
     fittings: GlassItem[] = [],
@@ -1266,7 +1333,7 @@ export function buildDesignDataFromImageAnalysis(
     cuts: number;
     items: DesignItem[];
 } {
-    const pieces = analysis.drawing.pieces.length
+    const extractedPieces = analysis.drawing.pieces.length
         ? analysis.drawing.pieces
         : [{
             name: 'Review Piece 1',
@@ -1279,11 +1346,12 @@ export function buildDesignDataFromImageAnalysis(
             cuts: [],
             tapers: [],
             connectedToPrevious: false,
+            designCode: null,
             hardwareNotes: analysis.drawing.notes || analysis.extractedText,
             hardwareContext: null,
         }];
 
-    const predictedPieces = predictImagePieceHardware(pieces.map((piece, index) => ({
+    const importedPieces = extractedPieces.map((piece, index) => ({
         id: generateUUID(),
         name: piece.name || `Image Piece ${index + 1}`,
         type: piece.type || 'Glass Piece',
@@ -1291,18 +1359,22 @@ export function buildDesignDataFromImageAnalysis(
         quantity: Number(piece.quantity) || 1,
         hardwareNotes: piece.hardwareNotes || '',
         hardwareContext: piece.hardwareContext || undefined,
+        imageDesignCode: piece.designCode || undefined,
+        connectedToPrevious: !!piece.connectedToPrevious,
+        imageRegion: piece.imageRegion,
         source,
         shapes: buildPieceShapes(piece),
-    } as GlassPiece)), fittings);
+    } as GlassPiece));
+    const conventionPieces = applyImageDesignConventions(
+        importedPieces,
+        fittings,
+        extractedPieces.length,
+    );
+    const predictedPieces = predictImagePieceHardware(conventionPieces, fittings);
 
-    const items: DesignItem[] = predictedPieces.map((predictedPiece, index) => {
-        const piece = pieces[index];
-        const quantity = Number(piece.quantity) || 1;
-        const width = Number(piece.width) || 0;
-        const height = Number(piece.height) || 0;
-        const area = width > 0 && height > 0
-            ? calculateDimensionAreaSqft(width, height, quantity)
-            : 0;
+    const items: DesignItem[] = predictedPieces.map(predictedPiece => {
+        const quantity = Math.max(1, Number(predictedPiece.quantity) || 1);
+        const area = glassPieceAreaSqft(predictedPiece);
         const manualHoles = predictedPiece.shapes.filter(shape => shape.type === 'hole').length;
         const manualCuts = predictedPiece.shapes.filter(shape => shape.type === 'cut').length;
         const hardwareHoles = predictedPiece.shapes.reduce((sum, shape) => sum + (Number(shape.accessoryHoleCount) || 0), 0);
@@ -1326,7 +1398,7 @@ export function buildDesignDataFromImageAnalysis(
             // and quantity 1 regardless of what was actually extracted.
             netArea: area,
             // Totals across this piece's quantity, matching what `area`
-            // already is (calculateDimensionAreaSqft multiplies by quantity)
+            // already is (glassPieceAreaSqft multiplies by quantity)
             // and what GlassDesigner stores for editor-built designs. Billing
             // in orderDesignItems.ts relies on that convention holding for
             // both producers.
@@ -1339,8 +1411,9 @@ export function buildDesignDataFromImageAnalysis(
     const totalArea = roundCurrency(items.reduce((sum, item) => sum + item.area, 0));
     const holes = items.reduce((sum, item) => sum + (Number((item as any).holes) || 0), 0);
     const cuts = items.reduce((sum, item) => sum + (Number((item as any).cuts) || 0), 0);
-    const maxWidth = Math.max(...pieces.map(piece => Number(piece.width) || 0), 800);
-    const maxHeight = Math.max(...pieces.map(piece => Number(piece.height) || 0), 600);
+    const dimensions = predictedPieces.map(glassPieceDimensionsIn);
+    const maxWidth = Math.max(...dimensions.map(value => value.width), 80);
+    const maxHeight = Math.max(...dimensions.map(value => value.height), 60);
 
     const drawingData: DesignData = {
         shapes: [],
@@ -1363,7 +1436,7 @@ export function buildDesignDataFromImageAnalysis(
         // grouped through mergeConnectedPieceGroups so consecutive
         // connectedToPrevious pieces land on one shared canvas instead of
         // separate tabs.
-        pieces: arrangePieceGroups(mergeConnectedPieceGroups(predictedPieces.map((piece, index) => ({
+        pieces: arrangePieceGroups(mergeConnectedPieceGroups(predictedPieces.map(piece => ({
             name: piece.name,
             type: piece.type,
             thickness: piece.thickness,
@@ -1371,8 +1444,9 @@ export function buildDesignDataFromImageAnalysis(
             holes: piece.shapes.filter(shape => shape.type === 'hole').length,
             cuts: piece.shapes.filter(shape => shape.type === 'cut').length,
             hardwareNotes: piece.hardwareNotes || '',
-            connectedToPrevious: pieces[index].connectedToPrevious,
-            imageRegion: pieces[index].imageRegion,
+            imageDesignCode: piece.imageDesignCode,
+            connectedToPrevious: piece.connectedToPrevious,
+            imageRegion: piece.imageRegion,
             shapes: piece.shapes,
         })))).map(group => ({
             id: generateUUID(),
@@ -1383,6 +1457,7 @@ export function buildDesignDataFromImageAnalysis(
             holes: group.holes,
             cuts: group.cuts,
             hardwareNotes: group.hardwareNotes,
+            imageDesignCode: group.imageDesignCode,
             source,
             shapes: group.shapes,
         })),

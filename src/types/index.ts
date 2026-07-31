@@ -66,6 +66,7 @@ export type FittingRole =
     // between the light-duty and heavy-duty size by panel load. Lumped in as
     // 'connector' they were indistinguishable from a 4-way structural spider,
     // so a small return panel was quoted a spider at ~7x the bracket price.
+    | 'l_connector' | 'glass_to_glass_connector'
     | 'l_bracket_small' | 'l_bracket_big'
     // A continuous base/U channel the glass seats into, priced and drawn as
     // one run spanning the panel width -- not a point fitting like a spigot.
@@ -370,7 +371,12 @@ export interface GlassPiece {
     source?: 'whatsapp-image' | 'email-image' | 'system-designer' | string;
     hardwareNotes?: string;
     hardwareContext?: ImageHardwareContext;
+    imageDesignCode?: ImageDesignCode;
+    connectedToPrevious?: boolean;
+    imageRegion?: { xMin: number; yMin: number; xMax: number; yMax: number } | null;
 }
+
+export type ImageDesignCode = 'B' | 'F';
 
 export type HardwareEdge = 'left' | 'right' | 'top' | 'bottom';
 

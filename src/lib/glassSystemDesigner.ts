@@ -54,6 +54,7 @@ const SLIDING_OVERLAP_IN = 2;        // slider laps this far over its fixed neig
 // hard up against the corner. How many depends on the run: a short return
 // takes two, a full-height partition wants three or four.
 const L_BRACKET_END_INSET_IN = 4;
+const FIXED_PANEL_END_INSET_IN = 6;
 // Light-duty (Small) is adequate for modest returns; a tall or heavy leaf
 // levers hard on the joint and takes the heavy-duty (Big) body. Glass weighs
 // ~2.5 kg per m2 per mm of thickness.
@@ -196,6 +197,11 @@ const ROLE_SPEC: Record<FittingRole, {
     glass_hinge:     { render: 'hinge',     w: 30, h: 25, holes: 2, cuts: 1, holeRadiusIn: 0.25, cutAreaSqIn: 6, label: 'Glass hinge' },
     door_lock:       { render: 'lock',      w: 25, h: 25, holes: 1, cuts: 1, holeRadiusIn: 0.75, cutAreaSqIn: 6, label: 'Lock' },
     sliding_lock:    { render: 'lock',      w: 25, h: 25, holes: 1, cuts: 0, holeRadiusIn: 0.5,  cutAreaSqIn: 0, label: 'Sliding lock' },
+    // The shop's handwritten F convention uses a drilled L Connector. This
+    // is deliberately separate from the clamp-style Small L / Big L
+    // brackets below, which require no glass drilling.
+    l_connector:     { render: 'connector', w: 30, h: 24, holes: 1, cuts: 0, holeRadiusIn: 0.25, cutAreaSqIn: 0, label: 'L Connector' },
+    glass_to_glass_connector: { render: 'connector', w: 42, h: 22, holes: 0, cuts: 0, holeRadiusIn: 0.25, cutAreaSqIn: 0, label: 'Glass-to-glass connector' },
     // L-brackets clamp the glass face; nothing is drilled or notched into the
     // panel for them. Big is the heavier/longer body, so it draws larger.
     l_bracket_small: { render: 'connector', w: 26, h: 26, holes: 0, cuts: 0, holeRadiusIn: 0,    cutAreaSqIn: 0, label: 'Small L bracket' },
@@ -440,6 +446,221 @@ function connectorResolver(fittings: GlassItem[], fallback: FittingResolver, joi
     return copy;
 }
 
+function fixedPanelHeightConnectorCount(heightIn: number): number {
+    if (heightIn <= 24) return 1;
+    if (heightIn <= 72) return 2;
+    if (heightIn <= 108) return 3;
+    return 4;
+}
+
+function fixedPanelWidthConnectorCount(widthIn: number): number {
+    if (widthIn <= 12) return 1;
+    if (widthIn <= 48) return 2;
+    return 3;
+}
+
+function fixedPanelEdgePositions(box: PanelBox, edge: HardwareEdge, count: number): Array<{ x: number; y: number }> {
+    const inset = FIXED_PANEL_END_INSET_IN * U;
+    if (edge === 'left' || edge === 'right') {
+        const x = edge === 'left' ? box.leftX : box.leftX + box.widthU;
+        return evenPositions(count, box.topY, box.heightU, inset).map(y => ({ x, y }));
+    }
+    const y = edge === 'top' ? box.topY : box.topY + box.heightU;
+    return evenPositions(count, box.leftX, box.widthU, inset).map(x => ({ x, y }));
+}
+
+function addFixedPanelLConnectors(
+    piece: GlassPiece,
+    edges: HardwareEdge[],
+    resolver: FittingResolver,
+): GlassPiece {
+    const box = getImagePieceBox(piece);
+    if (!box) return piece;
+    const widthIn = box.widthU / U;
+    const heightIn = box.heightU / U;
+    const additions: KonvaShape[] = [];
+
+    edges.forEach(edge => {
+        const count = edge === 'left' || edge === 'right'
+            ? fixedPanelHeightConnectorCount(heightIn)
+            : fixedPanelWidthConnectorCount(widthIn);
+        fixedPanelEdgePositions(box, edge, count).forEach(position => {
+            additions.push(predictedHardware(
+                box.id,
+                'l_connector',
+                position.x,
+                position.y,
+                resolver,
+                `F fixed-panel rule: ${count} L Connector${count === 1 ? '' : 's'} on the ${edge} edge`,
+                1,
+            ));
+        });
+    });
+
+    return { ...piece, shapes: [...piece.shapes, ...additions] };
+}
+
+function splitImageRegion(
+    region: GlassPiece['imageRegion'],
+    side: 'left' | 'right',
+): GlassPiece['imageRegion'] {
+    if (!region) return region;
+    const midpoint = (region.xMin + region.xMax) / 2;
+    return side === 'left'
+        ? { ...region, xMax: midpoint }
+        : { ...region, xMin: midpoint };
+}
+
+function splitFixedPanelPiece(piece: GlassPiece): [GlassPiece, GlassPiece] | null {
+    const outline = piece.shapes.find(shape => shape.type === 'glass_rect');
+    if (!outline || !outline.width || !outline.height) return null;
+    const halfWidth = outline.width / 2;
+    const splitX = outline.x + halfWidth;
+    const leftOutlineId = generateUUID();
+    const rightOutlineId = generateUUID();
+    const leftShapes: KonvaShape[] = [{
+        ...outline,
+        id: leftOutlineId,
+        width: halfWidth,
+    }];
+    const rightShapes: KonvaShape[] = [{
+        ...outline,
+        id: rightOutlineId,
+        width: halfWidth,
+    }];
+
+    piece.shapes.forEach(shape => {
+        if (shape.id === outline.id || shape.type === 'accessory') return;
+        const centerX = shape.type === 'cut'
+            ? shape.x + (shape.width || 0) / 2
+            : shape.x;
+        if (centerX <= splitX) {
+            leftShapes.push({ ...shape, id: generateUUID(), parentId: leftOutlineId });
+        } else {
+            rightShapes.push({
+                ...shape,
+                id: generateUUID(),
+                x: shape.x - halfWidth,
+                parentId: rightOutlineId,
+            });
+        }
+    });
+
+    return [
+        {
+            ...piece,
+            id: generateUUID(),
+            name: `${piece.name} - Left`,
+            connectedToPrevious: false,
+            imageRegion: splitImageRegion(piece.imageRegion, 'left'),
+            shapes: leftShapes,
+        },
+        {
+            ...piece,
+            id: generateUUID(),
+            name: `${piece.name} - Right`,
+            connectedToPrevious: true,
+            imageRegion: splitImageRegion(piece.imageRegion, 'right'),
+            shapes: rightShapes,
+        },
+    ];
+}
+
+function addCentreGlassConnectors(
+    leftPiece: GlassPiece,
+    rightPiece: GlassPiece,
+    resolver: FittingResolver,
+): [GlassPiece, GlassPiece] {
+    const leftBox = getImagePieceBox(leftPiece);
+    const rightBox = getImagePieceBox(rightPiece);
+    if (!leftBox || !rightBox) return [leftPiece, rightPiece];
+    const heightIn = leftBox.heightU / U;
+    const count = fixedPanelHeightConnectorCount(heightIn);
+    const positions = evenPositions(
+        count,
+        leftBox.topY,
+        leftBox.heightU,
+        FIXED_PANEL_END_INSET_IN * U,
+    );
+    const holeInset = U;
+    const holeRadius = 0.25 * U;
+    const leftAdditions: KonvaShape[] = [];
+    const rightAdditions: KonvaShape[] = [];
+
+    positions.forEach(y => {
+        const fitting = predictedHardware(
+            leftBox.id,
+            'glass_to_glass_connector',
+            leftBox.leftX + leftBox.widthU,
+            y,
+            resolver,
+            `F split-panel rule: glass-to-glass connector at the centre joint (${count} along the height)`,
+            1,
+        );
+        leftAdditions.push({
+            ...fitting,
+            accessoryHoleCount: 0,
+            accessoryCutCount: 0,
+            accessoryRequirementLabel: 'Two glass holes, one on each side of the centre joint',
+        });
+        leftAdditions.push({
+            id: generateUUID(),
+            type: 'hole',
+            x: leftBox.leftX + leftBox.widthU - holeInset,
+            y,
+            radius: holeRadius,
+            parentId: leftBox.id,
+        });
+        rightAdditions.push({
+            id: generateUUID(),
+            type: 'hole',
+            x: rightBox.leftX + holeInset,
+            y,
+            radius: holeRadius,
+            parentId: rightBox.id,
+        });
+    });
+
+    return [
+        { ...leftPiece, shapes: [...leftPiece.shapes, ...leftAdditions] },
+        { ...rightPiece, shapes: [...rightPiece.shapes, ...rightAdditions] },
+    ];
+}
+
+/**
+ * Applies the shop's literal handwritten image codes before the more general
+ * vision-based hardware predictor runs.
+ *
+ * B: no automatic hardware or preparation.
+ * F: only when the incoming drawing contains one original piece, fix every
+ * outer edge with drilled L Connectors using the owner's size table. Panels
+ * wider than 6ft are split equally and joined down the centre.
+ */
+export function applyImageDesignConventions(
+    pieces: GlassPiece[],
+    fittings: GlassItem[] = [],
+    originalPieceCount = pieces.length,
+): GlassPiece[] {
+    const resolver = buildResolver(fittings);
+
+    return pieces.flatMap(piece => {
+        if (piece.imageDesignCode !== 'F' || originalPieceCount !== 1) return piece;
+        const box = getImagePieceBox(piece);
+        if (!box) return piece;
+        const widthIn = box.widthU / U;
+
+        if (widthIn <= 72) {
+            return addFixedPanelLConnectors(piece, ['left', 'right', 'top', 'bottom'], resolver);
+        }
+
+        const split = splitFixedPanelPiece(piece);
+        if (!split) return piece;
+        const left = addFixedPanelLConnectors(split[0], ['left', 'top', 'bottom'], resolver);
+        const right = addFixedPanelLConnectors(split[1], ['right', 'top', 'bottom'], resolver);
+        return addCentreGlassConnectors(left, right, resolver);
+    });
+}
+
 /**
  * Adds catalogue-backed hardware predictions to image-extracted pieces.
  * Explicit per-piece vision context wins; older drafts fall back to cautious
@@ -450,6 +671,7 @@ export function predictImagePieceHardware(pieces: GlassPiece[], fittings: GlassI
 
     return pieces.map(piece => {
         if (piece.source !== 'whatsapp-image' && piece.source !== 'email-image') return piece;
+        if (piece.imageDesignCode === 'B' || piece.imageDesignCode === 'F') return piece;
         if (piece.shapes.some(shape => shape.type === 'accessory')) return piece;
 
         const box = getImagePieceBox(piece);

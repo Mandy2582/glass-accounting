@@ -2702,6 +2702,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
         });
         return legend;
     }, [activePiece, hardwareItems]);
+    const showHardwareCalloutCodes = hardwareLegend.length <= 10;
 
     // Glass prep implied by the placed fittings. A fitting shape only carries
     // hole/cut COUNTS, so the fabrication view turns those into real,
@@ -2724,6 +2725,8 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
         });
         return { holes, cuts };
     }, [activePiece, hardwareItems]);
+    const showFabricationHoleSizeLabels = activePieceShapes.filter(shape => shape.type === 'hole').length
+        + fittingGlassPrep.holes.length <= 6;
 
     const stageViewportHeight = STAGE_VIEWPORT_HEIGHT;
     const { width: stageLogicalWidth, height: stageLogicalHeight } = getStageLogicalSize(drawingScale, stageViewportWidth);
@@ -2747,6 +2750,27 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                 style={{ padding: '0.35rem 0.65rem', border: 'none', background: 'transparent', color: isActive ? '#ffffff' : 'var(--color-text-muted, #334155)', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
                             >
                                 {piece.name}
+                                {piece.imageDesignCode && (
+                                    <span
+                                        title={piece.imageDesignCode === 'B'
+                                            ? 'Basic: no automatic hardware or glass preparation'
+                                            : 'Single fixed-panel convention'}
+                                        style={{
+                                            minWidth: '18px',
+                                            height: '18px',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            borderRadius: '4px',
+                                            background: isActive ? 'rgba(255,255,255,0.2)' : '#e2e8f0',
+                                            color: isActive ? '#ffffff' : '#0f172a',
+                                            fontSize: '0.68rem',
+                                            fontWeight: 800,
+                                        }}
+                                    >
+                                        {piece.imageDesignCode}
+                                    </span>
+                                )}
                                 {needsReviewCount > 0 && (
                                     <span
                                         title={`${needsReviewCount} hole/cut position${needsReviewCount === 1 ? '' : 's'} could not be read from the photo -- verify before production`}
@@ -3674,70 +3698,6 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                 );
                             })}
 
-                            {/* Render cuts and holes */}
-                            {activePieceShapes.filter(s => s.type === 'hole' || s.type === 'cut').map((shape) => {
-                                const isSelected = selectedShapeIds.includes(shape.id);
-                                const isCut = shape.type === 'cut';
-                                const needsReview = shape.positionSource === 'estimated-fallback';
-                                const props = {
-                                    id: shape.id, x: shape.x, y: shape.y,
-                                    fill: needsReview ? 'rgba(245, 158, 11, 0.35)' : 'rgba(239, 68, 68, 0.35)', stroke: needsReview ? '#f59e0b' : '#ef4444',
-                                    strokeWidth: (isSelected ? 3 : 2) / drawingScale,
-                                    dash: [5 / drawingScale, 5 / drawingScale],
-                                    draggable: true,
-                                    onDragStart: (e: any) => saveHistory(),
-                                    onTransformStart: (e: any) => saveHistory(),
-                                    onClick: (e: any) => handleShapeClick(shape.id, e),
-                                    onTap: (e: any) => handleShapeClick(shape.id, e),
-                                    onMouseEnter: handleShapeMouseEnter,
-                                    onMouseLeave: handleShapeMouseLeave,
-                                    onDragMove: (e: any) => updateShape(shape.id, { x: snapToOctalInch(e.target.x()), y: snapToOctalInch(e.target.y()) }),
-                                    onDragEnd: (e: any) => updateShape(shape.id, { x: snapToOctalInch(e.target.x()), y: snapToOctalInch(e.target.y()) }),
-                                    onTransform: (e: any) => {
-                                        const node = e.target; const scaleX = node.scaleX(); const scaleY = node.scaleY();
-                                        node.scaleX(1); node.scaleY(1);
-                                        if (isCut) { updateShape(shape.id, { x: snapToOctalInch(node.x()), y: snapToOctalInch(node.y()), width: Math.max(5, snapToOctalInch(node.width() * scaleX)), height: Math.max(5, snapToOctalInch(node.height() * scaleY)) }); }
-                                        else { updateShape(shape.id, { x: snapToOctalInch(node.x()), y: snapToOctalInch(node.y()), radius: Math.max(5, snapToOctalInch(node.radius() * scaleX)) }); }
-                                    },
-                                    onTransformEnd: (e: any) => {
-                                        const node = e.target; const scaleX = node.scaleX(); const scaleY = node.scaleY();
-                                        node.scaleX(1); node.scaleY(1);
-                                        if (isCut) { updateShape(shape.id, { x: snapToOctalInch(node.x()), y: snapToOctalInch(node.y()), width: Math.max(5, snapToOctalInch(node.width() * scaleX)), height: Math.max(5, snapToOctalInch(node.height() * scaleY)) }); }
-                                        else { updateShape(shape.id, { x: snapToOctalInch(node.x()), y: snapToOctalInch(node.y()), radius: Math.max(5, snapToOctalInch(node.radius() * scaleX)) }); }
-                                    },
-                                };
-                                // A real hole/cut is often tiny at typical zoom (a 1/4in-radius
-                                // hole is sub-pixel), so draw a fixed-minimum-size halo UNDER the
-                                // true, draggable/resizable shape purely for visibility -- the halo
-                                // is non-interactive and never fed back into updateShape, so it
-                                // can't corrupt the real dimensions the way inflating the actual
-                                // Circle/Rect passed to Konva's transform handling would.
-                                const haloColor = needsReview ? '#f59e0b' : '#ef4444';
-                                const haloRadius = Math.max(shape.radius || 0, 9 / drawingScale);
-                                const haloW = Math.max(shape.width || 0, 18 / drawingScale);
-                                const haloH = Math.max(shape.height || 0, 18 / drawingScale);
-                                const labelFill = needsReview ? '#b45309' : '#b91c1c';
-                                const chipW = 76 / drawingScale;
-                                const chipH = 18 / drawingScale;
-                                return isCut ? (
-                                    <Group key={shape.id}>
-                                        <Rect x={shape.x + (shape.width || 0) / 2 - haloW / 2} y={shape.y + (shape.height || 0) / 2 - haloH / 2} width={haloW} height={haloH} stroke={haloColor} strokeWidth={1 / drawingScale} dash={[3 / drawingScale, 3 / drawingScale]} listening={false} />
-                                        <Rect {...props} width={shape.width} height={shape.height} />
-                                        <Text x={shape.x + (shape.width || 0) / 2} y={shape.y + (shape.height || 0) / 2} text="C" fill={haloColor} fontSize={11 / drawingScale} fontStyle="bold" align="center" width={60 / drawingScale} offsetX={30 / drawingScale} offsetY={5.5 / drawingScale} listening={false} />
-                                        <Rect x={shape.x + (shape.width || 0) / 2 - chipW / 2} y={shape.y + (shape.height || 0) / 2 + haloH / 2 + 3 / drawingScale} width={chipW} height={chipH} fill="#ffffff" stroke={labelFill} strokeWidth={1 / drawingScale} cornerRadius={3 / drawingScale} opacity={0.94} listening={false} />
-                                        <Text x={shape.x + (shape.width || 0) / 2} y={shape.y + (shape.height || 0) / 2 + haloH / 2 + 3 / drawingScale + chipH / 2 - 6 / drawingScale} text={`${formatInchesFraction(shape.width || 0)}" x ${formatInchesFraction(shape.height || 0)}"`} fill={labelFill} fontSize={11 / drawingScale} fontStyle="bold" align="center" width={chipW} offsetX={chipW / 2} listening={false} />
-                                    </Group>
-                                ) : (
-                                    <Group key={shape.id}>
-                                        <Circle x={shape.x} y={shape.y} radius={haloRadius} stroke={haloColor} strokeWidth={1 / drawingScale} dash={[3 / drawingScale, 3 / drawingScale]} listening={false} />
-                                        <Circle {...props} radius={shape.radius} />
-                                        <Text x={shape.x} y={shape.y} text="H" fill={haloColor} fontSize={11 / drawingScale} fontStyle="bold" align="center" width={60 / drawingScale} offsetX={30 / drawingScale} offsetY={5.5 / drawingScale} listening={false} />
-                                        <Rect x={shape.x - chipW / 2} y={shape.y + haloRadius + 3 / drawingScale} width={chipW} height={chipH} fill="#ffffff" stroke={labelFill} strokeWidth={1 / drawingScale} cornerRadius={3 / drawingScale} opacity={0.94} listening={false} />
-                                        <Text x={shape.x} y={shape.y + haloRadius + 3 / drawingScale + chipH / 2 - 6 / drawingScale} text={`Ø ${formatInchesFraction((shape.radius || 0) * 2)}"`} fill={labelFill} fontSize={11 / drawingScale} fontStyle="bold" align="center" width={chipW} offsetX={chipW / 2} listening={false} />
-                                    </Group>
-                                );
-                            })}
-
                             {/* Fabrication view: the glass prep each fitting needs, drawn as
                                 real holes/notches instead of the fitting itself. Read-only --
                                 reposition the fitting in the hardware view to move these. These
@@ -3875,30 +3835,33 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                                         <Rect key={`hw-c-${k}`} x={startX + (holes + k) * gap - 2.5} y={midY - 2.5} width={5} height={5} stroke={pal.c} strokeWidth={1.4 / drawingScale} fill={pal.badgeBg} listening={false} />
                                                     ))}
 
-                                                    {/* Clean callout code tag badge below fitting */}
-                                                    <Rect
-                                                        x={(mw / 2) - (15 / drawingScale)}
-                                                        y={mh + (3 / drawingScale)}
-                                                        width={30 / drawingScale}
-                                                        height={16 / drawingScale}
-                                                        fill={pal.c}
-                                                        cornerRadius={4 / drawingScale}
-                                                        shadowColor="#000000"
-                                                        shadowBlur={2 / drawingScale}
-                                                        shadowOpacity={0.2}
-                                                        listening={false}
-                                                    />
-                                                    <Text
-                                                        x={(mw / 2) - (15 / drawingScale)}
-                                                        y={mh + (5 / drawingScale)}
-                                                        width={30 / drawingScale}
-                                                        text={codeTag}
-                                                        fontSize={10 / drawingScale}
-                                                        fill="#ffffff"
-                                                        fontStyle="bold"
-                                                        align="center"
-                                                        listening={false}
-                                                    />
+                                                    {showHardwareCalloutCodes && (
+                                                        <>
+                                                            <Rect
+                                                                x={(mw / 2) - (15 / drawingScale)}
+                                                                y={mh + (3 / drawingScale)}
+                                                                width={30 / drawingScale}
+                                                                height={16 / drawingScale}
+                                                                fill={pal.c}
+                                                                cornerRadius={4 / drawingScale}
+                                                                shadowColor="#000000"
+                                                                shadowBlur={2 / drawingScale}
+                                                                shadowOpacity={0.2}
+                                                                listening={false}
+                                                            />
+                                                            <Text
+                                                                x={(mw / 2) - (15 / drawingScale)}
+                                                                y={mh + (5 / drawingScale)}
+                                                                width={30 / drawingScale}
+                                                                text={codeTag}
+                                                                fontSize={10 / drawingScale}
+                                                                fill="#ffffff"
+                                                                fontStyle="bold"
+                                                                align="center"
+                                                                listening={false}
+                                                            />
+                                                        </>
+                                                    )}
                                                 </Group>
                                             );
                                         })()}
@@ -3941,95 +3904,6 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                     }}
                                 />
                             )}
-                            {/* Architectural Hardware Schedule Key (Bottom Right Corner).
-                                Hardware view only -- the fabrication drawing lists no fittings. */}
-                            {canvasView === 'hardware' && hardwareLegend.length > 0 && (() => {
-                                const boxWidth = 360 / drawingScale;
-                                const headerHeight = 24 / drawingScale;
-                                const rowHeight = 20 / drawingScale;
-                                const boxHeight = headerHeight + hardwareLegend.length * rowHeight + (12 / drawingScale);
-                                const marginX = 20 / drawingScale;
-                                const marginY = 20 / drawingScale;
-                                const boxX = stageLogicalWidth - boxWidth - marginX;
-                                const boxY = stageLogicalHeight - boxHeight - marginY;
-
-                                return (
-                                    <Group x={boxX} y={boxY} listening={false}>
-                                        {/* Main Legend Container Box */}
-                                        <Rect
-                                            x={0}
-                                            y={0}
-                                            width={boxWidth}
-                                            height={boxHeight}
-                                            fill="#ffffff"
-                                            stroke="#0f172a"
-                                            strokeWidth={1.5 / drawingScale}
-                                            cornerRadius={4 / drawingScale}
-                                            shadowColor="#0f172a"
-                                            shadowBlur={6 / drawingScale}
-                                            shadowOpacity={0.12}
-                                        />
-                                        {/* Legend Header */}
-                                        <Rect
-                                            x={0}
-                                            y={0}
-                                            width={boxWidth}
-                                            height={headerHeight}
-                                            fill="#0f172a"
-                                            cornerRadius={[4 / drawingScale, 4 / drawingScale, 0, 0]}
-                                        />
-                                        <Text
-                                            x={10 / drawingScale}
-                                            y={6 / drawingScale}
-                                            text="ARCHITECTURAL HARDWARE SCHEDULE KEY (FULL SPECIFICATION)"
-                                            fontSize={9.5 / drawingScale}
-                                            fill="#ffffff"
-                                            fontStyle="bold"
-                                        />
-                                        {/* Legend Rows */}
-                                        {hardwareLegend.map((item: any, idx: number) => {
-                                            const at = item.accessoryType;
-                                            const badgeColor = at === 'hinge' ? '#1d4ed8' : at === 'lock' ? '#b91c1c' : at === 'profile' ? '#6d28d9' : '#047857';
-                                            const ry = headerHeight + (6 / drawingScale) + idx * rowHeight;
-                                            const fullNameDisplay = `${item.name}${item.brand ? ` [${item.brand}]` : ''}`;
-
-                                            return (
-                                                <Group key={`legend-row-${item.id}`} y={ry}>
-                                                    {/* Callout Code Badge */}
-                                                    <Rect
-                                                        x={10 / drawingScale}
-                                                        y={0}
-                                                        width={28 / drawingScale}
-                                                        height={15 / drawingScale}
-                                                        fill={badgeColor}
-                                                        cornerRadius={3 / drawingScale}
-                                                    />
-                                                    <Text
-                                                        x={10 / drawingScale}
-                                                        y={3 / drawingScale}
-                                                        width={28 / drawingScale}
-                                                        text={item.code}
-                                                        fontSize={9.5 / drawingScale}
-                                                        fill="#ffffff"
-                                                        fontStyle="bold"
-                                                        align="center"
-                                                    />
-                                                    {/* Full Hardware Name without abbreviation */}
-                                                    <Text
-                                                        x={44 / drawingScale}
-                                                        y={2.5 / drawingScale}
-                                                        width={306 / drawingScale}
-                                                        text={fullNameDisplay}
-                                                        fontSize={9 / drawingScale}
-                                                        fill="#0f172a"
-                                                        fontStyle="bold"
-                                                    />
-                                                </Group>
-                                            );
-                                        })}
-                                    </Group>
-                                );
-                            })()}
                         </Layer>
                     </Stage>
                         </section>
@@ -4091,7 +3965,9 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                                     <Circle x={shape.x} y={shape.y} radius={radius} fill="rgba(220,38,38,0.18)" stroke={stroke} strokeWidth={2 / drawingScale} />
                                                     <Line points={[shape.x - radius, shape.y, shape.x + radius, shape.y]} stroke={stroke} strokeWidth={1 / drawingScale} />
                                                     <Line points={[shape.x, shape.y - radius, shape.x, shape.y + radius]} stroke={stroke} strokeWidth={1 / drawingScale} />
-                                                    <Text x={shape.x - 45 / drawingScale} y={shape.y + radius + 4 / drawingScale} width={90 / drawingScale} text={`Ø ${formatInchesFraction((shape.radius || 0) * 2)}"`} fontSize={11 / drawingScale} fill={stroke} fontStyle="bold" align="center" />
+                                                    {showFabricationHoleSizeLabels && (
+                                                        <Text x={shape.x - 45 / drawingScale} y={shape.y + radius + 4 / drawingScale} width={90 / drawingScale} text={`Ø ${formatInchesFraction((shape.radius || 0) * 2)}"`} fontSize={11 / drawingScale} fill={stroke} fontStyle="bold" align="center" />
+                                                    )}
                                                 </Group>
                                             );
                                         }
@@ -4114,7 +3990,9 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                                 <Circle x={h.x} y={h.y} radius={radius} fill="rgba(220,38,38,0.18)" stroke="#dc2626" strokeWidth={2 / drawingScale} />
                                                 <Line points={[h.x - radius, h.y, h.x + radius, h.y]} stroke="#dc2626" strokeWidth={1 / drawingScale} />
                                                 <Line points={[h.x, h.y - radius, h.x, h.y + radius]} stroke="#dc2626" strokeWidth={1 / drawingScale} />
-                                                <Text x={h.x - 45 / drawingScale} y={h.y + radius + 4 / drawingScale} width={90 / drawingScale} text={`Ø ${formatInchesFraction(h.radius * 2)}"`} fontSize={11 / drawingScale} fill="#b91c1c" fontStyle="bold" align="center" />
+                                                {showFabricationHoleSizeLabels && (
+                                                    <Text x={h.x - 45 / drawingScale} y={h.y + radius + 4 / drawingScale} width={90 / drawingScale} text={`Ø ${formatInchesFraction(h.radius * 2)}"`} fontSize={11 / drawingScale} fill="#b91c1c" fontStyle="bold" align="center" />
+                                                )}
                                             </Group>
                                         );
                                     })}
