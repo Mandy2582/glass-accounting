@@ -32,7 +32,7 @@ const inFromMm = (millimetres: number) => millimetres / MM_PER_INCH;
 // --- Standard placement offsets (inches) ---
 const SHOWER_HINGE_INSET_IN = inFromMm(175);   // 150-200mm from top & bottom edge
 const HANDLE_HEIGHT_IN = inFromMm(1000);       // handle/lock center ~1000mm above floor
-const PATCH_SETBACK_IN = inFromMm(70);         // patch cutout set back from the edge it clamps
+const PATCH_SETBACK_IN = inFromMm(70);         // patch preparation centre set back from both clamped edges
 const DOOR_HINGE_END_INSET_IN = 4;             // frameless door hinges ~4in in from each end
 const RAIL_END_INSET_IN = 4;                   // first/last roller or standoff in from the ends
 const SPIDER_CORNER_INSET_IN = 3;              // bolt-hole inset from each corner for bolted glass
@@ -54,13 +54,11 @@ const SLIDING_OVERLAP_IN = 2;        // slider laps this far over its fixed neig
 // hard up against the corner. How many depends on the run: a short return
 // takes two, a full-height partition wants three or four.
 const L_BRACKET_END_INSET_IN = 4;
-const FIXED_PANEL_L_CONNECTOR_GLASS_INSET_IN = 1;
+const FIXED_PANEL_L_CONNECTOR_GLASS_INSET_IN = 2;
 const CENTRE_CONNECTOR_END_INSET_IN = 6;
 const STANDARD_DOOR_OPENING_WIDTH_IN = 36;
-const STANDARD_DOOR_GLASS_WIDTH_IN = 35.75;
-const STANDARD_DOOR_HEIGHT_IN = 84;
-const OVERPANEL_HEIGHT_DEDUCTION_IN = 84.25;
-const DOOR_SIDE_CLEARANCE_IN = (STANDARD_DOOR_OPENING_WIDTH_IN - STANDARD_DOOR_GLASS_WIDTH_IN) / 2;
+const STANDARD_DOOR_OPENING_HEIGHT_IN = 84.25;
+const DOOR_GLASS_CLEARANCE_IN = 0.25;
 // Light-duty (Small) is adequate for modest returns; a tall or heavy leaf
 // levers hard on the joint and takes the heavy-duty (Big) body. Glass weighs
 // ~2.5 kg per m2 per mm of thickness.
@@ -123,6 +121,8 @@ const PIECE_GAP_U = 2; // tight 2px (2mm) physical glass-to-glass joint gap for 
 export type GlassSystemType =
     | 'basic'
     | 'swing_door'
+    | 'single_door'
+    | 'double_door'
     | 'shower_door'
     | 'fixed_panel'
     | 'fixed_panel_f'
@@ -163,6 +163,10 @@ export interface GlassSystemInput {
     fixedPanelLeftWidthIn?: number;
     fixedPanelRightWidthIn?: number;
     transomHeightIn?: number;
+    // Clear opening dimensions supplied for each door leaf. The generated
+    // glass is 1/4in smaller in both directions for installation clearance.
+    doorWidthIn?: number;
+    doorHeightIn?: number;
     fixingStyle?: 'channel' | 'spider' | 'standoff';
     // Glass colour/type used for per-sqft pricing (matched against the
     // thickness-pricing rows). Defaults to 'Toughened Clear'.
@@ -847,6 +851,9 @@ function buildDoorPiece(name: string, input: GlassSystemInput, originX: number, 
     const { widthIn, heightIn, thickness } = input;
     const hingeSide = input.hingeSide ?? 'left';
     const { shape, box } = rectPanel(widthIn, heightIn, originX);
+    shape.widthDimensionPosition = 'bottom';
+    shape.heightDimensionPosition = 'inside';
+    shape.forceHeightDimension = true;
     const shapes: KonvaShape[] = [shape];
 
     const hingeEdgeX = hingeSide === 'left' ? box.leftX : box.leftX + box.widthU;
@@ -858,9 +865,9 @@ function buildDoorPiece(name: string, input: GlassSystemInput, originX: number, 
 
     if (input.systemType === 'swing_door' && input.pivotStyle === 'patch') {
         const setback = PATCH_SETBACK_IN * U;
-        const dx = (hingeSide === 'left' ? setback : -setback) / 2;
-        shapes.push(hardware(box.id, 'top_patch', hingeMarkX + dx, box.topY + setback / 2, resolver));
-        shapes.push(hardware(box.id, 'bottom_patch', hingeMarkX + dx, box.topY + box.heightU - setback / 2, resolver));
+        const patchX = hingeSide === 'left' ? box.leftX + setback : box.leftX + box.widthU - setback;
+        shapes.push(hardware(box.id, 'top_patch', patchX, box.topY + setback, resolver));
+        shapes.push(hardware(box.id, 'bottom_patch', patchX, box.topY + box.heightU - setback, resolver));
     } else {
         const count = isShower ? 2 : hingeCountForHeight(heightIn);
         const inset = (isShower ? SHOWER_HINGE_INSET_IN : DOOR_HINGE_END_INSET_IN) * U;
@@ -1010,6 +1017,11 @@ function assemblyRect(name: string, type: string, x: number, y: number, widthIn:
         width: widthIn * U,
         height: heightIn * U,
         glassSectionName: name,
+        ...(type === 'Door' ? {
+            widthDimensionPosition: 'bottom' as const,
+            heightDimensionPosition: 'inside' as const,
+            forceHeightDimension: true,
+        } : {}),
     };
     return { name, type, outline, shapes: [outline] };
 }
@@ -1046,17 +1058,17 @@ function addPatchDoorHardware(
 
     const setback = PATCH_SETBACK_IN * U;
     const hingeX = hingeSide === 'left'
-        ? box.leftX + setback / 2
-        : box.leftX + box.widthU - setback / 2;
+        ? box.leftX + setback
+        : box.leftX + box.widthU - setback;
     const leadingX = hingeSide === 'left'
-        ? box.leftX + box.widthU - setback / 2
-        : box.leftX + setback / 2;
+        ? box.leftX + box.widthU - setback
+        : box.leftX + setback;
     const bottomY = box.topY + box.heightU;
     const handleY = Math.max(box.topY + 40, bottomY - HANDLE_HEIGHT_IN * U);
     const additions = [
-        hardware(box.id, 'top_patch', hingeX, box.topY + setback / 2, resolver),
-        hardware(box.id, 'bottom_patch', hingeX, bottomY - setback / 2, resolver),
-        hardware(box.id, 'door_lock', leadingX, bottomY - setback / 2, resolver),
+        hardware(box.id, 'top_patch', hingeX, box.topY + setback, resolver),
+        hardware(box.id, 'bottom_patch', hingeX, bottomY - setback, resolver),
+        hardware(box.id, 'door_lock', leadingX, bottomY - setback, resolver),
         hardware(box.id, 'handle', leadingX, handleY, resolver),
     ];
     return { ...section, shapes: [...section.shapes, ...additions] };
@@ -1113,17 +1125,21 @@ function buildFixedDoorAssembly(
 ): Omit<GlassPiece, 'id'> | null {
     const fixedCount = input.systemType === 'dfsd' || input.systemType === 'dfdd' ? 2 : 1;
     const doorCount = input.systemType === 'sfdd' || input.systemType === 'dfdd' ? 2 : 1;
-    const openingWidthIn = STANDARD_DOOR_OPENING_WIDTH_IN * doorCount;
+    const doorOpeningWidthIn = input.doorWidthIn || STANDARD_DOOR_OPENING_WIDTH_IN;
+    const openingWidthIn = doorOpeningWidthIn * doorCount;
     const remainingFixedWidthIn = input.widthIn - openingWidthIn;
     if (remainingFixedWidthIn <= 0 || input.heightIn <= 0) return null;
 
     const fixedWidthIn = remainingFixedWidthIn / fixedCount;
-    const doorHeightIn = Math.min(STANDARD_DOOR_HEIGHT_IN, input.heightIn);
-    const overpanelHeightIn = input.heightIn > OVERPANEL_HEIGHT_DEDUCTION_IN
-        ? input.heightIn - OVERPANEL_HEIGHT_DEDUCTION_IN
+    const doorOpeningHeightIn = Math.min(input.doorHeightIn || STANDARD_DOOR_OPENING_HEIGHT_IN, input.heightIn);
+    const doorGlassWidthIn = Math.max(doorOpeningWidthIn - DOOR_GLASS_CLEARANCE_IN, 1);
+    const doorGlassHeightIn = Math.max(doorOpeningHeightIn - DOOR_GLASS_CLEARANCE_IN, 1);
+    const doorSideClearanceIn = (doorOpeningWidthIn - doorGlassWidthIn) / 2;
+    const overpanelHeightIn = input.heightIn > doorOpeningHeightIn
+        ? input.heightIn - doorOpeningHeightIn
         : 0;
     const openingX = ORIGIN_X + fixedWidthIn * U;
-    const doorTopY = ORIGIN_Y + Math.max(input.heightIn - doorHeightIn, 0) * U;
+    const doorTopY = ORIGIN_Y + Math.max(input.heightIn - doorGlassHeightIn, 0) * U;
     const sections: AssemblySection[] = [];
 
     let leftFixed = assemblyRect('Left Fixed Panel', 'Partition', ORIGIN_X, ORIGIN_Y, fixedWidthIn, input.heightIn);
@@ -1145,10 +1161,10 @@ function buildFixedDoorAssembly(
         let door = assemblyRect(
             'Single Glass Door',
             'Door',
-            openingX + DOOR_SIDE_CLEARANCE_IN * U,
+            openingX + doorSideClearanceIn * U,
             doorTopY,
-            STANDARD_DOOR_GLASS_WIDTH_IN,
-            doorHeightIn,
+            doorGlassWidthIn,
+            doorGlassHeightIn,
         );
         door = addPatchDoorHardware(door, 'right', resolver);
         doors.push(door);
@@ -1156,19 +1172,19 @@ function buildFixedDoorAssembly(
         let leftDoor = assemblyRect(
             'Left Glass Door',
             'Door',
-            openingX + DOOR_SIDE_CLEARANCE_IN * U,
+            openingX + doorSideClearanceIn * U,
             doorTopY,
-            STANDARD_DOOR_GLASS_WIDTH_IN,
-            doorHeightIn,
+            doorGlassWidthIn,
+            doorGlassHeightIn,
         );
         leftDoor = addPatchDoorHardware(leftDoor, 'left', resolver);
         let rightDoor = assemblyRect(
             'Right Glass Door',
             'Door',
-            openingX + STANDARD_DOOR_OPENING_WIDTH_IN * U + DOOR_SIDE_CLEARANCE_IN * U,
+            openingX + doorOpeningWidthIn * U + doorSideClearanceIn * U,
             doorTopY,
-            STANDARD_DOOR_GLASS_WIDTH_IN,
-            doorHeightIn,
+            doorGlassWidthIn,
+            doorGlassHeightIn,
         );
         rightDoor = addPatchDoorHardware(rightDoor, 'right', resolver);
         doors.push(leftDoor, rightDoor);
@@ -1227,6 +1243,79 @@ function buildFixedDoorAssembly(
     };
 }
 
+function buildDoorOnlyAssembly(
+    input: GlassSystemInput & { systemType: 'single_door' | 'double_door' },
+    resolver: FittingResolver,
+): Omit<GlassPiece, 'id'> {
+    const doorCount = input.systemType === 'double_door' ? 2 : 1;
+    const doorOpeningWidthIn = input.doorWidthIn || input.widthIn / doorCount;
+    const doorOpeningHeightIn = Math.min(input.doorHeightIn || STANDARD_DOOR_OPENING_HEIGHT_IN, input.heightIn);
+    const glassWidthIn = Math.max(doorOpeningWidthIn - DOOR_GLASS_CLEARANCE_IN, 1);
+    const glassHeightIn = Math.max(doorOpeningHeightIn - DOOR_GLASS_CLEARANCE_IN, 1);
+    const sideClearanceIn = (doorOpeningWidthIn - glassWidthIn) / 2;
+    const totalOpeningWidthIn = doorOpeningWidthIn * doorCount;
+    const overpanelHeightIn = Math.max(input.heightIn - doorOpeningHeightIn, 0);
+    const doorTopY = ORIGIN_Y + (input.heightIn - glassHeightIn) * U;
+    const sections: AssemblySection[] = [];
+
+    let overpanel: AssemblySection | null = null;
+    if (overpanelHeightIn > 0) {
+        overpanel = assemblyRect('Door Overpanel', 'Transom', ORIGIN_X, ORIGIN_Y, totalOpeningWidthIn, overpanelHeightIn);
+        overpanel = addAssemblyFixedPanelHardware(overpanel, ['left', 'right', 'top'], input.thickness, resolver);
+        sections.push(overpanel);
+    }
+
+    const doors: AssemblySection[] = [];
+    for (let index = 0; index < doorCount; index += 1) {
+        const hingeSide: 'left' | 'right' = doorCount === 2
+            ? (index === 0 ? 'left' : 'right')
+            : (input.hingeSide || 'left');
+        let door = assemblyRect(
+            doorCount === 1 ? 'Single Glass Door' : `${index === 0 ? 'Left' : 'Right'} Glass Door`,
+            'Door',
+            ORIGIN_X + (index * doorOpeningWidthIn + sideClearanceIn) * U,
+            doorTopY,
+            glassWidthIn,
+            glassHeightIn,
+        );
+        door = addPatchDoorHardware(door, hingeSide, resolver);
+        doors.push(door);
+    }
+    sections.push(...doors);
+
+    // With no side fixed panels, the overpanel itself carries each top pivot
+    // through TM-30 and is fixed to the wall/ceiling by drilled L Connectors.
+    if (overpanel) {
+        const overBox = getImagePieceBox({ id: generateUUID(), name: overpanel.name, type: overpanel.type, thickness: 0, shapes: overpanel.shapes });
+        if (overBox) {
+            doors.forEach((door, index) => {
+                const hingeX = doorCount === 1
+                    ? ((input.hingeSide || 'left') === 'left'
+                        ? door.outline.x + PATCH_SETBACK_IN * U
+                        : door.outline.x + (door.outline.width || 0) - PATCH_SETBACK_IN * U)
+                    : (index === 0
+                        ? door.outline.x + PATCH_SETBACK_IN * U
+                        : door.outline.x + (door.outline.width || 0) - PATCH_SETBACK_IN * U);
+                overpanel!.shapes.push(hardware(
+                    overBox.id,
+                    'overpanel_patch',
+                    hingeX,
+                    overBox.topY + overBox.heightU - PATCH_SETBACK_IN * U,
+                    resolver,
+                ));
+            });
+        }
+    }
+
+    return {
+        name: `${doorCount === 1 ? 'Single' : 'Double'} Door with Overpanel Assembly`,
+        type: 'Door and Overpanel Assembly',
+        thickness: input.thickness,
+        quantity: 1,
+        shapes: sections.flatMap(section => section.shapes),
+    };
+}
+
 // Main entry point. Pass the shop's hardware catalogue (or the full item
 // list -- non-hardware items are ignored) so each fitting is the real
 // stocked one; omit it and every role falls back to built-in defaults.
@@ -1255,6 +1344,13 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
             break;
         case 'swing_door':
             advance(buildDoorPiece('Glass Door', input, originX, resolver));
+            break;
+        case 'single_door':
+        case 'double_door':
+            pieces.push(buildDoorOnlyAssembly(
+                input as GlassSystemInput & { systemType: 'single_door' | 'double_door' },
+                resolver,
+            ));
             break;
         case 'shower_door':
             advance(buildDoorPiece('Shower Door', input, originX, resolver));

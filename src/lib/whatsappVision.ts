@@ -2,6 +2,7 @@ import sharp from 'sharp';
 import { generateUUID, roundCurrency } from '@/lib/utils';
 import type { DesignData, DesignItem, GlassItem, GlassPiece, ImageDesignCode, ImageHardwareContext, KonvaShape } from '@/types';
 import { applyImageDesignConventions, predictImagePieceHardware } from '@/lib/glassSystemDesigner';
+import { parseDoorOpeningDimensions } from '@/lib/glassSystemOrder';
 
 export type LengthUnit = 'inch' | 'mm';
 
@@ -139,6 +140,8 @@ export type WhatsAppImageAnalysis = {
         hasLock?: boolean | null;
         hasHandle?: boolean | null;
         fixedPanelWidthIn?: number | null;
+        doorWidthIn?: number | null;
+        doorHeightIn?: number | null;
         confidence: number;
     } | null;
     // True only when the vision call itself errored/couldn't be parsed --
@@ -168,6 +171,8 @@ const emptyAnalysis = (classification: WhatsAppImageAnalysis['classification'], 
 // read-the-holes path rather than guessing at an exotic preset.
 export const RECOGNISABLE_SYSTEM_TYPES = [
     'swing_door',
+    'single_door',
+    'double_door',
     'shower_door',
     'fixed_panel',
     'sliding_door',
@@ -328,8 +333,9 @@ export async function analyzeWhatsAppImage(input: {
                                 '',
                                 `${HOLE_CUT_UNITS_GUIDANCE} Also report widthUnit/heightUnit for the panel itself the same way.`,
                                 '',
-                                `GLASS SYSTEM RECOGNITION (important): separately from reading the individual marks, decide whether this drawing depicts a standard glass SYSTEM as a whole, and if so fill in glassSystem. Allowed systemType values: ${RECOGNISABLE_SYSTEM_TYPES.join(', ')}. Judge it from the overall arrangement and any written labels, e.g.: a single leaf with hinges/patches down one side and a handle = swing_door; a leaf plus an adjoining narrower fixed panel in a bathroom context = shower_door (give the fixed panel's width in fixedPanelWidthIn); two leaves meeting in the middle = patch_double_door; a leaf that slides across an adjoining panel, or a drawing labelled "sliding" with a top track = sliding_door (or top_hung_sliding for a barn-style slider hung entirely off an overhead rail); a low waist-height run of panels with floor-mounted spigots/base channel = railing; a plain panel with no door = fixed_panel. Also report the system's OVERALL opening width and height in INCHES (converting if the drawing is dimensioned in mm), the glass thickness in mm, which side the hinges/track are on, and whether a lock and a handle are marked.`,
-                                'OWNER FIXED-PANEL + DOOR CODES: recognise these literal names or acronyms with high confidence: "single fixed single door" / SFSD = sfsd; "double fixed single door" / DFSD = dfsd; "single fixed double door" / SFDD = sfdd; "double fixed double door" / DFDD = dfdd. Width and height are the OVERALL installation dimensions a and b, not an individual leaf. These named systems are regenerated from the shop rules, including the 36in door opening(s), 84in door height, overhead panel, and pivot hardware.',
+                                `GLASS SYSTEM RECOGNITION (important): separately from reading the individual marks, decide whether this drawing depicts a standard glass SYSTEM as a whole, and if so fill in glassSystem. Allowed systemType values: ${RECOGNISABLE_SYSTEM_TYPES.join(', ')}. Judge it from the overall arrangement and any written labels, e.g.: a single leaf with hinges/patches down one side and a handle = swing_door; a leaf plus an adjoining narrower fixed panel in a bathroom context = shower_door (give the fixed panel's width in fixedPanelWidthIn); two leaves meeting in the middle = patch_double_door; a leaf that slides across an adjoining panel, or a drawing labelled "sliding" with a top track = sliding_door (or top_hung_sliding for a barn-style slider hung entirely off an overhead rail); a low waist-height run of panels with floor-mounted spigots/base channel = railing; a plain panel with no door = fixed_panel. Also report the system's OVERALL opening width and height in INCHES (converting if the drawing is dimensioned in mm), the glass thickness in mm, which side the hinges/track are on, and whether a lock and a handle are marked. If an individual clear door opening width or height is written, report it separately as doorWidthIn/doorHeightIn; do not discard it or replace it with a standard size.`,
+                                'OWNER FIXED-PANEL + DOOR CODES: recognise these literal names or acronyms with high confidence: "single fixed single door" / SFSD = sfsd; "double fixed single door" / DFSD = dfsd; "single fixed double door" / SFDD = sfdd; "double fixed double door" / DFDD = dfdd. Width and height are the OVERALL installation dimensions a and b, not an individual leaf. Use the written doorWidthIn/doorHeightIn when present; glass leaf cutting size is 1/4in less in width and height.',
+                                'DOOR-ONLY SYSTEMS: a drawing explicitly labelled single door with no side fixed panel = single_door; double door with no side fixed panels = double_door. When overall height leaves an overpanel, generate TM-30 overpanel patch support plus L Connectors, and top patch, bottom patch, lock, and handle on each door.',
                                 'Set glassSystem to null, and set its confidence low, if the drawing is just loose panels or a dimension list with no recognisable system arrangement -- do NOT force one of the values above onto a drawing that is not clearly that system. This field is used to regenerate the panels and hardware from engineering standards, so a wrong systemType produces a confidently wrong drawing; "null" is much better than a guess.',
                                 '',
                                 'Extract visible text, order lines, thickness, hardware notes, and customer name if visible.',
@@ -388,7 +394,7 @@ export async function analyzeWhatsAppImage(input: {
                             glassSystem: {
                                 type: ['object', 'null'],
                                 additionalProperties: false,
-                                required: ['systemType', 'widthIn', 'heightIn', 'thickness', 'hingeSide', 'hasLock', 'hasHandle', 'fixedPanelWidthIn', 'confidence'],
+                                required: ['systemType', 'widthIn', 'heightIn', 'thickness', 'hingeSide', 'hasLock', 'hasHandle', 'fixedPanelWidthIn', 'doorWidthIn', 'doorHeightIn', 'confidence'],
                                 properties: {
                                     systemType: { type: ['string', 'null'], enum: [...RECOGNISABLE_SYSTEM_TYPES, null] },
                                     widthIn: { type: ['number', 'null'] },
@@ -398,6 +404,8 @@ export async function analyzeWhatsAppImage(input: {
                                     hasLock: { type: ['boolean', 'null'] },
                                     hasHandle: { type: ['boolean', 'null'] },
                                     fixedPanelWidthIn: { type: ['number', 'null'] },
+                                    doorWidthIn: { type: ['number', 'null'] },
+                                    doorHeightIn: { type: ['number', 'null'] },
                                     confidence: { type: 'number' },
                                 },
                             },
@@ -1225,6 +1233,7 @@ function arrangePieceGroups(groups: MergedPieceGroup[]): MergedPieceGroup[] {
 const SYSTEM_RECOGNITION_MIN_CONFIDENCE = 0.7;
 
 type FixedDoorRecognisedSystem = 'sfsd' | 'dfsd' | 'sfdd' | 'dfdd';
+type DoorOnlyRecognisedSystem = 'single_door' | 'double_door';
 
 function detectFixedDoorSystemType(text: string | null | undefined): FixedDoorRecognisedSystem | null {
     const compact = String(text || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -1233,6 +1242,14 @@ function detectFixedDoorSystemType(text: string | null | undefined): FixedDoorRe
     if (normalized.includes('doublefixedsingledoor') || normalized.includes('dfsd')) return 'dfsd';
     if (normalized.includes('singlefixeddoubledoor') || normalized.includes('sfdd')) return 'sfdd';
     if (normalized.includes('doublefixeddoubledoor') || normalized.includes('dfdd')) return 'dfdd';
+    return null;
+}
+
+function detectDoorOnlySystemType(text: string | null | undefined): DoorOnlyRecognisedSystem | null {
+    const source = String(text || '').toLowerCase();
+    if (/\bfixed\b|\bsfsd\b|\bdfsd\b|\bsfdd\b|\bdfdd\b/.test(source)) return null;
+    if (/\bdouble\s+(?:glass\s+)?door\b|\bdd\b/.test(source)) return 'double_door';
+    if (/\bsingle\s+(?:glass\s+)?door\b|\bsd\b/.test(source)) return 'single_door';
     return null;
 }
 
@@ -1251,16 +1268,20 @@ export function resolveRecognisedSystem(analysis: WhatsAppImageAnalysis): {
     hasLock?: boolean;
     hasHandle?: boolean;
     fixedPanelWidthIn?: number;
+    doorWidthIn?: number;
+    doorHeightIn?: number;
     confidence: number;
 } | null {
     const sys = analysis.glassSystem;
     if (!sys) return null;
-    const explicitFixedDoorType = detectFixedDoorSystemType([
+    const recognitionText = [
         sys.systemType,
         analysis.extractedText,
         analysis.drawing.notes,
-    ].filter(Boolean).join(' '));
-    const systemType = explicitFixedDoorType || sys.systemType;
+    ].filter(Boolean).join(' ');
+    const explicitFixedDoorType = detectFixedDoorSystemType(recognitionText);
+    const explicitDoorOnlyType = explicitFixedDoorType ? null : detectDoorOnlySystemType(recognitionText);
+    const systemType = explicitFixedDoorType || explicitDoorOnlyType || sys.systemType;
     if (!systemType || !(RECOGNISABLE_SYSTEM_TYPES as readonly string[]).includes(systemType)) return null;
 
     // Literal B/F panel codes have their own owner-defined deterministic
@@ -1270,7 +1291,7 @@ export function resolveRecognisedSystem(analysis: WhatsAppImageAnalysis): {
     if (!explicitFixedDoorType && analysis.drawing.pieces.some(piece => piece.designCode === 'B' || piece.designCode === 'F')) {
         return null;
     }
-    const confidence = explicitFixedDoorType
+    const confidence = explicitFixedDoorType || explicitDoorOnlyType
         ? Math.max(Number(sys.confidence) || 0, 0.95)
         : Number(sys.confidence);
     if (!Number.isFinite(confidence) || confidence < SYSTEM_RECOGNITION_MIN_CONFIDENCE) return null;
@@ -1283,6 +1304,9 @@ export function resolveRecognisedSystem(analysis: WhatsAppImageAnalysis): {
     if (widthIn > 400 || heightIn > 400) return null;
 
     const thickness = Number(sys.thickness);
+    const textDoorDimensions = parseDoorOpeningDimensions(recognitionText);
+    const doorWidthIn = Number(sys.doorWidthIn) > 0 ? Number(sys.doorWidthIn) : textDoorDimensions.doorWidthIn;
+    const doorHeightIn = Number(sys.doorHeightIn) > 0 ? Number(sys.doorHeightIn) : textDoorDimensions.doorHeightIn;
     return {
         systemType,
         widthIn,
@@ -1292,6 +1316,8 @@ export function resolveRecognisedSystem(analysis: WhatsAppImageAnalysis): {
         ...(sys.hasLock != null ? { hasLock: !!sys.hasLock } : {}),
         ...(sys.hasHandle != null ? { hasHandle: !!sys.hasHandle } : {}),
         ...(Number(sys.fixedPanelWidthIn) > 0 ? { fixedPanelWidthIn: Number(sys.fixedPanelWidthIn) } : {}),
+        ...(doorWidthIn ? { doorWidthIn } : {}),
+        ...(doorHeightIn ? { doorHeightIn } : {}),
         confidence,
     };
 }

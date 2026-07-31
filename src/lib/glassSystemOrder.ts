@@ -18,6 +18,8 @@ const SYSTEM_PHRASES: Array<{ re: RegExp; type: GlassSystemType }> = [
     { re: /\b(double\s+fixed(?:\s+panels?)?\s*(?:and|\+)?\s*single\s+door|dfsd)\b/i, type: 'dfsd' },
     { re: /\b(single\s+fixed(?:\s+panel)?\s*(?:and|\+)?\s*double\s+door|sfdd)\b/i, type: 'sfdd' },
     { re: /\b(double\s+fixed(?:\s+panels?)?\s*(?:and|\+)?\s*double\s+door|dfdd)\b/i, type: 'dfdd' },
+    { re: /\b(single\s+(?:glass\s+)?door|single\s+door|sd)\b/i, type: 'single_door' },
+    { re: /\b(double\s+(?:glass\s+)?door|double\s+door|dd)\b/i, type: 'double_door' },
     { re: /\b(block|basic)\b/i, type: 'basic' },
     { re: /\bshower\b/i, type: 'shower_door' },
     { re: /\bsliding\b/i, type: 'sliding_door' },
@@ -74,9 +76,12 @@ function findDimensions(text: string): { widthIn: number; heightIn: number } | n
         const short = label === 'width' ? 'w' : 'h';
         const expression = new RegExp(
             String.raw`\b(?:${label}|${short})\s*(?:is|[:=\-])?\s*(${NUMBER_SOURCE})\s*(${UNIT_SOURCE})?\b`,
-            'i',
+            'gi',
         );
-        const match = text.match(expression);
+        const match = Array.from(text.matchAll(expression)).find(candidate => {
+            const before = text.slice(Math.max(0, candidate.index! - 12), candidate.index).toLowerCase();
+            return !/door\s*$/.test(before);
+        });
         return match ? { value: match[1], unit: match[2] } : null;
     };
 
@@ -96,6 +101,18 @@ function findDimensions(text: string): { widthIn: number; heightIn: number } | n
     const widthIn = measurementInches(compact[1], compact[2] || compact[4]);
     const heightIn = measurementInches(compact[3], compact[4] || compact[2]);
     return widthIn && heightIn ? { widthIn, heightIn } : null;
+}
+
+export function parseDoorOpeningDimensions(text: string): { doorWidthIn?: number; doorHeightIn?: number } {
+    const read = (label: 'width' | 'height') => {
+        const expression = new RegExp(
+            String.raw`\bdoor\s+${label}\s*(?:is|[:=\-])?\s*(${NUMBER_SOURCE})\s*(${UNIT_SOURCE})?\b`,
+            'i',
+        );
+        const match = text.match(expression);
+        return match ? measurementInches(match[1], match[2]) ?? undefined : undefined;
+    };
+    return { doorWidthIn: read('width'), doorHeightIn: read('height') };
 }
 
 function findGlassType(text: string): string | undefined {
@@ -130,7 +147,14 @@ function findThickness(text: string): number {
 }
 
 export function looksLikeGlassSystemOrder(text: string): boolean {
-    return findSystemType(text || '') != null && findDimensions(text || '') != null;
+    const source = text || '';
+    const systemType = findSystemType(source);
+    if (!systemType) return false;
+    if (findDimensions(source)) return true;
+    const door = parseDoorOpeningDimensions(source);
+    return (systemType === 'single_door' || systemType === 'double_door')
+        && !!door.doorWidthIn
+        && !!door.doorHeightIn;
 }
 
 export type GlassSystemOrderResult =
@@ -144,7 +168,14 @@ export function parseGlassSystemOrder(text: string): GlassSystemOrderResult {
         return { ok: false, reason: 'No known design type named (B, F, SFSD, DFSD, SFDD, DFDD, door, fixed panel, sliding, shower, or railing).' };
     }
 
-    const dimensions = findDimensions(t);
+    const doorDimensions = parseDoorOpeningDimensions(t);
+    const dimensions = findDimensions(t) || (
+        systemType === 'single_door' && doorDimensions.doorWidthIn && doorDimensions.doorHeightIn
+            ? { widthIn: doorDimensions.doorWidthIn, heightIn: doorDimensions.doorHeightIn }
+            : systemType === 'double_door' && doorDimensions.doorWidthIn && doorDimensions.doorHeightIn
+                ? { widthIn: doorDimensions.doorWidthIn * 2, heightIn: doorDimensions.doorHeightIn }
+                : null
+    );
     if (!dimensions) {
         return { ok: false, reason: 'Width and height were not readable. Use "Width: 48in, Height: 84in" or "48 x 84in".' };
     }
@@ -178,6 +209,7 @@ export function parseGlassSystemOrder(text: string): GlassSystemOrderResult {
             fixingStyle,
             fixedPanelWidthIn,
             glassType: findGlassType(t),
+            ...doorDimensions,
         },
     };
 }

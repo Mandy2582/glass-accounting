@@ -346,6 +346,12 @@ export interface KonvaShape {
     // multi-panel assembly canvas. Pricing still treats each labelled outline
     // as its own physical glass piece.
     glassSectionName?: string;
+    // Door leaves need their width callout below the glass so an overpanel
+    // above cannot be mistaken for the door dimension. Their height must also
+    // remain visible beside adjacent full-height fixed panels.
+    widthDimensionPosition?: 'top' | 'bottom';
+    heightDimensionPosition?: 'left' | 'right' | 'inside';
+    forceHeightDimension?: boolean;
     // Set only on continuous fittings sold by the metre (a base channel, a
     // top track): the run length this one marker covers. When present the
     // fitting bills as length x per-metre rate instead of one piece at a

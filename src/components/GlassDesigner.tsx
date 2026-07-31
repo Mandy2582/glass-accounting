@@ -382,13 +382,20 @@ const renderRectDimensions = (shape: KonvaShape, scale: number = 1, showHeightDi
     const dimensionColor = '#0e7490';
     const extensionColor = '#67c3d6';
 
-    // Horizontal dim line above the glass
+    // Door widths sit below the leaf so they cannot be visually attributed
+    // to an overpanel above it. Other glass keeps the conventional top label.
+    const widthBelow = shape.widthDimensionPosition === 'bottom';
+    const widthEdgeY = widthBelow ? shape.y + height : shape.y;
     const cx = shape.x + width / 2;
-    const cy = shape.y - arrowOffset;
+    const cy = widthEdgeY + (widthBelow ? arrowOffset : -arrowOffset);
     const hLineHalf = Math.max(width / 2, 30 / scale);
 
     // Vertical dim line to the right of the glass
-    const hcx = shape.x + width + arrowOffset;
+    const hcx = shape.heightDimensionPosition === 'inside'
+        ? shape.x + width - arrowOffset
+        : shape.heightDimensionPosition === 'left'
+            ? shape.x - arrowOffset
+            : shape.x + width + arrowOffset;
     const hcy = shape.y + height / 2;
     const vLineHalf = Math.max(height / 2, 30 / scale);
 
@@ -403,8 +410,8 @@ const renderRectDimensions = (shape: KonvaShape, scale: number = 1, showHeightDi
 
     return (
         <Group>
-            <Line points={[shape.x, shape.y, shape.x, cy]} stroke={extensionColor} strokeWidth={1.2 / scale} listening={false} />
-            <Line points={[shape.x + width, shape.y, shape.x + width, cy]} stroke={extensionColor} strokeWidth={1.2 / scale} listening={false} />
+            <Line points={[shape.x, widthEdgeY, shape.x, cy]} stroke={extensionColor} strokeWidth={1.2 / scale} listening={false} />
+            <Line points={[shape.x + width, widthEdgeY, shape.x + width, cy]} stroke={extensionColor} strokeWidth={1.2 / scale} listening={false} />
             {showHeightDimension && (
                 <>
                     <Line points={[shape.x + width, shape.y, hcx, shape.y]} stroke={extensionColor} strokeWidth={1.2 / scale} listening={false} />
@@ -3275,7 +3282,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                         );
                                     }
                                     return shape.type === 'glass_rect' ? (
-                                        <Group key={shape.id}><Rect {...props} width={shape.width} height={shape.height} />{renderRectDimensions(shape, 1, !hasSiblingToTheRight(shape, piece.shapes))}</Group>
+                                        <Group key={shape.id}><Rect {...props} width={shape.width} height={shape.height} />{renderRectDimensions(shape, 1, !!shape.forceHeightDimension || !hasSiblingToTheRight(shape, piece.shapes))}</Group>
                                     ) : (
                                         <Group key={shape.id}><Circle {...props} radius={shape.radius} />{renderCircleDimensions(shape, 1)}</Group>
                                     );
@@ -3696,7 +3703,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                 return isCircle ? (
                                     <Group key={shape.id}><Circle {...baseProps} radius={shape.radius} />{renderCircleDimensions(shape, drawingScale)}</Group>
                                 ) : (
-                                    <Group key={shape.id}><Rect {...baseProps} width={shape.width} height={shape.height} />{renderRectDimensions(shape, drawingScale, !hasSiblingToTheRight(shape, activePieceShapes))}</Group>
+                                    <Group key={shape.id}><Rect {...baseProps} width={shape.width} height={shape.height} />{renderRectDimensions(shape, drawingScale, !!shape.forceHeightDimension || !hasSiblingToTheRight(shape, activePieceShapes))}</Group>
                                 );
                             })}
 
@@ -3958,7 +3965,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                             const skew = shape.skewX || 0;
                                             return <Group key={`fab-${shape.id}`}><Line {...common} points={[0, 0, width, 0, width + skew, height, skew, height]} closed />{renderParallelogramDimensions(width, height, skew, drawingScale)}</Group>;
                                         }
-                                        return <Group key={`fab-${shape.id}`}><Rect {...common} width={shape.width} height={shape.height} />{renderRectDimensions(shape, drawingScale, !hasSiblingToTheRight(shape, activePieceShapes))}</Group>;
+                                        return <Group key={`fab-${shape.id}`}><Rect {...common} width={shape.width} height={shape.height} />{renderRectDimensions(shape, drawingScale, !!shape.forceHeightDimension || !hasSiblingToTheRight(shape, activePieceShapes))}</Group>;
                                     })}
 
                                     {activePieceShapes.filter(shape => shape.type === 'hole' || shape.type === 'cut').map(shape => {
@@ -4128,6 +4135,8 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                         <optgroup label="Commercial & Interior Doors">
                                             <option value="swing_door">Single Swing / Pivot Glass Door</option>
                                             <option value="patch_double_door">Double Patch-Fitting Doors</option>
+                                            <option value="single_door">Single Door + Overpanel (no fixed panel)</option>
+                                            <option value="double_door">Double Door + Overpanel (no fixed panel)</option>
                                             <option value="basic">B - Basic / Block Glass</option>
                                             <option value="fixed_panel_f">F - Fixed Panel with L Connectors</option>
                                             <option value="sfsd">SFSD - Single Fixed + Single Door</option>
@@ -4205,7 +4214,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                 </div>
                             </div>
 
-                            {(systemInput.systemType === 'swing_door' || systemInput.systemType === 'shower_door' || systemInput.systemType === 'sliding_door') && (
+                            {(systemInput.systemType === 'swing_door' || systemInput.systemType === 'single_door' || systemInput.systemType === 'shower_door' || systemInput.systemType === 'sliding_door') && (
                                 <div>
                                     <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>{systemInput.systemType === 'sliding_door' ? 'Handle side' : 'Hinge side'}</label>
                                     <select className="input" style={{ width: '100%' }} value={systemInput.hingeSide}
@@ -4245,6 +4254,21 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                 </div>
                             )}
 
+                            {(['single_door', 'double_door', 'sfsd', 'dfsd', 'sfdd', 'dfdd'] as GlassSystemType[]).includes(systemInput.systemType) && (
+                                <>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>Door opening width (in, per leaf)</label>
+                                        <input className="input" type="number" min={12} step={0.125} value={systemInput.doorWidthIn ?? 36}
+                                            onChange={e => setSystemInput(s => ({ ...s, doorWidthIn: parseFloat(e.target.value) || undefined }))} />
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>Door opening height (in)</label>
+                                        <input className="input" type="number" min={24} step={0.125} value={systemInput.doorHeightIn ?? 84.25}
+                                            onChange={e => setSystemInput(s => ({ ...s, doorHeightIn: parseFloat(e.target.value) || undefined }))} />
+                                    </div>
+                                </>
+                            )}
+
                             <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap' }}>
                                 {systemInput.systemType !== 'basic' && systemInput.systemType !== 'fixed_panel' && systemInput.systemType !== 'fixed_panel_f' && systemInput.systemType !== 'railing' && (
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem' }}>
@@ -4252,7 +4276,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                         {systemInput.systemType === 'shower_door' ? 'Knob' : 'Lock'}
                                     </label>
                                 )}
-                                {(systemInput.systemType === 'swing_door' || systemInput.systemType === 'sliding_door') && (
+                                {(systemInput.systemType === 'swing_door' || systemInput.systemType === 'single_door' || systemInput.systemType === 'double_door' || systemInput.systemType === 'sliding_door') && (
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem' }}>
                                         <input type="checkbox" checked={!!systemInput.hasHandle} onChange={e => setSystemInput(s => ({ ...s, hasHandle: e.target.checked }))} />
                                         Handle
