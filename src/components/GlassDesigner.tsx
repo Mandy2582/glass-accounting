@@ -2727,6 +2727,8 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
     }, [activePiece, hardwareItems]);
     const showFabricationHoleSizeLabels = activePieceShapes.filter(shape => shape.type === 'hole').length
         + fittingGlassPrep.holes.length <= 6;
+    const showFabricationCutSizeLabels = activePieceShapes.filter(shape => shape.type === 'cut').length
+        + fittingGlassPrep.cuts.length <= 4;
 
     const stageViewportHeight = STAGE_VIEWPORT_HEIGHT;
     const { width: stageLogicalWidth, height: stageLogicalHeight } = getStageLogicalSize(drawingScale, stageViewportWidth);
@@ -3736,8 +3738,12 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                 return (
                                     <Group key={c.key} listening={false}>
                                         <Rect x={cx - displayW / 2} y={cy - displayH / 2} width={displayW} height={displayH} fill="rgba(37, 99, 235, 0.2)" stroke="#1d4ed8" strokeWidth={2 / drawingScale} dash={[4 / drawingScale, 3 / drawingScale]} />
-                                        <Rect x={chipX} y={chipY} width={chipW} height={chipH} fill="#ffffff" stroke="#1d4ed8" strokeWidth={1 / drawingScale} cornerRadius={3 / drawingScale} opacity={0.94} />
-                                        <Text x={chipX} y={chipY + chipH / 2 - 6 / drawingScale} text={`${formatInchesFraction(c.width)}" x ${formatInchesFraction(c.height)}"`} fontSize={11 / drawingScale} fill="#1d4ed8" fontStyle="bold" align="center" width={chipW} />
+                                        {showFabricationCutSizeLabels && (
+                                            <>
+                                                <Rect x={chipX} y={chipY} width={chipW} height={chipH} fill="#ffffff" stroke="#1d4ed8" strokeWidth={1 / drawingScale} cornerRadius={3 / drawingScale} opacity={0.94} />
+                                                <Text x={chipX} y={chipY + chipH / 2 - 6 / drawingScale} text={`${formatInchesFraction(c.width)}" x ${formatInchesFraction(c.height)}"`} fontSize={11 / drawingScale} fill="#1d4ed8" fontStyle="bold" align="center" width={chipW} />
+                                            </>
+                                        )}
                                     </Group>
                                 );
                             })}
@@ -4004,7 +4010,9 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                         return (
                                             <Group key={`fab-prep-${c.key}`} listening={false}>
                                                 <Rect x={centerX - width / 2} y={centerY - height / 2} width={width} height={height} fill="rgba(37,99,235,0.16)" stroke="#1d4ed8" strokeWidth={2 / drawingScale} dash={[4 / drawingScale, 3 / drawingScale]} />
-                                                <Text x={centerX - width / 2 - 114 / drawingScale} y={centerY - 6 / drawingScale} width={110 / drawingScale} text={`${formatInchesFraction(c.width)}" x ${formatInchesFraction(c.height)}"`} fontSize={11 / drawingScale} fill="#1d4ed8" fontStyle="bold" align="right" />
+                                                {showFabricationCutSizeLabels && (
+                                                    <Text x={centerX - width / 2 - 114 / drawingScale} y={centerY - 6 / drawingScale} width={110 / drawingScale} text={`${formatInchesFraction(c.width)}" x ${formatInchesFraction(c.height)}"`} fontSize={11 / drawingScale} fill="#1d4ed8" fontStyle="bold" align="right" />
+                                                )}
                                             </Group>
                                         );
                                     })}
@@ -4120,6 +4128,10 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                         <optgroup label="Commercial & Interior Doors">
                                             <option value="swing_door">Single Swing / Pivot Glass Door</option>
                                             <option value="patch_double_door">Double Patch-Fitting Doors</option>
+                                            <option value="sfsd">SFSD - Single Fixed + Single Door</option>
+                                            <option value="dfsd">DFSD - Double Fixed + Single Door</option>
+                                            <option value="sfdd">SFDD - Single Fixed + Double Door</option>
+                                            <option value="dfdd">DFDD - Double Fixed + Double Door</option>
                                             <option value="double_swing_transom_3pc">Double Swing Door with Transom (3-Piece)</option>
                                             <option value="door_with_transom">Swing Door with Overpanel Transom</option>
                                             <option value="office_partition_3pc">Office Glass Partition (3-Piece Modular)</option>

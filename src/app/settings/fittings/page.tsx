@@ -12,7 +12,7 @@ import { getCutoutSpecsForItem } from '@/lib/fabricationSpecs';
 const ROLE_OPTIONS: { value: FittingRole; label: string }[] = [
     { value: 'top_patch', label: 'Top patch fitting' },
     { value: 'bottom_patch', label: 'Bottom patch fitting' },
-    { value: 'overpanel_patch', label: 'Overpanel patch' },
+    { value: 'overpanel_patch', label: 'TM-30 overpanel patch' },
     { value: 'floor_spring', label: 'Floor spring' },
     { value: 'wall_hinge', label: 'Wall-to-glass hinge' },
     { value: 'glass_hinge', label: 'Glass-to-glass hinge' },

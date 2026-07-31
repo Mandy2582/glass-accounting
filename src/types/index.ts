@@ -342,6 +342,10 @@ export interface KonvaShape {
     hardwarePredictionReason?: string;
     hardwarePredictionConfidence?: number;
     hardwarePredictionSource?: 'image-standard';
+    // Optional production label for one glass outline inside a unified
+    // multi-panel assembly canvas. Pricing still treats each labelled outline
+    // as its own physical glass piece.
+    glassSectionName?: string;
     // Set only on continuous fittings sold by the metre (a base channel, a
     // top track): the run length this one marker covers. When present the
     // fitting bills as length x per-metre rate instead of one piece at a

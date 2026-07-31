@@ -56,6 +56,11 @@ const SLIDING_OVERLAP_IN = 2;        // slider laps this far over its fixed neig
 const L_BRACKET_END_INSET_IN = 4;
 const FIXED_PANEL_L_CONNECTOR_GLASS_INSET_IN = 1;
 const CENTRE_CONNECTOR_END_INSET_IN = 6;
+const STANDARD_DOOR_OPENING_WIDTH_IN = 36;
+const STANDARD_DOOR_GLASS_WIDTH_IN = 35.75;
+const STANDARD_DOOR_HEIGHT_IN = 84;
+const OVERPANEL_HEIGHT_DEDUCTION_IN = 84.25;
+const DOOR_SIDE_CLEARANCE_IN = (STANDARD_DOOR_OPENING_WIDTH_IN - STANDARD_DOOR_GLASS_WIDTH_IN) / 2;
 // Light-duty (Small) is adequate for modest returns; a tall or heavy leaf
 // levers hard on the joint and takes the heavy-duty (Big) body. Glass weighs
 // ~2.5 kg per m2 per mm of thickness.
@@ -126,6 +131,10 @@ export type GlassSystemType =
     | 'top_hung_sliding'
     | 'spider_facade'
     | 'patch_double_door'
+    | 'sfsd'
+    | 'dfsd'
+    | 'sfdd'
+    | 'dfdd'
     // --- Industry Standard Multi-Piece Presets ---
     | 'shower_inline_3pc'
     | 'shower_corner_90_3pc'
@@ -192,7 +201,7 @@ const ROLE_SPEC: Record<FittingRole, {
 }> = {
     top_patch:       { render: 'profile',   w: 60, h: 40, holes: 0, cuts: 1, holeRadiusIn: 0,    cutAreaSqIn: 8, label: 'Top patch' },
     bottom_patch:    { render: 'profile',   w: 60, h: 40, holes: 0, cuts: 1, holeRadiusIn: 0,    cutAreaSqIn: 8, label: 'Bottom patch' },
-    overpanel_patch: { render: 'profile',   w: 60, h: 40, holes: 0, cuts: 1, holeRadiusIn: 0,    cutAreaSqIn: 8, label: 'Overpanel patch' },
+    overpanel_patch: { render: 'profile',   w: 60, h: 40, holes: 0, cuts: 1, holeRadiusIn: 0,    cutAreaSqIn: 8, label: 'TM-30 overpanel patch' },
     floor_spring:    { render: 'profile',   w: 60, h: 40, holes: 0, cuts: 0, holeRadiusIn: 0,    cutAreaSqIn: 0, label: 'Floor spring' },
     wall_hinge:      { render: 'hinge',     w: 30, h: 25, holes: 2, cuts: 1, holeRadiusIn: 0.25, cutAreaSqIn: 6, label: 'Hinge' },
     glass_hinge:     { render: 'hinge',     w: 30, h: 25, holes: 2, cuts: 1, holeRadiusIn: 0.25, cutAreaSqIn: 6, label: 'Glass hinge' },
@@ -957,6 +966,241 @@ function buildRailingPiece(name: string, input: GlassSystemInput, originX: numbe
     return { name, type: 'Railing', thickness, quantity: 1, shapes };
 }
 
+type FixedDoorAssemblyType = 'sfsd' | 'dfsd' | 'sfdd' | 'dfdd';
+
+interface AssemblySection {
+    name: string;
+    type: string;
+    outline: KonvaShape;
+    shapes: KonvaShape[];
+}
+
+function assemblyRect(name: string, type: string, x: number, y: number, widthIn: number, heightIn: number): AssemblySection {
+    const outline: KonvaShape = {
+        id: generateUUID(),
+        type: 'glass_rect',
+        x,
+        y,
+        width: widthIn * U,
+        height: heightIn * U,
+        glassSectionName: name,
+    };
+    return { name, type, outline, shapes: [outline] };
+}
+
+function addAssemblyFixedPanelHardware(
+    section: AssemblySection,
+    edges: HardwareEdge[],
+    thickness: number,
+    resolver: FittingResolver,
+): AssemblySection {
+    const withHardware = addFixedPanelLConnectors({
+        id: generateUUID(),
+        name: section.name,
+        type: section.type,
+        thickness,
+        shapes: section.shapes,
+    }, edges, resolver);
+    return { ...section, shapes: withHardware.shapes };
+}
+
+function addPatchDoorHardware(
+    section: AssemblySection,
+    hingeSide: 'left' | 'right',
+    resolver: FittingResolver,
+): AssemblySection {
+    const box = getImagePieceBox({
+        id: generateUUID(),
+        name: section.name,
+        type: section.type,
+        thickness: 0,
+        shapes: section.shapes,
+    });
+    if (!box) return section;
+
+    const setback = PATCH_SETBACK_IN * U;
+    const hingeX = hingeSide === 'left'
+        ? box.leftX + setback / 2
+        : box.leftX + box.widthU - setback / 2;
+    const leadingX = hingeSide === 'left'
+        ? box.leftX + box.widthU - setback / 2
+        : box.leftX + setback / 2;
+    const bottomY = box.topY + box.heightU;
+    const handleY = Math.max(box.topY + 40, bottomY - HANDLE_HEIGHT_IN * U);
+    const additions = [
+        hardware(box.id, 'top_patch', hingeX, box.topY + setback / 2, resolver),
+        hardware(box.id, 'bottom_patch', hingeX, bottomY - setback / 2, resolver),
+        hardware(box.id, 'door_lock', leadingX, bottomY - setback / 2, resolver),
+        hardware(box.id, 'handle', leadingX, handleY, resolver),
+    ];
+    return { ...section, shapes: [...section.shapes, ...additions] };
+}
+
+function addAssemblyGlassJoin(
+    left: AssemblySection,
+    right: AssemblySection,
+    joinTopY: number,
+    joinHeightU: number,
+    resolver: FittingResolver,
+): void {
+    if (joinHeightU <= 12 * U) return;
+    const leftBox = getImagePieceBox({ id: generateUUID(), name: left.name, type: left.type, thickness: 0, shapes: left.shapes });
+    const rightBox = getImagePieceBox({ id: generateUUID(), name: right.name, type: right.type, thickness: 0, shapes: right.shapes });
+    if (!leftBox || !rightBox) return;
+
+    const count = fixedPanelHeightConnectorCount(joinHeightU / U);
+    const ys = Array.from({ length: count }, (_, index) => joinTopY + (joinHeightU * (index + 1)) / (count + 1));
+    const jointX = leftBox.leftX + leftBox.widthU;
+    const holeInset = U;
+    const holeRadius = 0.25 * U;
+
+    ys.forEach(y => {
+        const fitting = hardware(leftBox.id, 'glass_to_glass_connector', jointX, y, resolver);
+        left.shapes.push({
+            ...fitting,
+            accessoryHoleCount: 0,
+            accessoryCutCount: 0,
+            accessoryRequirementLabel: 'Two glass holes, one on each side of the glass-to-glass joint',
+        });
+        left.shapes.push({
+            id: generateUUID(),
+            type: 'hole',
+            x: jointX - holeInset,
+            y,
+            radius: holeRadius,
+            parentId: leftBox.id,
+        });
+        right.shapes.push({
+            id: generateUUID(),
+            type: 'hole',
+            x: jointX + holeInset,
+            y,
+            radius: holeRadius,
+            parentId: rightBox.id,
+        });
+    });
+}
+
+function buildFixedDoorAssembly(
+    input: GlassSystemInput & { systemType: FixedDoorAssemblyType },
+    resolver: FittingResolver,
+): Omit<GlassPiece, 'id'> | null {
+    const fixedCount = input.systemType === 'dfsd' || input.systemType === 'dfdd' ? 2 : 1;
+    const doorCount = input.systemType === 'sfdd' || input.systemType === 'dfdd' ? 2 : 1;
+    const openingWidthIn = STANDARD_DOOR_OPENING_WIDTH_IN * doorCount;
+    const remainingFixedWidthIn = input.widthIn - openingWidthIn;
+    if (remainingFixedWidthIn <= 0 || input.heightIn <= 0) return null;
+
+    const fixedWidthIn = remainingFixedWidthIn / fixedCount;
+    const doorHeightIn = Math.min(STANDARD_DOOR_HEIGHT_IN, input.heightIn);
+    const overpanelHeightIn = input.heightIn > OVERPANEL_HEIGHT_DEDUCTION_IN
+        ? input.heightIn - OVERPANEL_HEIGHT_DEDUCTION_IN
+        : 0;
+    const openingX = ORIGIN_X + fixedWidthIn * U;
+    const doorTopY = ORIGIN_Y + Math.max(input.heightIn - doorHeightIn, 0) * U;
+    const sections: AssemblySection[] = [];
+
+    let leftFixed = assemblyRect('Left Fixed Panel', 'Partition', ORIGIN_X, ORIGIN_Y, fixedWidthIn, input.heightIn);
+    leftFixed = addAssemblyFixedPanelHardware(leftFixed, ['left', 'top', 'bottom'], input.thickness, resolver);
+    sections.push(leftFixed);
+
+    let overpanel: AssemblySection | null = null;
+    if (overpanelHeightIn > 0) {
+        overpanel = assemblyRect('Door Overpanel', 'Transom', openingX, ORIGIN_Y, openingWidthIn, overpanelHeightIn);
+        const overpanelEdges: HardwareEdge[] = fixedCount === 1 && overpanelHeightIn > 12
+            ? ['top', 'right']
+            : ['top'];
+        overpanel = addAssemblyFixedPanelHardware(overpanel, overpanelEdges, input.thickness, resolver);
+        sections.push(overpanel);
+    }
+
+    const doors: AssemblySection[] = [];
+    if (doorCount === 1) {
+        let door = assemblyRect(
+            'Single Glass Door',
+            'Door',
+            openingX + DOOR_SIDE_CLEARANCE_IN * U,
+            doorTopY,
+            STANDARD_DOOR_GLASS_WIDTH_IN,
+            doorHeightIn,
+        );
+        door = addPatchDoorHardware(door, 'right', resolver);
+        doors.push(door);
+    } else {
+        let leftDoor = assemblyRect(
+            'Left Glass Door',
+            'Door',
+            openingX + DOOR_SIDE_CLEARANCE_IN * U,
+            doorTopY,
+            STANDARD_DOOR_GLASS_WIDTH_IN,
+            doorHeightIn,
+        );
+        leftDoor = addPatchDoorHardware(leftDoor, 'left', resolver);
+        let rightDoor = assemblyRect(
+            'Right Glass Door',
+            'Door',
+            openingX + STANDARD_DOOR_OPENING_WIDTH_IN * U + DOOR_SIDE_CLEARANCE_IN * U,
+            doorTopY,
+            STANDARD_DOOR_GLASS_WIDTH_IN,
+            doorHeightIn,
+        );
+        rightDoor = addPatchDoorHardware(rightDoor, 'right', resolver);
+        doors.push(leftDoor, rightDoor);
+    }
+    sections.push(...doors);
+
+    let rightFixed: AssemblySection | null = null;
+    if (fixedCount === 2) {
+        rightFixed = assemblyRect(
+            'Right Fixed Panel',
+            'Partition',
+            openingX + openingWidthIn * U,
+            ORIGIN_Y,
+            fixedWidthIn,
+            input.heightIn,
+        );
+        rightFixed = addAssemblyFixedPanelHardware(rightFixed, ['right', 'top', 'bottom'], input.thickness, resolver);
+        sections.push(rightFixed);
+    }
+
+    if (overpanel) {
+        const overBox = getImagePieceBox({ id: generateUUID(), name: overpanel.name, type: overpanel.type, thickness: 0, shapes: overpanel.shapes });
+        if (overBox) {
+            const supportY = overBox.topY + overBox.heightU;
+            if (doorCount === 1) {
+                overpanel.shapes.push(hardware(overBox.id, 'l_bracket_small', doors[0].outline.x, supportY, resolver));
+                overpanel.shapes.push(hardware(
+                    overBox.id,
+                    fixedCount === 2 ? 'l_bracket_big' : 'overpanel_patch',
+                    doors[0].outline.x + (doors[0].outline.width || 0),
+                    supportY,
+                    resolver,
+                ));
+            } else {
+                overpanel.shapes.push(hardware(overBox.id, 'l_bracket_big', doors[0].outline.x, supportY, resolver));
+                overpanel.shapes.push(hardware(
+                    overBox.id,
+                    fixedCount === 2 ? 'l_bracket_big' : 'overpanel_patch',
+                    doors[1].outline.x + (doors[1].outline.width || 0),
+                    supportY,
+                    resolver,
+                ));
+            }
+        }
+
+        addAssemblyGlassJoin(leftFixed, overpanel, ORIGIN_Y, overpanelHeightIn * U, resolver);
+        if (rightFixed) addAssemblyGlassJoin(overpanel, rightFixed, ORIGIN_Y, overpanelHeightIn * U, resolver);
+    }
+
+    return {
+        name: `${input.systemType.toUpperCase()} Fixed Panel and Door Assembly`,
+        type: 'Fixed Panel and Door Assembly',
+        thickness: input.thickness,
+        quantity: 1,
+        shapes: sections.flatMap(section => section.shapes),
+    };
+}
+
 // Main entry point. Pass the shop's hardware catalogue (or the full item
 // list -- non-hardware items are ignored) so each fitting is the real
 // stocked one; omit it and every role falls back to built-in defaults.
@@ -1040,6 +1284,14 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
         case 'patch_double_door': {
             advance(buildDoorPiece('Left Patch Glass Door', { ...input, hingeSide: 'left', pivotStyle: 'patch' }, originX, resolver));
             advance(buildDoorPiece('Right Patch Glass Door', { ...input, hingeSide: 'right', pivotStyle: 'patch' }, originX, resolver));
+            break;
+        }
+        case 'sfsd':
+        case 'dfsd':
+        case 'sfdd':
+        case 'dfdd': {
+            const assembly = buildFixedDoorAssembly(input as GlassSystemInput & { systemType: FixedDoorAssemblyType }, resolver);
+            if (assembly) pieces.push(assembly);
             break;
         }
         case 'shower_inline_3pc': {
@@ -1175,91 +1427,51 @@ export function buildGlassSystemDesignData(input: GlassSystemInput, fittings: Gl
 } {
     const generated = generateGlassSystem(input, fittings);
 
-    const items: DesignItem[] = generated.map((piece, index) => {
-        const outline = piece.shapes.find(s => s.type === 'glass_rect');
-        const widthIn = (outline?.width ?? 0) / U;
-        const heightIn = (outline?.height ?? 0) / U;
-        const quantity = piece.quantity || 1;
-        const area = Math.round(((widthIn * heightIn) / 144) * quantity * 100) / 100;
-        const holes = piece.shapes.reduce((sum, s) => sum + (Number(s.accessoryHoleCount) || 0), 0);
-        const cuts = piece.shapes.reduce((sum, s) => sum + (Number(s.accessoryCutCount) || 0), 0);
-        return {
-            id: generateUUID(),
-            name: piece.name || `Piece ${index + 1}`,
-            // The glass TYPE (not the piece role) -- getPieceThicknessRate
-            // matches this against the thickness-pricing rows to find the
-            // per-sqft rate. Generated systems are toughened clear glass by
-            // default; the piece's role ("Door"/"Panel") stays on the
-            // canvas piece itself. Staff can switch to another colour in the
-            // designer, which re-prices via the matching pricing row.
-            type: input.glassType || 'Toughened Clear',
-            thickness: piece.thickness || input.thickness || 12,
-            shapes: [],
-            area,
-            cost: 0,
-            // Extra fields the design editor's cost breakdown reads (treated
-            // as any[]) -- match buildDesignDataFromImageAnalysis so a
-            // reopened draft keeps its holes/cuts/quantity.
-            netArea: area,
-            holes: holes * quantity,
-            cuts: cuts * quantity,
-            quantity,
-        } as DesignItem;
-    });
-
-    // Collect all hardware fittings from generated pieces and append them as 'Hardware' items in items
-    const hardwareMap = new Map<string, { id: string; name: string; type: 'Hardware'; quantity: number; rate: number; holes: number; cuts: number }>();
-    generated.forEach(piece => {
-        const qty = piece.quantity || 1;
-        piece.shapes.forEach(shape => {
-            if (shape.type === 'accessory') {
-                const name = shape.accessoryName || shape.accessoryType || 'Hardware Fitting';
-                const key = shape.hardwareItemId || name;
-                const rate = Number(shape.accessoryRate) || 0;
-                const holes = Number(shape.accessoryHoleCount) || 0;
-                const cuts = Number(shape.accessoryCutCount) || 0;
-                // A continuous fitting sold per metre contributes its run
-                // length, so a 3m railing bills three times a 1m one.
-                const lengthM = Number(shape.accessoryLengthM) || 0;
-                const billedQty = lengthM > 0 ? lengthM * qty : qty;
-                const existing = hardwareMap.get(key);
-                if (existing) {
-                    existing.quantity += billedQty;
-                } else {
-                    hardwareMap.set(key, {
-                        id: key,
-                        name,
-                        type: 'Hardware',
-                        quantity: billedQty,
-                        rate,
-                        holes,
-                        cuts
-                    });
-                }
-            }
+    const items: DesignItem[] = generated.flatMap((piece, pieceIndex) => {
+        const outlines = piece.shapes.filter(s => s.type === 'glass_rect');
+        return outlines.map((outline, outlineIndex) => {
+            const widthIn = (outline.width ?? 0) / U;
+            const heightIn = (outline.height ?? 0) / U;
+            const quantity = piece.quantity || 1;
+            const area = Math.round(((widthIn * heightIn) / 144) * quantity * 100) / 100;
+            const preparation = piece.shapes.filter(shape => shape.parentId === outline.id);
+            const holes = preparation.reduce((sum, shape) =>
+                sum + (shape.type === 'hole' ? 1 : Number(shape.accessoryHoleCount) || 0), 0);
+            const cuts = preparation.reduce((sum, shape) =>
+                sum + (shape.type === 'cut' ? 1 : Number(shape.accessoryCutCount) || 0), 0);
+            return {
+                id: generateUUID(),
+                name: outline.glassSectionName || piece.name || `Piece ${pieceIndex + 1}.${outlineIndex + 1}`,
+                // The glass TYPE (not the piece role) -- getPieceThicknessRate
+                // matches this against the thickness-pricing rows to find the
+                // per-sqft rate. Generated systems are toughened clear glass by
+                // default; the piece's role ("Door"/"Panel") stays on the
+                // canvas piece itself. Staff can switch to another colour in the
+                // designer, which re-prices via the matching pricing row.
+                type: input.glassType || 'Toughened Clear',
+                thickness: piece.thickness || input.thickness || 12,
+                // Keep this outline and its own preparation/hardware together
+                // so orderDesignItems can bill catalogue fittings from the
+                // physical glass piece, exactly like image-imported designs.
+                shapes: [outline, ...preparation] as unknown as DesignItem['shapes'],
+                area,
+                cost: 0,
+                // Extra fields the design editor's cost breakdown reads (treated
+                // as any[]) -- match buildDesignDataFromImageAnalysis so a
+                // reopened draft keeps its holes/cuts/quantity.
+                netArea: area,
+                holes: holes * quantity,
+                cuts: cuts * quantity,
+                quantity,
+            } as DesignItem;
         });
     });
 
-    const hardwareItems: DesignItem[] = Array.from(hardwareMap.values()).map(hw => ({
-        id: generateUUID(),
-        name: hw.name,
-        type: 'Hardware',
-        thickness: 0,
-        shapes: [],
-        area: 0,
-        cost: hw.rate * hw.quantity,
-        netArea: 0,
-        holes: hw.holes * hw.quantity,
-        cuts: hw.cuts * hw.quantity,
-        quantity: hw.quantity,
-        rate: hw.rate
-    } as any));
-
-    const allItems = [...items, ...hardwareItems];
-
     const totalArea = Math.round(items.reduce((sum, item) => sum + item.area, 0) * 100) / 100;
-    const holes = generated.reduce((sum, p) => sum + p.shapes.reduce((s, sh) => s + (Number(sh.accessoryHoleCount) || 0), 0), 0);
-    const cuts = generated.reduce((sum, p) => sum + p.shapes.reduce((s, sh) => s + (Number(sh.accessoryCutCount) || 0), 0), 0);
+    const holes = generated.reduce((sum, p) => sum + p.shapes.reduce((s, sh) =>
+        s + (sh.type === 'hole' ? 1 : Number(sh.accessoryHoleCount) || 0), 0), 0);
+    const cuts = generated.reduce((sum, p) => sum + p.shapes.reduce((s, sh) =>
+        s + (sh.type === 'cut' ? 1 : Number(sh.accessoryCutCount) || 0), 0), 0);
 
     const drawingData: DesignData = {
         shapes: [],
@@ -1267,11 +1479,11 @@ export function buildGlassSystemDesignData(input: GlassSystemInput, fittings: Gl
         holes: [],
         cuts: [],
         notes: `Auto-generated ${input.systemType.replace('_', ' ')} -- ${input.widthIn}in x ${input.heightIn}in, ${input.thickness}mm. Hardware placed at standard positions from your fitting catalogue; review and adjust before production.`,
-        items: allItems,
+        items,
         pieces: generated.map(piece => ({ id: generateUUID(), ...piece, source: 'system-designer' })),
     };
 
-    return { drawingData, totalArea, grossArea: totalArea, holes, cuts, items: allItems };
+    return { drawingData, totalArea, grossArea: totalArea, holes, cuts, items };
 }
 
 // Human-readable summary of what a system will generate, for a confirmation
