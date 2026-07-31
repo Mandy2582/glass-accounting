@@ -4128,6 +4128,8 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                         <optgroup label="Commercial & Interior Doors">
                                             <option value="swing_door">Single Swing / Pivot Glass Door</option>
                                             <option value="patch_double_door">Double Patch-Fitting Doors</option>
+                                            <option value="basic">B - Basic / Block Glass</option>
+                                            <option value="fixed_panel_f">F - Fixed Panel with L Connectors</option>
                                             <option value="sfsd">SFSD - Single Fixed + Single Door</option>
                                             <option value="dfsd">DFSD - Double Fixed + Single Door</option>
                                             <option value="sfdd">SFDD - Single Fixed + Double Door</option>
@@ -4244,7 +4246,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                             )}
 
                             <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap' }}>
-                                {systemInput.systemType !== 'fixed_panel' && systemInput.systemType !== 'railing' && (
+                                {systemInput.systemType !== 'basic' && systemInput.systemType !== 'fixed_panel' && systemInput.systemType !== 'fixed_panel_f' && systemInput.systemType !== 'railing' && (
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem' }}>
                                         <input type="checkbox" checked={!!systemInput.hasLock} onChange={e => setSystemInput(s => ({ ...s, hasLock: e.target.checked }))} />
                                         {systemInput.systemType === 'shower_door' ? 'Knob' : 'Lock'}

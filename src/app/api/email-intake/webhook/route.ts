@@ -16,6 +16,8 @@ import { approveAndInvoiceOrder } from '@/lib/orderQuotation';
 import { runAutoReview, sendOrderBookedConfirmation } from '@/lib/autoReview';
 import { upsertDesignItemsInOrder } from '@/lib/orderDesignItems';
 import { normalizeIntakeImage, type NormalizedIntakeImage } from '@/lib/intakeImage';
+import { looksLikeGlassSystemOrder, parseGlassSystemOrder } from '@/lib/glassSystemOrder';
+import { buildGlassSystemDesignData, describeGlassSystem } from '@/lib/glassSystemDesigner';
 import type { CustomDesign, Order, Party, PricingConfig } from '@/types';
 
 export const runtime = 'nodejs';
@@ -119,6 +121,9 @@ async function createOrderFromEmail(email: IncomingEmail) {
         return await createDraftFromEmailImage(email, firstImage, body);
     }
 
+    const glassSystemResult = await handleGlassSystemOrderEmail(email, [email.subject, body].filter(Boolean).join('\n'));
+    if (glassSystemResult) return glassSystemResult;
+
     const items = await withAvailableStock(await db.items.getAll());
     const parsedLines = parseWhatsAppOrderText(body, items);
     // A resolved line has a catalogue item attached, whether the stock for
@@ -172,6 +177,91 @@ async function createOrderFromEmail(email: IncomingEmail) {
         matchedRows: resolvedLines.length,
         total: order.total,
     };
+}
+
+async function handleGlassSystemOrderEmail(email: IncomingEmail, orderText: string) {
+    if (!looksLikeGlassSystemOrder(orderText)) return null;
+    const parsed = parseGlassSystemOrder(orderText);
+    if (!parsed.ok) return null;
+
+    const parties = await db.parties.getAll();
+    const customer = await getOrCreateCustomer(email, parties);
+    const items = await db.items.getAll();
+    const fittings = items.filter(item => item.category === 'hardware');
+    const designData = buildGlassSystemDesignData(parsed.input, fittings);
+    const systemLabel = parsed.input.systemType.replaceAll('_', ' ');
+    const orderNumber = await db.orders.generateNextOrderNumber('sale_order');
+    const generalNumber = await db.orders.generateNextGeneralNumber();
+    const order: Order = {
+        id: generateUUID(),
+        type: 'sale_order',
+        number: orderNumber,
+        generalNumber,
+        soNumber: orderNumber,
+        requiresDesign: true,
+        date: new Date().toISOString().slice(0, 10),
+        partyId: customer.id,
+        partyName: customer.name,
+        items: [],
+        subtotal: 0,
+        taxRate: 18,
+        taxAmount: 0,
+        total: 0,
+        status: 'pending',
+        notes: withNeedsApproval(withOrderSource([
+            'Created automatically from email text.',
+            `Email Message ID: ${email.messageId}`,
+            `Email From: ${email.fromName ? `${email.fromName} <${email.fromAddress}>` : email.fromAddress}`,
+            email.subject ? `Subject: ${email.subject}` : '',
+            '',
+            `Auto-generated ${systemLabel}: ${parsed.input.widthIn}in x ${parsed.input.heightIn}in, ${parsed.input.thickness}mm${parsed.input.glassType ? ` ${parsed.input.glassType}` : ''}. ${describeGlassSystem(parsed.input, fittings)}.`,
+            '',
+            'Original message:',
+            bodyOrText(email.text, orderText),
+        ].filter(Boolean).join('\n'), 'email')),
+        paidAmount: 0,
+        paymentStatus: 'unpaid',
+    };
+    await db.orders.add(order);
+
+    const design: CustomDesign = {
+        id: generateUUID(),
+        name: `${systemLabel} - ${order.number}`,
+        customerId: customer.id,
+        customerName: customer.name,
+        drawingData: designData.drawingData,
+        baseShape: 'system-designer',
+        totalArea: designData.totalArea,
+        grossArea: designData.grossArea,
+        holes: designData.holes,
+        cuts: designData.cuts,
+        complexityLevel: 'medium',
+        baseRate: 0,
+        complexityCharge: 0,
+        edgeFinishingCharge: 0,
+        estimatedCost: 0,
+        status: 'draft',
+        createdDate: new Date().toISOString().slice(0, 10),
+        notes: `Auto-generated from email text "${email.text.trim()}".`,
+        orderId: order.id,
+    };
+    await designsDb.add(design);
+
+    const pricedOrder = await priceIntakeDesignOrder(order, design);
+    await runAutoReview(pricedOrder);
+    return {
+        status: 'glass_system_order_created',
+        orderId: pricedOrder.id,
+        orderNumber: pricedOrder.number,
+        customerId: customer.id,
+        customerName: customer.name,
+        systemType: parsed.input.systemType,
+        total: pricedOrder.total,
+    };
+}
+
+function bodyOrText(body: string, fallback: string): string {
+    return body.trim() || fallback.trim();
 }
 
 async function createDraftFromEmailImage(

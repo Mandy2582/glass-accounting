@@ -947,7 +947,7 @@ async function handleGlassSystemOrderText(event: WhatsAppMessageEvent, orderText
 
     const orderNumber = await db.orders.generateNextOrderNumber('sale_order');
     const generalNumber = await db.orders.generateNextGeneralNumber();
-    const systemLabel = parsed.input.systemType.replace('_', ' ');
+    const systemLabel = parsed.input.systemType.replaceAll('_', ' ');
     const order: Order = {
         id: generateUUID(),
         type: 'sale_order',
@@ -969,7 +969,7 @@ async function handleGlassSystemOrderText(event: WhatsAppMessageEvent, orderText
             `WhatsApp Message ID: ${event.message.id}`,
             `WhatsApp From: ${event.message.from}`,
             '',
-            `Auto-generated ${systemLabel}: ${parsed.input.widthIn}in x ${parsed.input.heightIn}in, ${parsed.input.thickness}mm. Hardware placed at standard positions from the fitting catalogue -- ${describeGlassSystem(parsed.input, fittings)}. Review on the design canvas before approval.`,
+            `Auto-generated ${systemLabel}: ${parsed.input.widthIn}in x ${parsed.input.heightIn}in, ${parsed.input.thickness}mm${parsed.input.glassType ? ` ${parsed.input.glassType}` : ''}. ${describeGlassSystem(parsed.input, fittings)}. Review on the design canvas before approval.`,
             '',
             'Original message:',
             orderText,

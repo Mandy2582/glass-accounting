@@ -121,9 +121,11 @@ const ORIGIN_Y = 80;
 const PIECE_GAP_U = 2; // tight 2px (2mm) physical glass-to-glass joint gap for single-window system assembly
 
 export type GlassSystemType =
+    | 'basic'
     | 'swing_door'
     | 'shower_door'
     | 'fixed_panel'
+    | 'fixed_panel_f'
     | 'sliding_door'
     | 'railing'
     | 'corner_shower_90'
@@ -880,6 +882,30 @@ function buildDoorPiece(name: string, input: GlassSystemInput, originX: number, 
     return { name, type: 'Door', thickness, quantity: 1, shapes };
 }
 
+function buildBasicPiece(name: string, input: GlassSystemInput, originX: number): Omit<GlassPiece, 'id'> {
+    const { shape } = rectPanel(input.widthIn, input.heightIn, originX);
+    return { name, type: 'Basic Glass', thickness: input.thickness, quantity: 1, shapes: [shape] };
+}
+
+function buildOwnerFixedPanelPieces(input: GlassSystemInput, fittings: GlassItem[]): Array<Omit<GlassPiece, 'id'>> {
+    const { shape } = rectPanel(input.widthIn, input.heightIn, ORIGIN_X);
+    const base: GlassPiece = {
+        id: generateUUID(),
+        name: 'Fixed Panel',
+        type: 'Fixed Panel',
+        thickness: input.thickness,
+        quantity: 1,
+        imageDesignCode: 'F',
+        shapes: [shape],
+    };
+    return applyImageDesignConventions([base], fittings, 1).map(piece => {
+        const generated = { ...piece } as Partial<GlassPiece>;
+        delete generated.id;
+        delete generated.imageDesignCode;
+        return generated as Omit<GlassPiece, 'id'>;
+    });
+}
+
 function buildFixedPanelPiece(name: string, input: GlassSystemInput, originX: number, resolver: FittingResolver, pieceType = 'Partition', jointSide: 'left' | 'right' = 'left'): Omit<GlassPiece, 'id'> {
     const { widthIn, heightIn, thickness } = input;
     const { shape, box } = rectPanel(widthIn, heightIn, originX);
@@ -1224,6 +1250,9 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
     };
 
     switch (input.systemType) {
+        case 'basic':
+            advance(buildBasicPiece('Basic Glass', input, originX));
+            break;
         case 'swing_door':
             advance(buildDoorPiece('Glass Door', input, originX, resolver));
             break;
@@ -1235,6 +1264,9 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
             break;
         case 'fixed_panel':
             advance(buildFixedPanelPiece('Fixed Panel', input, originX, resolver));
+            break;
+        case 'fixed_panel_f':
+            buildOwnerFixedPanelPieces(input, fittings).forEach(piece => advance(piece));
             break;
         case 'sliding_door': {
             // Panel widths come from the caller here; the norms that always
