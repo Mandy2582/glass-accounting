@@ -303,6 +303,7 @@ function hardware(
         width: sizeOverride?.w ?? spec.w,
         height: sizeOverride?.h ?? spec.h,
         accessoryType: spec.render,
+        fittingRole: role,
         accessoryName: name,
         parentId,
         ...(fitting ? { hardwareItemId: fitting.id, accessoryRate: fitting.rate } : {}),
@@ -1019,6 +1020,9 @@ function assemblyRect(name: string, type: string, x: number, y: number, widthIn:
         glassSectionName: name,
         ...(type === 'Door' ? {
             widthDimensionPosition: 'bottom' as const,
+            heightDimensionPosition: 'inside' as const,
+            forceHeightDimension: true,
+        } : type === 'Transom' ? {
             heightDimensionPosition: 'inside' as const,
             forceHeightDimension: true,
         } : {}),

@@ -330,6 +330,9 @@ export interface KonvaShape {
     points?: number[];
     skewX?: number;
     accessoryType?: 'lock' | 'connector' | 'hinge' | 'profile';
+    // Exact system role used to draw a distinct technical symbol and group
+    // repeated fittings in the hardware schedule.
+    fittingRole?: FittingRole;
     accessoryName?: string;
     parentId?: string;
     hardwareItemId?: string;
