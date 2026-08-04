@@ -83,28 +83,6 @@ const inferFittingRole = (shape: KonvaShape): FittingRole => {
                 : 'connector';
 };
 
-const hardwareRoleCode = (role: FittingRole): string => ({
-    l_connector: 'LC',
-    glass_to_glass_connector: 'G2G',
-    l_bracket_small: 'SL',
-    l_bracket_big: 'BL',
-    top_patch: 'TP',
-    bottom_patch: 'BP',
-    overpanel_patch: 'TM30',
-    floor_spring: 'FS',
-    wall_hinge: 'WH',
-    glass_hinge: 'GH',
-    door_lock: 'LK',
-    sliding_lock: 'SK',
-    base_channel: 'CH',
-    connector: 'CN',
-    clamp: 'CL',
-    spigot: 'SP',
-    handle: 'HD',
-    sliding_kit: 'RL',
-    other: 'HW',
-}[role]);
-
 const hardwarePalette = (role: FittingRole) => {
     if (role === 'door_lock' || role === 'sliding_lock') return { c: '#b91c1c', bg: '#fff7f7' };
     if (role === 'handle') return { c: '#9f1239', bg: '#fff1f2' };
@@ -152,6 +130,37 @@ const renderHardwareSymbol = (shape: KonvaShape, scale: number): React.ReactNode
         return <Group><Rect x={w / 2 - 5} y={2} width={10} height={h - 7} fill={pal.bg} {...common} /><Line points={[3, h - 3, w - 3, h - 3]} stroke={pal.c} strokeWidth={4 / scale} listening={false} /></Group>;
     }
     return <Group>{plate}<Circle x={w / 2} y={h / 2} radius={Math.min(w, h) / 5} fill={pal.c} listening={false} /></Group>;
+};
+
+const HardwareLegendIcon = ({ role }: { role: FittingRole }) => {
+    const pal = hardwarePalette(role);
+    const common = { fill: pal.bg, stroke: pal.c, strokeWidth: 2 };
+    let symbol: React.ReactNode;
+
+    if (role === 'l_connector' || role === 'l_bracket_small' || role === 'l_bracket_big') {
+        const big = role === 'l_bracket_big';
+        const small = role === 'l_bracket_small';
+        symbol = <path d={small ? 'M25 7H10V20' : 'M29 5H7V23'} fill="none" stroke={pal.c} strokeWidth={big ? 5 : 3} strokeLinecap="square" strokeLinejoin="miter" />;
+    } else if (role === 'glass_to_glass_connector') {
+        symbol = <><rect x="3" y="6" width="13" height="16" rx="2" {...common} /><rect x="20" y="6" width="13" height="16" rx="2" {...common} /><path d="M18 3V25" stroke={pal.c} strokeWidth="3" /></>;
+    } else if (role === 'top_patch' || role === 'bottom_patch' || role === 'overpanel_patch') {
+        const top = role !== 'bottom_patch';
+        symbol = <><rect x="5" y="5" width="26" height="18" rx="2" {...common} /><rect x="14" y={top ? 1 : 21} width="8" height="6" fill={pal.c} />{role === 'overpanel_patch' && <path d="M6 14H15V8H30" fill="none" stroke={pal.c} strokeWidth="2" />}</>;
+    } else if (role === 'door_lock' || role === 'sliding_lock') {
+        symbol = <><rect x="7" y="3" width="22" height="22" rx="3" {...common} /><circle cx="18" cy="12" r="3" fill="#ffffff" stroke={pal.c} strokeWidth="2" /><path d="M18 15V21" stroke={pal.c} strokeWidth="2" /></>;
+    } else if (role === 'handle') {
+        symbol = <><circle cx="18" cy="4" r="3" {...common} /><circle cx="18" cy="24" r="3" {...common} /><path d="M18 7V21" stroke={pal.c} strokeWidth="4" strokeLinecap="round" /></>;
+    } else if (role === 'wall_hinge' || role === 'glass_hinge') {
+        symbol = <><rect x="3" y="6" width="13" height="16" rx="2" {...common} /><rect x="20" y="6" width="13" height="16" rx="2" {...common} /><path d="M18 3V25" stroke={pal.c} strokeWidth="4" /></>;
+    } else if (role === 'base_channel') {
+        symbol = <><path d="M4 4V23H32V4" fill="none" stroke={pal.c} strokeWidth="2" /><path d="M8 18H28" stroke={pal.c} strokeWidth="2" /></>;
+    } else if (role === 'spigot') {
+        symbol = <><rect x="13" y="3" width="10" height="18" rx="2" {...common} /><path d="M5 24H31" stroke={pal.c} strokeWidth="4" /></>;
+    } else {
+        symbol = <><rect x="5" y="4" width="26" height="20" rx="3" {...common} /><circle cx="18" cy="14" r="4" fill={pal.c} /></>;
+    }
+
+    return <svg width="36" height="28" viewBox="0 0 36 28" aria-hidden="true" style={{ flex: '0 0 auto' }}>{symbol}</svg>;
 };
 
 // Parse fraction or decimal string to inches
@@ -2765,7 +2774,6 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
     const hardwareLegend = useMemo(() => {
         const legend: Array<{
             ids: string[];
-            code: string;
             fittingRole: FittingRole;
             accessoryType: 'hinge' | 'lock' | 'profile' | 'connector';
             name: string;
@@ -2779,7 +2787,6 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
             predictionConfidence?: number;
         }> = [];
         const groups = new Map<string, (typeof legend)[number]>();
-        const codeCounts = new Map<string, number>();
         (activePiece ? [activePiece] : []).forEach(p => {
             p.shapes.forEach(s => {
                 if (s.type === 'accessory') {
@@ -2797,12 +2804,8 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                         existing.cuts += Number(s.accessoryCutCount) || 0;
                         return;
                     }
-                    const baseCode = hardwareRoleCode(fittingRole);
-                    const codeCount = (codeCounts.get(baseCode) || 0) + 1;
-                    codeCounts.set(baseCode, codeCount);
                     const item = {
                         ids: [s.id],
-                        code: codeCount === 1 ? baseCode : `${baseCode}${codeCount}`,
                         fittingRole,
                         accessoryType: at,
                         name,
@@ -2822,11 +2825,6 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
         });
         return legend;
     }, [activePiece, hardwareItems]);
-    const hardwareLegendByShapeId = useMemo(() => {
-        const byId = new Map<string, (typeof hardwareLegend)[number]>();
-        hardwareLegend.forEach(item => item.ids.forEach(id => byId.set(id, item)));
-        return byId;
-    }, [hardwareLegend]);
 
     // Glass prep implied by the placed fittings. A fitting shape only carries
     // hole/cut COUNTS, so the fabrication view turns those into real,
@@ -3922,41 +3920,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                             });
                                         }}
                                     >
-                                        {(() => {
-                                            const role = inferFittingRole(shape);
-                                            const pal = hardwarePalette(role);
-                                            const mw = Math.max(22, Number(shape.width) || 30);
-                                            const mh = Math.max(18, Number(shape.height) || 24);
-                                            const legendItem = hardwareLegendByShapeId.get(shape.id);
-                                            const codeTag = legendItem ? legendItem.code : 'HW';
-                                            const badgeWidth = Math.max(30, codeTag.length * 7 + 10) / drawingScale;
-
-                                            return (
-                                                <Group>
-                                                    {renderHardwareSymbol(shape, drawingScale)}
-                                                    <Rect
-                                                        x={(mw / 2) - badgeWidth / 2}
-                                                        y={mh + (3 / drawingScale)}
-                                                        width={badgeWidth}
-                                                        height={16 / drawingScale}
-                                                        fill={pal.c}
-                                                        cornerRadius={3 / drawingScale}
-                                                        listening={false}
-                                                    />
-                                                    <Text
-                                                        x={(mw / 2) - badgeWidth / 2}
-                                                        y={mh + (5 / drawingScale)}
-                                                        width={badgeWidth}
-                                                        text={codeTag}
-                                                        fontSize={10 / drawingScale}
-                                                        fill="#ffffff"
-                                                        fontStyle="bold"
-                                                        align="center"
-                                                        listening={false}
-                                                    />
-                                                </Group>
-                                            );
-                                        })()}
+                                        {renderHardwareSymbol(shape, drawingScale)}
                                         {/* Selection highlight border */}
                                         {isSelected && (() => {
                                             let w = shape.width || 20;
@@ -4127,11 +4091,10 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                         </span>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.45rem' }}>
                             {hardwareLegend.map((item: any) => {
-                                const badgeColor = hardwarePalette(item.fittingRole).c;
                                 const isSelected = item.ids.some((id: string) => selectedShapeIds.includes(id));
                                 return (
                                     <div
-                                        key={`${item.code}-${item.name}`}
+                                        key={`${item.fittingRole}-${item.name}`}
                                         onClick={() => setSelectedShapeIds([item.ids[0]])}
                                         style={{
                                             display: 'flex',
@@ -4145,16 +4108,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                             transition: 'all 0.15s ease'
                                         }}
                                     >
-                                        <span style={{
-                                            background: badgeColor,
-                                            color: '#ffffff',
-                                            fontWeight: 700,
-                                            fontSize: '0.72rem',
-                                            padding: '1px 5px',
-                                            borderRadius: '4px'
-                                        }}>
-                                            {item.code}
-                                        </span>
+                                        <HardwareLegendIcon role={item.fittingRole} />
                                         <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#1e293b' }}>
                                             {item.name}
                                         </span>
