@@ -1224,7 +1224,7 @@ function buildFixedDoorAssembly(
         if (overBox) {
             const supportY = overBox.topY + overBox.heightU;
             if (doorCount === 1) {
-                overpanel.shapes.push(hardware(overBox.id, 'l_bracket_small', doors[0].outline.x, supportY, resolver, undefined, 'up-right'));
+                overpanel.shapes.push(hardware(overBox.id, 'l_bracket_small', doors[0].outline.x, supportY, resolver, undefined, 'down-right'));
                 overpanel.shapes.push(hardware(
                     overBox.id,
                     fixedCount === 2 ? 'l_bracket_big' : 'overpanel_patch',
@@ -1232,10 +1232,10 @@ function buildFixedDoorAssembly(
                     supportY,
                     resolver,
                     undefined,
-                    'up-left',
+                    'down-left',
                 ));
             } else {
-                overpanel.shapes.push(hardware(overBox.id, 'l_bracket_big', doors[0].outline.x, supportY, resolver, undefined, 'up-right'));
+                overpanel.shapes.push(hardware(overBox.id, 'l_bracket_big', doors[0].outline.x, supportY, resolver, undefined, 'down-right'));
                 overpanel.shapes.push(hardware(
                     overBox.id,
                     fixedCount === 2 ? 'l_bracket_big' : 'overpanel_patch',
@@ -1243,7 +1243,7 @@ function buildFixedDoorAssembly(
                     supportY,
                     resolver,
                     undefined,
-                    'up-left',
+                    'down-left',
                 ));
             }
         }
