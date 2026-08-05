@@ -110,7 +110,15 @@ function pushLBrackets(
         box.heightU,
         L_BRACKET_END_INSET_IN * U
     )) {
-        shapes.push(hardware(box.id, role, edgeX, yU, resolver));
+        shapes.push(hardware(
+            box.id,
+            role,
+            edgeX,
+            yU,
+            resolver,
+            undefined,
+            jointSide === 'left' ? 'down-right' : 'down-left',
+        ));
     }
 }
 
@@ -220,8 +228,8 @@ const ROLE_SPEC: Record<FittingRole, {
     glass_to_glass_connector: { render: 'connector', w: 42, h: 22, holes: 0, cuts: 0, holeRadiusIn: 0.25, cutAreaSqIn: 0, label: 'Glass-to-glass connector' },
     // L-brackets clamp the glass face; nothing is drilled or notched into the
     // panel for them. Big is the heavier/longer body, so it draws larger.
-    l_bracket_small: { render: 'connector', w: 26, h: 26, holes: 0, cuts: 0, holeRadiusIn: 0,    cutAreaSqIn: 0, label: 'Small L bracket' },
-    l_bracket_big:   { render: 'connector', w: 38, h: 38, holes: 0, cuts: 0, holeRadiusIn: 0,    cutAreaSqIn: 0, label: 'Big L bracket' },
+    l_bracket_small: { render: 'connector', w: 36, h: 36, holes: 0, cuts: 0, holeRadiusIn: 0,    cutAreaSqIn: 0, label: 'Small L bracket' },
+    l_bracket_big:   { render: 'connector', w: 50, h: 50, holes: 0, cuts: 0, holeRadiusIn: 0,    cutAreaSqIn: 0, label: 'Big L bracket' },
     // Width is overridden at placement time to span the panel; nothing is
     // drilled for a channel, the glass just seats into it.
     base_channel:    { render: 'profile',   w: 120, h: 12, holes: 0, cuts: 0, holeRadiusIn: 0,   cutAreaSqIn: 0, label: 'Base channel' },
@@ -258,7 +266,8 @@ function hardware(
     resolver: FittingResolver,
     // Continuous fittings (a base channel, a top track) are as long as the
     // panel they run along, so their footprint can't come from ROLE_SPEC.
-    sizeOverride?: { w?: number; h?: number }
+    sizeOverride?: { w?: number; h?: number },
+    orientation?: KonvaShape['hardwareOrientation'],
 ): KonvaShape {
     const spec = ROLE_SPEC[role];
     const fitting = resolver.get(role);
@@ -304,6 +313,7 @@ function hardware(
         height: sizeOverride?.h ?? spec.h,
         accessoryType: spec.render,
         fittingRole: role,
+        ...(orientation ? { hardwareOrientation: orientation } : {}),
         accessoryName: name,
         parentId,
         ...(fitting ? { hardwareItemId: fitting.id, accessoryRate: fitting.rate } : {}),
@@ -1214,22 +1224,26 @@ function buildFixedDoorAssembly(
         if (overBox) {
             const supportY = overBox.topY + overBox.heightU;
             if (doorCount === 1) {
-                overpanel.shapes.push(hardware(overBox.id, 'l_bracket_small', doors[0].outline.x, supportY, resolver));
+                overpanel.shapes.push(hardware(overBox.id, 'l_bracket_small', doors[0].outline.x, supportY, resolver, undefined, 'up-right'));
                 overpanel.shapes.push(hardware(
                     overBox.id,
                     fixedCount === 2 ? 'l_bracket_big' : 'overpanel_patch',
                     doors[0].outline.x + (doors[0].outline.width || 0),
                     supportY,
                     resolver,
+                    undefined,
+                    'up-left',
                 ));
             } else {
-                overpanel.shapes.push(hardware(overBox.id, 'l_bracket_big', doors[0].outline.x, supportY, resolver));
+                overpanel.shapes.push(hardware(overBox.id, 'l_bracket_big', doors[0].outline.x, supportY, resolver, undefined, 'up-right'));
                 overpanel.shapes.push(hardware(
                     overBox.id,
                     fixedCount === 2 ? 'l_bracket_big' : 'overpanel_patch',
                     doors[1].outline.x + (doors[1].outline.width || 0),
                     supportY,
                     resolver,
+                    undefined,
+                    'up-left',
                 ));
             }
         }

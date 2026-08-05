@@ -333,6 +333,7 @@ export interface KonvaShape {
     // Exact system role used to draw a distinct technical symbol and group
     // repeated fittings in the hardware schedule.
     fittingRole?: FittingRole;
+    hardwareOrientation?: 'up-right' | 'up-left' | 'down-right' | 'down-left';
     accessoryName?: string;
     parentId?: string;
     hardwareItemId?: string;

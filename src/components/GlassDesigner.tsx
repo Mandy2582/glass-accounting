@@ -102,9 +102,25 @@ const renderHardwareSymbol = (shape: KonvaShape, scale: number): React.ReactNode
     const common = { stroke: pal.c, strokeWidth: sw, listening: false as const };
     const plate = <Rect x={1} y={1} width={w - 2} height={h - 2} fill={pal.bg} cornerRadius={2} {...common} />;
 
-    if (role === 'l_connector' || role === 'l_bracket_small' || role === 'l_bracket_big') {
+    if (role === 'l_connector') {
+        return <Group>{plate}<Line points={[w - 4, 5, 5, 5, 5, h - 4]} stroke={pal.c} strokeWidth={3 / scale} lineCap="square" lineJoin="miter" listening={false} /></Group>;
+    }
+    if (role === 'l_bracket_small' || role === 'l_bracket_big') {
         const heavy = role === 'l_bracket_big';
-        return <Group>{plate}<Line points={[w - 4, 5, 5, 5, 5, h - 4]} stroke={pal.c} strokeWidth={(heavy ? 5 : 3) / scale} lineCap="square" lineJoin="miter" listening={false} />{role !== 'l_connector' && <Text x={w / 2 - 7} y={h / 2 - 5} width={14} text={heavy ? 'B' : 'S'} fontSize={9 / scale} fill={pal.c} fontStyle="bold" align="center" listening={false} />}</Group>;
+        const visualW = Math.max(w, heavy ? 50 : 36);
+        const visualH = Math.max(h, heavy ? 50 : 36);
+        const ox = (w - visualW) / 2;
+        const oy = (h - visualH) / 2;
+        const left = ox + 4;
+        const right = ox + visualW - 4;
+        const top = oy + 4;
+        const bottom = oy + visualH - 4;
+        const orientation = shape.hardwareOrientation || 'down-right';
+        const points = orientation === 'up-right' ? [left, top, left, bottom, right, bottom]
+            : orientation === 'up-left' ? [right, top, right, bottom, left, bottom]
+                : orientation === 'down-left' ? [left, top, right, top, right, bottom]
+                    : [right, top, left, top, left, bottom];
+        return <Line points={points} stroke={pal.c} strokeWidth={(heavy ? 7 : 5) / scale} lineCap="square" lineJoin="miter" listening={false} />;
     }
     if (role === 'glass_to_glass_connector') {
         return <Group>{plate}<Rect x={3} y={4} width={w / 2 - 5} height={h - 8} fill="#ffffff" {...common} /><Rect x={w / 2 + 2} y={4} width={w / 2 - 5} height={h - 8} fill="#ffffff" {...common} /><Line points={[w / 2, 2, w / 2, h - 2]} {...common} /></Group>;
@@ -140,7 +156,7 @@ const HardwareLegendIcon = ({ role }: { role: FittingRole }) => {
     if (role === 'l_connector' || role === 'l_bracket_small' || role === 'l_bracket_big') {
         const big = role === 'l_bracket_big';
         const small = role === 'l_bracket_small';
-        symbol = <path d={small ? 'M25 7H10V20' : 'M29 5H7V23'} fill="none" stroke={pal.c} strokeWidth={big ? 5 : 3} strokeLinecap="square" strokeLinejoin="miter" />;
+        symbol = <path d={small ? 'M27 5H7V23' : 'M31 3H5V25'} fill="none" stroke={pal.c} strokeWidth={big ? 7 : role === 'l_connector' ? 3 : 5} strokeLinecap="square" strokeLinejoin="miter" />;
     } else if (role === 'glass_to_glass_connector') {
         symbol = <><rect x="3" y="6" width="13" height="16" rx="2" {...common} /><rect x="20" y="6" width="13" height="16" rx="2" {...common} /><path d="M18 3V25" stroke={pal.c} strokeWidth="3" /></>;
     } else if (role === 'top_patch' || role === 'bottom_patch' || role === 'overpanel_patch') {
