@@ -39,6 +39,16 @@ export function evaluateAutoReview(
         return { eligible: false, reason: 'Order total is zero -- nothing to quote.' };
     }
 
+    const unpricedHardware = order.items.filter(item => (
+        item.type === 'Hardware' && !(Number(item.rate) > 0)
+    ));
+    if (unpricedHardware.length > 0) {
+        return {
+            eligible: false,
+            reason: `${unpricedHardware.length} hardware line${unpricedHardware.length === 1 ? '' : 's'} still need pricing.`,
+        };
+    }
+
     const cap = Number(config.autoReviewMaxOrderValue) || 0;
     if (cap > 0 && Number(order.total) > cap) {
         return { eligible: false, reason: `Order total ₹${Number(order.total).toFixed(2)} is above the ₹${cap.toFixed(2)} automatic-review limit.` };
