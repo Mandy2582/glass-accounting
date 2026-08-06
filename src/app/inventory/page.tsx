@@ -437,7 +437,27 @@ export default function InventoryPage() {
                                             {item.category === 'hardware' ? 'Hardware' : 'Glass'}
                                         </span>
                                     </td>
-                                    <td style={{ fontWeight: 500 }}>{item.name}</td>
+                                    <td style={{ fontWeight: 500 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', minWidth: 0 }}>
+                                            {item.imageUrl && (
+                                                <img
+                                                    src={item.imageUrl}
+                                                    alt=""
+                                                    loading="lazy"
+                                                    style={{
+                                                        width: '44px',
+                                                        height: '44px',
+                                                        flex: '0 0 44px',
+                                                        objectFit: 'contain',
+                                                        background: '#ffffff',
+                                                        border: '1px solid var(--color-border)',
+                                                        borderRadius: '4px'
+                                                    }}
+                                                />
+                                            )}
+                                            <span>{item.name}</span>
+                                        </div>
+                                    </td>
                                     <td>{item.make || '-'}</td>
                                     <td>{item.type}</td>
                                     <td>
@@ -468,9 +488,11 @@ export default function InventoryPage() {
                                             }}>
                                                 {item.showOnline ? 'Online' : 'Hidden'}
                                             </span>
-                                            <span style={{ fontSize: '0.72rem', color: item.imageUrl ? '#047857' : 'var(--color-text-muted)' }}>
-                                                {item.imageUrl ? 'Image added' : 'No image'}
-                                            </span>
+                                            {!item.imageUrl && (
+                                                <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
+                                                    No image
+                                                </span>
+                                            )}
                                         </div>
                                     </td>
                                     <td>{formatIndianCurrency(item.purchaseRate || 0)}</td>

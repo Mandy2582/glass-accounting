@@ -245,7 +245,7 @@ export default function ItemModal({ isOpen, onClose, onSave, onDelete, initialDa
                             <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>Preview</label>
                             <div style={{ height: 120, border: '1px dashed var(--color-border)', borderRadius: '12px', display: 'grid', placeItems: 'center', overflow: 'hidden', background: 'white' }}>
                                 {formData.imageUrl ? (
-                                    <img src={formData.imageUrl} alt="Product preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    <img src={formData.imageUrl} alt="Product preview" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                                 ) : (
                                     <span style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>No image selected</span>
                                 )}

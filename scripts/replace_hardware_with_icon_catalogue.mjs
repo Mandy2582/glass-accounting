@@ -65,8 +65,10 @@ function parseProducts(html, sourcePath) {
             .replace(/^[-: ]+|[-: ]+$/g, '')
             .trim();
         const productName = conciseName || category;
-        const imagePath = [...row.matchAll(/href="([^"]+)"[^>]*data-lightbox/gi)]
-            .map(image => decodeHtml(image[1]))[0];
+        const imagePath = [
+            ...[...row.matchAll(/href="([^"]+)"[^>]*data-lightbox/gi)].map(image => decodeHtml(image[1])),
+            ...[...row.matchAll(/<img[^>]+src="([^"]+)"/gi)].map(image => decodeHtml(image[1])),
+        ].find(candidate => candidate.startsWith('/media/') && !candidate.includes('media(MediaArchive:'));
 
         products.push({
             code,
@@ -228,7 +230,7 @@ function toDatabaseItem(product) {
         type: product.category,
         product_group: product.category,
         show_online: false,
-        image_url: product.imageUrl,
+        image_url: `${supabaseUrl}/storage/v1/object/public/product-images/icon-hardware/${product.code.replace(/[^A-Za-z0-9._-]+/g, '_')}.webp`,
         make: 'Icon',
         model: product.code,
         thickness: 0,
