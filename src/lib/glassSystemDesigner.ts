@@ -57,9 +57,9 @@ const L_BRACKET_END_INSET_IN = 4;
 const FIXED_PANEL_L_CONNECTOR_GLASS_INSET_IN = 2;
 const CENTRE_CONNECTOR_END_INSET_IN = 6;
 const STANDARD_DOOR_OPENING_WIDTH_IN = 36;
-const STANDARD_DOOR_OPENING_HEIGHT_IN = 84.25;
+const STANDARD_DOOR_HEIGHT_IN = 84;
 const DOOR_WIDTH_CLEARANCE_IN = 0.25;
-const DOOR_HEIGHT_CLEARANCE_IN = 0.25;
+const DOOR_HEIGHT_CLEARANCE_IN = 0.5;
 const OVERPANEL_TO_DOOR_CLEARANCE_IN = 0.5;
 // Light-duty (Small) is adequate for modest returns; a tall or heavy leaf
 // levers hard on the joint and takes the heavy-duty (Big) body. Glass weighs
@@ -173,9 +173,10 @@ export interface GlassSystemInput {
     fixedPanelLeftWidthIn?: number;
     fixedPanelRightWidthIn?: number;
     transomHeightIn?: number;
-    // Clear opening dimensions supplied for each door leaf. Width clearance
-    // is 2/8in; height is 2/8in for a door-only opening and 4/8in below an
-    // overpanel.
+    // Door width is the clear opening width for each leaf, so the glass loses
+    // 2/8in. Door height is the required glass-leaf height when an overpanel
+    // exists (84in by default). Without an overpanel, the leaf loses 4/8in
+    // from the available opening height.
     doorWidthIn?: number;
     doorHeightIn?: number;
     fixingStyle?: 'channel' | 'spider' | 'standoff';
@@ -1033,6 +1034,28 @@ interface AssemblySection {
     shapes: KonvaShape[];
 }
 
+function doorAssemblyHeights(input: GlassSystemInput): {
+    doorGlassHeightIn: number;
+    overpanelHeightIn: number;
+} {
+    const requestedDoorHeightIn = Math.min(input.doorHeightIn || STANDARD_DOOR_HEIGHT_IN, input.heightIn);
+    const availableOverpanelHeightIn = input.heightIn
+        - requestedDoorHeightIn
+        - OVERPANEL_TO_DOOR_CLEARANCE_IN;
+
+    if (availableOverpanelHeightIn > 0) {
+        return {
+            doorGlassHeightIn: Math.max(requestedDoorHeightIn, 1),
+            overpanelHeightIn: availableOverpanelHeightIn,
+        };
+    }
+
+    return {
+        doorGlassHeightIn: Math.max(input.heightIn - DOOR_HEIGHT_CLEARANCE_IN, 1),
+        overpanelHeightIn: 0,
+    };
+}
+
 function assemblyRect(name: string, type: string, x: number, y: number, widthIn: number, heightIn: number): AssemblySection {
     const outline: KonvaShape = {
         id: generateUUID(),
@@ -1159,15 +1182,8 @@ function buildFixedDoorAssembly(
     if (remainingFixedWidthIn <= 0 || input.heightIn <= 0) return null;
 
     const fixedWidthIn = remainingFixedWidthIn / fixedCount;
-    const doorOpeningHeightIn = Math.min(input.doorHeightIn || STANDARD_DOOR_OPENING_HEIGHT_IN, input.heightIn);
-    const overpanelHeightIn = input.heightIn > doorOpeningHeightIn
-        ? input.heightIn - doorOpeningHeightIn
-        : 0;
+    const { doorGlassHeightIn, overpanelHeightIn } = doorAssemblyHeights(input);
     const doorGlassWidthIn = Math.max(doorOpeningWidthIn - DOOR_WIDTH_CLEARANCE_IN, 1);
-    const doorGlassHeightIn = Math.max(
-        doorOpeningHeightIn - (overpanelHeightIn > 0 ? OVERPANEL_TO_DOOR_CLEARANCE_IN : DOOR_HEIGHT_CLEARANCE_IN),
-        1,
-    );
     const doorSideClearanceIn = (doorOpeningWidthIn - doorGlassWidthIn) / 2;
     const openingX = ORIGIN_X + fixedWidthIn * U;
     const doorTopY = ORIGIN_Y + Math.max(input.heightIn - doorGlassHeightIn, 0) * U;
@@ -1284,13 +1300,8 @@ function buildDoorOnlyAssembly(
 ): Omit<GlassPiece, 'id'> {
     const doorCount = input.systemType === 'double_door' ? 2 : 1;
     const doorOpeningWidthIn = input.doorWidthIn || input.widthIn / doorCount;
-    const doorOpeningHeightIn = Math.min(input.doorHeightIn || STANDARD_DOOR_OPENING_HEIGHT_IN, input.heightIn);
-    const overpanelHeightIn = Math.max(input.heightIn - doorOpeningHeightIn, 0);
+    const { doorGlassHeightIn: glassHeightIn, overpanelHeightIn } = doorAssemblyHeights(input);
     const glassWidthIn = Math.max(doorOpeningWidthIn - DOOR_WIDTH_CLEARANCE_IN, 1);
-    const glassHeightIn = Math.max(
-        doorOpeningHeightIn - (overpanelHeightIn > 0 ? OVERPANEL_TO_DOOR_CLEARANCE_IN : DOOR_HEIGHT_CLEARANCE_IN),
-        1,
-    );
     const sideClearanceIn = (doorOpeningWidthIn - glassWidthIn) / 2;
     const totalOpeningWidthIn = doorOpeningWidthIn * doorCount;
     const doorTopY = ORIGIN_Y + (input.heightIn - glassHeightIn) * U;
@@ -1346,8 +1357,8 @@ function buildDoorOnlyAssembly(
     }
 
     return {
-        name: `${doorCount === 1 ? 'Single' : 'Double'} Door with Overpanel Assembly`,
-        type: 'Door and Overpanel Assembly',
+        name: `${doorCount === 1 ? 'Single' : 'Double'} Door${overpanel ? ' with Overpanel' : ''} Assembly`,
+        type: overpanel ? 'Door and Overpanel Assembly' : 'Door Assembly',
         thickness: input.thickness,
         quantity: 1,
         shapes: sections.flatMap(section => section.shapes),
