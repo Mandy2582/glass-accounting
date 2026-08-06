@@ -46,13 +46,7 @@ export function formatInchesToFraction(inches: number): string {
     const sign = snappedInches < 0 ? '-' : '';
     
     let fracStr = '';
-    if (numerator === 1) fracStr = '1/8';
-    else if (numerator === 2) fracStr = '1/4';
-    else if (numerator === 3) fracStr = '3/8';
-    else if (numerator === 4) fracStr = '1/2';
-    else if (numerator === 5) fracStr = '5/8';
-    else if (numerator === 6) fracStr = '3/4';
-    else if (numerator === 7) fracStr = '7/8';
+    if (numerator > 0 && numerator < 8) fracStr = `${numerator}/8`;
     else if (numerator === 8) {
         return `${sign}${whole + 1}`;
     }

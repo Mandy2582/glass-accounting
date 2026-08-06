@@ -23,6 +23,7 @@ const RECT_DIM_LABEL_HALF_W_PX = 43; // half of labelWidth=86
 const RECT_DIM_LABEL_HALF_H_PX = 12; // half of labelHeight=24
 const POLYGON_SIDE_DIM_OFFSET_PX = 70;
 const VERTEX_ANGLE_OFFSET_PX = 22;
+const FABRICATION_HOLE_MIN_RADIUS_PX = 5;
 
 // Default/minimum Stage viewport (CSS pixels). Width grows to fill the
 // actual canvas frame container (measured via ResizeObserver, see
@@ -4031,7 +4032,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                         const needsReview = shape.positionSource === 'estimated-fallback';
                                         const stroke = needsReview ? '#d97706' : '#dc2626';
                                         if (shape.type === 'hole') {
-                                            const radius = Math.max(shape.radius || 0, 9 / drawingScale);
+                                            const radius = Math.max(shape.radius || 0, FABRICATION_HOLE_MIN_RADIUS_PX / drawingScale);
                                             return (
                                                 <Group key={`fab-${shape.id}`} listening={false}>
                                                     <Circle x={shape.x} y={shape.y} radius={radius} fill="rgba(220,38,38,0.18)" stroke={stroke} strokeWidth={2 / drawingScale} />
@@ -4056,7 +4057,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                     })}
 
                                     {fittingGlassPrep.holes.map(h => {
-                                        const radius = Math.max(h.radius, 9 / drawingScale);
+                                        const radius = Math.max(h.radius, FABRICATION_HOLE_MIN_RADIUS_PX / drawingScale);
                                         return (
                                             <Group key={`fab-prep-${h.key}`} listening={false}>
                                                 <Circle x={h.x} y={h.y} radius={radius} fill="rgba(220,38,38,0.18)" stroke="#dc2626" strokeWidth={2 / drawingScale} />
