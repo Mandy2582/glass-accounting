@@ -58,7 +58,9 @@ const FIXED_PANEL_L_CONNECTOR_GLASS_INSET_IN = 2;
 const CENTRE_CONNECTOR_END_INSET_IN = 6;
 const STANDARD_DOOR_OPENING_WIDTH_IN = 36;
 const STANDARD_DOOR_OPENING_HEIGHT_IN = 84.25;
-const DOOR_GLASS_CLEARANCE_IN = 0.25;
+const DOOR_WIDTH_CLEARANCE_IN = 0.25;
+const DOOR_HEIGHT_CLEARANCE_IN = 0.25;
+const OVERPANEL_TO_DOOR_CLEARANCE_IN = 0.5;
 // Light-duty (Small) is adequate for modest returns; a tall or heavy leaf
 // levers hard on the joint and takes the heavy-duty (Big) body. Glass weighs
 // ~2.5 kg per m2 per mm of thickness.
@@ -171,8 +173,9 @@ export interface GlassSystemInput {
     fixedPanelLeftWidthIn?: number;
     fixedPanelRightWidthIn?: number;
     transomHeightIn?: number;
-    // Clear opening dimensions supplied for each door leaf. The generated
-    // glass is 1/4in smaller in both directions for installation clearance.
+    // Clear opening dimensions supplied for each door leaf. Width clearance
+    // is 2/8in; height is 2/8in for a door-only opening and 4/8in below an
+    // overpanel.
     doorWidthIn?: number;
     doorHeightIn?: number;
     fixingStyle?: 'channel' | 'spider' | 'standoff';
@@ -1157,12 +1160,15 @@ function buildFixedDoorAssembly(
 
     const fixedWidthIn = remainingFixedWidthIn / fixedCount;
     const doorOpeningHeightIn = Math.min(input.doorHeightIn || STANDARD_DOOR_OPENING_HEIGHT_IN, input.heightIn);
-    const doorGlassWidthIn = Math.max(doorOpeningWidthIn - DOOR_GLASS_CLEARANCE_IN, 1);
-    const doorGlassHeightIn = Math.max(doorOpeningHeightIn - DOOR_GLASS_CLEARANCE_IN, 1);
-    const doorSideClearanceIn = (doorOpeningWidthIn - doorGlassWidthIn) / 2;
     const overpanelHeightIn = input.heightIn > doorOpeningHeightIn
         ? input.heightIn - doorOpeningHeightIn
         : 0;
+    const doorGlassWidthIn = Math.max(doorOpeningWidthIn - DOOR_WIDTH_CLEARANCE_IN, 1);
+    const doorGlassHeightIn = Math.max(
+        doorOpeningHeightIn - (overpanelHeightIn > 0 ? OVERPANEL_TO_DOOR_CLEARANCE_IN : DOOR_HEIGHT_CLEARANCE_IN),
+        1,
+    );
+    const doorSideClearanceIn = (doorOpeningWidthIn - doorGlassWidthIn) / 2;
     const openingX = ORIGIN_X + fixedWidthIn * U;
     const doorTopY = ORIGIN_Y + Math.max(input.heightIn - doorGlassHeightIn, 0) * U;
     const sections: AssemblySection[] = [];
@@ -1279,11 +1285,14 @@ function buildDoorOnlyAssembly(
     const doorCount = input.systemType === 'double_door' ? 2 : 1;
     const doorOpeningWidthIn = input.doorWidthIn || input.widthIn / doorCount;
     const doorOpeningHeightIn = Math.min(input.doorHeightIn || STANDARD_DOOR_OPENING_HEIGHT_IN, input.heightIn);
-    const glassWidthIn = Math.max(doorOpeningWidthIn - DOOR_GLASS_CLEARANCE_IN, 1);
-    const glassHeightIn = Math.max(doorOpeningHeightIn - DOOR_GLASS_CLEARANCE_IN, 1);
+    const overpanelHeightIn = Math.max(input.heightIn - doorOpeningHeightIn, 0);
+    const glassWidthIn = Math.max(doorOpeningWidthIn - DOOR_WIDTH_CLEARANCE_IN, 1);
+    const glassHeightIn = Math.max(
+        doorOpeningHeightIn - (overpanelHeightIn > 0 ? OVERPANEL_TO_DOOR_CLEARANCE_IN : DOOR_HEIGHT_CLEARANCE_IN),
+        1,
+    );
     const sideClearanceIn = (doorOpeningWidthIn - glassWidthIn) / 2;
     const totalOpeningWidthIn = doorOpeningWidthIn * doorCount;
-    const overpanelHeightIn = Math.max(input.heightIn - doorOpeningHeightIn, 0);
     const doorTopY = ORIGIN_Y + (input.heightIn - glassHeightIn) * U;
     const sections: AssemblySection[] = [];
 
@@ -1495,7 +1504,7 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
             const doorHeightU = input.heightIn * U;
             const transomHeightU = transomH * U;
             transomPiece.shapes.forEach(s => {
-                s.y = s.y - transomHeightU - 2; // sit directly above the door
+                s.y = s.y - transomHeightU - OVERPANEL_TO_DOOR_CLEARANCE_IN * U;
             });
             pieces.push(transomPiece);
             break;
@@ -1513,7 +1522,7 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
             const transomPiece = buildFixedPanelPiece('Top Entrance Transom Glass', { ...input, widthIn: totalWidthIn, heightIn: transomH }, startX, resolver, 'Transom');
             const transomHeightU = transomH * U;
             transomPiece.shapes.forEach(s => {
-                s.y = s.y - transomHeightU - 2;
+                s.y = s.y - transomHeightU - OVERPANEL_TO_DOOR_CLEARANCE_IN * U;
             });
             pieces.push(transomPiece);
             break;
@@ -1558,7 +1567,7 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
             const transomPiece = buildFixedPanelPiece('Double Entrance Transom Glass', { ...input, widthIn: totalWidthIn, heightIn: transomH }, startX, resolver, 'Transom');
             const transomHeightU = transomH * U;
             transomPiece.shapes.forEach(s => {
-                s.y = s.y - transomHeightU - 2;
+                s.y = s.y - transomHeightU - OVERPANEL_TO_DOOR_CLEARANCE_IN * U;
             });
             pieces.push(transomPiece);
             break;
