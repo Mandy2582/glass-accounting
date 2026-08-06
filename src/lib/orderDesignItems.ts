@@ -314,6 +314,13 @@ export const createOrderItemsFromDesign = (
     return rows;
 };
 
+export const calculateDesignOrderTotal = (
+    design: CustomDesign,
+    pricingConfig: PricingConfig,
+    taxRate = 18,
+): number => roundCurrency(createOrderItemsFromDesign(design, pricingConfig, taxRate)
+    .reduce((sum, item) => sum + (Number(item.lineTotal) || 0), 0));
+
 export const recalculateOrderTotals = (order: Order, items: InvoiceItem[]): Order => {
     const subtotal = roundCurrency(items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0));
     const calculatedTotal = roundCurrency(items.reduce((sum, item) => {

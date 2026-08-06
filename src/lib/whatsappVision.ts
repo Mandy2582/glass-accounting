@@ -1,7 +1,7 @@
 import sharp from 'sharp';
 import { generateUUID, roundCurrency } from '@/lib/utils';
 import type { DesignData, DesignItem, GlassItem, GlassPiece, ImageDesignCode, ImageHardwareContext, KonvaShape } from '@/types';
-import { applyImageDesignConventions, predictImagePieceHardware } from '@/lib/glassSystemDesigner';
+import { applyImageDesignConventions, generateGlassSystem, predictImagePieceHardware } from '@/lib/glassSystemDesigner';
 import { parseDoorOpeningDimensions } from '@/lib/glassSystemOrder';
 
 export type LengthUnit = 'inch' | 'mm';
@@ -1341,19 +1341,6 @@ function glassShapeAreaSqft(shape: KonvaShape): number {
     return (width * height) / (CANVAS_UNITS_PER_INCH ** 2 * 144);
 }
 
-function glassPieceAreaSqft(piece: GlassPiece): number {
-    const quantity = Math.max(1, Number(piece.quantity) || 1);
-    const area = piece.shapes
-        .filter(shape => (
-            shape.type === 'glass_rect'
-            || shape.type === 'glass_circle'
-            || shape.type === 'glass_polygon'
-            || shape.type === 'glass_parallelogram'
-        ))
-        .reduce((sum, shape) => sum + glassShapeAreaSqft(shape), 0);
-    return roundCurrency(area * quantity);
-}
-
 function glassPieceDimensionsIn(piece: GlassPiece): { width: number; height: number } {
     const outlines = piece.shapes.filter(shape => (
         shape.type === 'glass_rect'
@@ -1373,6 +1360,61 @@ function glassPieceDimensionsIn(piece: GlassPiece): { width: number; height: num
                 : (Number(shape.height) || 0) / CANVAS_UNITS_PER_INCH
         ))),
     };
+}
+
+function inferImageGlassType(analysis: WhatsAppImageAnalysis): string {
+    const text = `${analysis.extractedText}\n${analysis.drawing.notes}`.toLowerCase();
+    const finishes: Array<[RegExp, string]> = [
+        [/\b(?:grey|gray)\b/, 'Toughened Tinted Grey'],
+        [/\bbronze\b/, 'Toughened Tinted Bronze'],
+        [/\bfrosted\b|\bacid\s*etched\b/, 'Toughened Frosted'],
+        [/\breflective\s+blue\b/, 'Toughened Reflective Blue'],
+        [/\breflective\s+green\b/, 'Toughened Reflective Green'],
+        [/\bplain\b|\bclear\b|\btoughened\b|\btempered\b/, 'Toughened Clear'],
+    ];
+    return finishes.find(([pattern]) => pattern.test(text))?.[1] || 'Toughened Clear';
+}
+
+function expandIndependentDoorDrawings(
+    pieces: GlassPiece[],
+    fittings: GlassItem[],
+    glassType: string,
+): GlassPiece[] {
+    return pieces.flatMap((piece, index) => {
+        const belongsToConnectedRun = !!piece.connectedToPrevious || !!pieces[index + 1]?.connectedToPrevious;
+        if (belongsToConnectedRun) return piece;
+
+        const label = `${piece.name} ${piece.type} ${piece.hardwareNotes || ''}`.toLowerCase();
+        const systemType = /\bdouble\s*door\b|\bdd\b/.test(label)
+            ? 'double_door'
+            : /\bsingle\s*door\b|\bsd\b/.test(label)
+                ? 'single_door'
+                : null;
+        if (!systemType) return piece;
+
+        const dimensions = glassPieceDimensionsIn(piece);
+        if (dimensions.width <= 0 || dimensions.height <= 0) return piece;
+        const doorCount = systemType === 'double_door' ? 2 : 1;
+        const generated = generateGlassSystem({
+            systemType,
+            widthIn: dimensions.width,
+            heightIn: dimensions.height,
+            doorWidthIn: dimensions.width / doorCount,
+            doorHeightIn: Math.min(84.25, dimensions.height),
+            thickness: piece.thickness,
+            glassType,
+            hasLock: true,
+            hasHandle: true,
+        }, fittings);
+
+        return generated.map((generatedPiece, generatedIndex) => ({
+            ...generatedPiece,
+            id: generatedIndex === 0 ? piece.id : generateUUID(),
+            source: piece.source,
+            imageRegion: piece.imageRegion,
+            hardwareNotes: piece.hardwareNotes,
+        }));
+    });
 }
 
 export function buildDesignDataFromImageAnalysis(
@@ -1405,6 +1447,7 @@ export function buildDesignDataFromImageAnalysis(
             hardwareContext: null,
         }];
 
+    const glassType = inferImageGlassType(analysis);
     const importedPieces = extractedPieces.map((piece, index) => ({
         id: generateUUID(),
         name: piece.name || `Image Piece ${index + 1}`,
@@ -1419,47 +1462,57 @@ export function buildDesignDataFromImageAnalysis(
         source,
         shapes: buildPieceShapes(piece),
     } as GlassPiece));
+    const expandedPieces = expandIndependentDoorDrawings(importedPieces, fittings, glassType);
     const conventionPieces = applyImageDesignConventions(
-        importedPieces,
+        expandedPieces,
         fittings,
         extractedPieces.length,
     );
     const predictedPieces = predictImagePieceHardware(conventionPieces, fittings);
 
-    const items: DesignItem[] = predictedPieces.map(predictedPiece => {
+    const items: DesignItem[] = predictedPieces.flatMap((predictedPiece, pieceIndex) => {
         const quantity = Math.max(1, Number(predictedPiece.quantity) || 1);
-        const area = glassPieceAreaSqft(predictedPiece);
-        const manualHoles = predictedPiece.shapes.filter(shape => shape.type === 'hole').length;
-        const manualCuts = predictedPiece.shapes.filter(shape => shape.type === 'cut').length;
-        const hardwareHoles = predictedPiece.shapes.reduce((sum, shape) => sum + (Number(shape.accessoryHoleCount) || 0), 0);
-        const hardwareCuts = predictedPiece.shapes.reduce((sum, shape) => sum + (Number(shape.accessoryCutCount) || 0), 0);
+        const outlines = predictedPiece.shapes.filter(shape => (
+            shape.type === 'glass_rect'
+            || shape.type === 'glass_circle'
+            || shape.type === 'glass_polygon'
+            || shape.type === 'glass_parallelogram'
+        ));
+        return outlines.map((outline, outlineIndex) => {
+            const preparation = predictedPiece.shapes.filter(shape => shape.parentId === outline.id);
+            const area = roundCurrency(glassShapeAreaSqft(outline) * quantity);
+            const manualHoles = preparation.filter(shape => shape.type === 'hole').length;
+            const manualCuts = preparation.filter(shape => shape.type === 'cut').length;
+            const hardwareHoles = preparation.reduce((sum, shape) => sum + (Number(shape.accessoryHoleCount) || 0), 0);
+            const hardwareCuts = preparation.reduce((sum, shape) => sum + (Number(shape.accessoryCutCount) || 0), 0);
 
-        return {
-            id: predictedPiece.id,
-            name: predictedPiece.name,
-            type: predictedPiece.type,
-            thickness: predictedPiece.thickness,
-            // DesignItem still exposes the legacy Fabric DrawingShape type,
-            // while image/system designs are rendered and billed from Konva
-            // shapes. Keep the real runtime shapes here so catalogue hardware
-            // IDs, rates, and glass-prep counts reach orderDesignItems.ts.
-            shapes: predictedPiece.shapes as unknown as DesignItem['shapes'],
-            area,
-            cost: 0,
-            // Not part of the strict DesignItem type, but the design editor's
-            // cost breakdown reads these extra fields (it treats items as
-            // `any[]`) -- without them a reopened draft shows 0 holes/cuts
-            // and quantity 1 regardless of what was actually extracted.
-            netArea: area,
-            // Totals across this piece's quantity, matching what `area`
-            // already is (glassPieceAreaSqft multiplies by quantity)
-            // and what GlassDesigner stores for editor-built designs. Billing
-            // in orderDesignItems.ts relies on that convention holding for
-            // both producers.
-            holes: (manualHoles + hardwareHoles) * quantity,
-            cuts: (manualCuts + hardwareCuts) * quantity,
-            quantity,
-        } as DesignItem;
+            return {
+                id: outlines.length === 1 ? predictedPiece.id : generateUUID(),
+                name: outline.glassSectionName || predictedPiece.name || `Piece ${pieceIndex + 1}.${outlineIndex + 1}`,
+                // Piece roles such as Door and Fixed Panel belong on the canvas;
+                // billing needs the actual glass product from the image header.
+                type: glassType,
+                thickness: predictedPiece.thickness,
+                // DesignItem still exposes the legacy Fabric DrawingShape type,
+                // while image/system designs are rendered and billed from Konva
+                // shapes. Keep the real runtime shapes here so catalogue hardware
+                // IDs, rates, and glass-prep counts reach orderDesignItems.ts.
+                shapes: [outline, ...preparation] as unknown as DesignItem['shapes'],
+                area,
+                cost: 0,
+                // Not part of the strict DesignItem type, but the design editor's
+                // cost breakdown reads these extra fields (it treats items as
+                // `any[]`) -- without them a reopened draft shows 0 holes/cuts
+                // and quantity 1 regardless of what was actually extracted.
+                netArea: area,
+                // Totals across this piece's quantity, matching what `area`
+                // already is and what GlassDesigner stores for editor-built
+                // designs. Billing relies on that convention for both producers.
+                holes: (manualHoles + hardwareHoles) * quantity,
+                cuts: (manualCuts + hardwareCuts) * quantity,
+                quantity,
+            } as DesignItem;
+        });
     });
 
     const totalArea = roundCurrency(items.reduce((sum, item) => sum + item.area, 0));

@@ -666,21 +666,32 @@ function addCentreGlassConnectors(
  * vision-based hardware predictor runs.
  *
  * B: no automatic hardware or preparation.
- * F: only when the incoming drawing contains one original piece, fix every
- * outer edge with drilled L Connectors using the owner's size table. Panels
- * wider than 6ft are split equally and joined down the centre.
+ * F: when the labelled piece is an independent drawing, fix every outer edge
+ * with drilled L Connectors using the owner's size table. Panels wider than
+ * 6ft are split equally and joined down the centre.
  */
 export function applyImageDesignConventions(
     pieces: GlassPiece[],
     fittings: GlassItem[] = [],
     originalPieceCount = pieces.length,
 ): GlassPiece[] {
+    void originalPieceCount; // Kept for compatibility with older callers.
     const resolver = buildResolver(fittings);
 
-    return pieces.flatMap(piece => {
-        if (piece.imageDesignCode !== 'F' || originalPieceCount !== 1) return piece;
+    return pieces.flatMap((originalPiece, index) => {
+        const belongsToConnectedRun = !!originalPiece.connectedToPrevious
+            || !!pieces[index + 1]?.connectedToPrevious;
+        if (originalPiece.imageDesignCode !== 'F' || belongsToConnectedRun) return originalPiece;
+
+        // A deterministic F rule replaces uncertain marks hallucinated by the
+        // broad image pass, while preserving every explicitly positioned hole
+        // or cut the customer actually dimensioned.
+        const piece = {
+            ...originalPiece,
+            shapes: originalPiece.shapes.filter(shape => shape.positionSource !== 'estimated-fallback'),
+        };
         const box = getImagePieceBox(piece);
-        if (!box) return piece;
+        if (!box) return originalPiece;
         const widthIn = box.widthU / U;
 
         if (widthIn <= 72) {

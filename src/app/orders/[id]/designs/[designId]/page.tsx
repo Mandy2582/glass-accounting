@@ -12,7 +12,7 @@ import { designsDb, db } from '@/lib/storage';
 import { CustomDesign, DesignData, Party, PricingConfig } from '@/types';
 import { generateEstimatePDF } from '@/lib/pdfGenerator';
 import { generateWhatsAppLink } from '@/lib/utils';
-import { recalculateOrderTotals, upsertDesignItemsInOrder } from '@/lib/orderDesignItems';
+import { calculateDesignOrderTotal, createOrderItemsFromDesign, recalculateOrderTotals, upsertDesignItemsInOrder } from '@/lib/orderDesignItems';
 
 export default function NestedDesignDetailPage() {
     const params = useParams();
@@ -126,7 +126,7 @@ export default function NestedDesignDetailPage() {
         }
     }
 
-    const costBreakdown = pricingConfig
+    const calculatedBreakdown = pricingConfig
         ? calculateDesignEstimate({
             grossArea,
             holeCount,
@@ -137,6 +137,17 @@ export default function NestedDesignDetailPage() {
             pricingConfig
         })
         : null;
+    const billableDesign = design ? {
+        ...design,
+        drawingData: { ...design.drawingData, items },
+        totalArea: netArea,
+        grossArea,
+        holes: holeCount,
+        cuts: cutCount,
+    } : null;
+    const costBreakdown = calculatedBreakdown && pricingConfig && billableDesign
+        ? { ...calculatedBreakdown, total: calculateDesignOrderTotal(billableDesign, pricingConfig) }
+        : calculatedBreakdown;
 
     const generateHighFidelityPDFString = async (designToRender: CustomDesign, specificCostBreakdown: any = costBreakdown): Promise<string> => {
         const { generateEstimatePDF } = await import('@/lib/pdfGenerator');
@@ -150,21 +161,14 @@ export default function NestedDesignDetailPage() {
             }
         }
 
-        const pdfCostBreakdown = items.map(item => {
-             const itemCost = calculateCost(item.netArea || item.area || 0, item.holes || 0, item.cuts || 0, 'simple', item.thickness || 6, pricingConfig!, false);
-             
-             const subItems = [];
-             if (itemCost.baseAmount > 0) subItems.push({ name: `${(item.netArea || item.area || 0).toFixed(2)} sq ft Glass (@ ₹${itemCost.thicknessRate}/sq ft)`, amount: itemCost.baseAmount });
-             if (itemCost.holeCharges > 0) subItems.push({ name: `${item.holes} Holes (@ ₹${pricingConfig?.holeCharge}/ea)`, amount: itemCost.holeCharges });
-             if (itemCost.cutCharges > 0) subItems.push({ name: `${item.cuts} Cuts (@ ₹${pricingConfig?.cutCharge}/ea)`, amount: itemCost.cutCharges });
-             
-             return {
-                 name: `${item.name} (${item.type}) - ${item.thickness}mm` + (item.quantity && item.quantity > 1 ? ` (${item.quantity} pcs)` : ''),
-                 details: `${(item.netArea || item.area || 0).toFixed(2)} sq ft @ ${item.thickness || 6}mm`,
-                 amount: itemCost.total,
-                 subItems
-             };
-         });
+        const pdfCostBreakdown = pricingConfig
+            ? createOrderItemsFromDesign(designToRender, pricingConfig, 18).map(row => ({
+                name: row.itemName,
+                details: row.description || '',
+                amount: Number(row.lineTotal) || 0,
+                subItems: [],
+            }))
+            : [];
 
         const base64Str = await generateEstimatePDF(designToRender, canvasRef.current, {
             companyName: 'Arjun Glass House',
