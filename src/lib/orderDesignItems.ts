@@ -303,10 +303,13 @@ export const createOrderItemsFromDesign = (
     });
 
     const subtotalTarget = roundCurrency(inclusiveTotals.reduce((sum, total) => sum + total, 0) / taxMultiplier);
+    const adjustmentIndex = rows.reduce((lastPositiveIndex, row, index) => (
+        (Number(row.lineTotal) || 0) > 0 ? index : lastPositiveIndex
+    ), -1);
     let runningSubtotal = 0;
     rows.forEach((row, index) => {
-        const isLast = index === rows.length - 1;
-        const amount = isLast ? subtotalTarget - runningSubtotal : row.amount;
+        const receivesRoundingAdjustment = index === adjustmentIndex;
+        const amount = receivesRoundingAdjustment ? subtotalTarget - runningSubtotal : row.amount;
         row.amount = roundCurrency(amount);
         runningSubtotal = roundCurrency(runningSubtotal + row.amount);
     });
