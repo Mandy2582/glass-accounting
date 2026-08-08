@@ -166,6 +166,11 @@ export interface GlassSystemInput {
     heightIn: number;
     thickness: number;
     hingeSide?: 'left' | 'right';
+    // All orientation values are read while facing the installation from the
+    // customer/front side. `doorPosition` controls which side of a single
+    // fixed panel the door occupies; hinge/pivot side remains independent.
+    doorPosition?: 'left' | 'centre' | 'right';
+    swingDirection?: 'inward' | 'outward' | 'both';
     hasLock?: boolean;
     hasHandle?: boolean;
     pivotStyle?: 'patch' | 'hinges';
@@ -1093,9 +1098,13 @@ function addAssemblyFixedPanelHardware(
     return { ...section, shapes: withHardware.shapes };
 }
 
-function addPatchDoorHardware(
+function addAssemblyDoorHardware(
     section: AssemblySection,
     hingeSide: 'left' | 'right',
+    pivotStyle: 'patch' | 'hinges',
+    hingeAgainstGlass: boolean,
+    hasLock: boolean,
+    hasHandle: boolean,
     resolver: FittingResolver,
 ): AssemblySection {
     const box = getImagePieceBox({
@@ -1108,20 +1117,34 @@ function addPatchDoorHardware(
     if (!box) return section;
 
     const setback = PATCH_SETBACK_IN * U;
+    const edgeInset = 6;
     const hingeX = hingeSide === 'left'
-        ? box.leftX + setback
-        : box.leftX + box.widthU - setback;
+        ? box.leftX + (pivotStyle === 'patch' ? setback : edgeInset)
+        : box.leftX + box.widthU - (pivotStyle === 'patch' ? setback : edgeInset);
     const leadingX = hingeSide === 'left'
-        ? box.leftX + box.widthU - setback
-        : box.leftX + setback;
+        ? box.leftX + box.widthU - (pivotStyle === 'patch' ? setback : edgeInset)
+        : box.leftX + (pivotStyle === 'patch' ? setback : edgeInset);
     const bottomY = box.topY + box.heightU;
     const handleY = Math.max(box.topY + 40, bottomY - HANDLE_HEIGHT_IN * U);
-    const additions = [
-        hardware(box.id, 'top_patch', hingeX, box.topY + setback, resolver),
-        hardware(box.id, 'bottom_patch', hingeX, bottomY - setback, resolver),
-        hardware(box.id, 'door_lock', leadingX, bottomY - setback, resolver),
-        hardware(box.id, 'handle', leadingX, handleY, resolver),
-    ];
+    const additions: KonvaShape[] = [];
+
+    if (pivotStyle === 'patch') {
+        additions.push(hardware(box.id, 'top_patch', hingeX, box.topY + setback, resolver));
+        additions.push(hardware(box.id, 'bottom_patch', hingeX, bottomY - setback, resolver));
+        additions.push(hardware(box.id, 'floor_spring', hingeX, bottomY - setback / 2, resolver));
+    } else {
+        const hingeRole: FittingRole = hingeAgainstGlass ? 'glass_hinge' : 'wall_hinge';
+        for (const y of evenPositions(
+            hingeCountForHeight(box.heightU / U),
+            box.topY,
+            box.heightU,
+            DOOR_HINGE_END_INSET_IN * U,
+        )) {
+            additions.push(hardware(box.id, hingeRole, hingeX, y, resolver));
+        }
+    }
+    if (hasLock) additions.push(hardware(box.id, 'door_lock', leadingX, bottomY - setback, resolver));
+    if (hasHandle) additions.push(hardware(box.id, 'handle', leadingX, handleY, resolver));
     return { ...section, shapes: [...section.shapes, ...additions] };
 }
 
@@ -1182,29 +1205,40 @@ function buildFixedDoorAssembly(
     if (remainingFixedWidthIn <= 0 || input.heightIn <= 0) return null;
 
     const fixedWidthIn = remainingFixedWidthIn / fixedCount;
+    const doorPosition = fixedCount === 2 ? 'centre' : (input.doorPosition || 'right');
+    const hasLeftFixed = fixedCount === 2 || doorPosition === 'right';
+    const hasRightFixed = fixedCount === 2 || doorPosition === 'left';
     const { doorGlassHeightIn, overpanelHeightIn } = doorAssemblyHeights(input);
     const doorGlassWidthIn = Math.max(doorOpeningWidthIn - DOOR_WIDTH_CLEARANCE_IN, 1);
     const doorSideClearanceIn = (doorOpeningWidthIn - doorGlassWidthIn) / 2;
-    const openingX = ORIGIN_X + fixedWidthIn * U;
+    const openingX = ORIGIN_X + (hasLeftFixed ? fixedWidthIn * U : 0);
     const doorTopY = ORIGIN_Y + Math.max(input.heightIn - doorGlassHeightIn, 0) * U;
     const sections: AssemblySection[] = [];
 
-    let leftFixed = assemblyRect('Left Fixed Panel', 'Partition', ORIGIN_X, ORIGIN_Y, fixedWidthIn, input.heightIn);
-    leftFixed = addAssemblyFixedPanelHardware(leftFixed, ['left', 'top', 'bottom'], input.thickness, resolver);
-    sections.push(leftFixed);
+    let leftFixed: AssemblySection | null = null;
+    if (hasLeftFixed) {
+        leftFixed = assemblyRect('Left Fixed Panel', 'Partition', ORIGIN_X, ORIGIN_Y, fixedWidthIn, input.heightIn);
+        leftFixed = addAssemblyFixedPanelHardware(leftFixed, ['left', 'top', 'bottom'], input.thickness, resolver);
+        sections.push(leftFixed);
+    }
 
     let overpanel: AssemblySection | null = null;
     if (overpanelHeightIn > 0) {
         overpanel = assemblyRect('Door Overpanel', 'Transom', openingX, ORIGIN_Y, openingWidthIn, overpanelHeightIn);
         const overpanelEdges: HardwareEdge[] = fixedCount === 1 && overpanelHeightIn > 12
-            ? ['top', 'right']
+            ? ['top', doorPosition === 'left' ? 'left' : 'right']
             : ['top'];
         overpanel = addAssemblyFixedPanelHardware(overpanel, overpanelEdges, input.thickness, resolver);
         sections.push(overpanel);
     }
 
     const doors: AssemblySection[] = [];
+    const pivotStyle = input.pivotStyle || 'patch';
+    const hasLock = input.hasLock !== false;
+    const hasHandle = input.hasHandle !== false;
     if (doorCount === 1) {
+        const hingeSide = input.hingeSide || 'left';
+        const hingeAgainstGlass = hingeSide === 'left' ? hasLeftFixed : hasRightFixed;
         let door = assemblyRect(
             'Single Glass Door',
             'Door',
@@ -1213,7 +1247,15 @@ function buildFixedDoorAssembly(
             doorGlassWidthIn,
             doorGlassHeightIn,
         );
-        door = addPatchDoorHardware(door, 'right', resolver);
+        door = addAssemblyDoorHardware(
+            door,
+            hingeSide,
+            pivotStyle,
+            hingeAgainstGlass,
+            hasLock,
+            hasHandle,
+            resolver,
+        );
         doors.push(door);
     } else {
         let leftDoor = assemblyRect(
@@ -1224,7 +1266,7 @@ function buildFixedDoorAssembly(
             doorGlassWidthIn,
             doorGlassHeightIn,
         );
-        leftDoor = addPatchDoorHardware(leftDoor, 'left', resolver);
+        leftDoor = addAssemblyDoorHardware(leftDoor, 'left', pivotStyle, hasLeftFixed, hasLock, hasHandle, resolver);
         let rightDoor = assemblyRect(
             'Right Glass Door',
             'Door',
@@ -1233,13 +1275,13 @@ function buildFixedDoorAssembly(
             doorGlassWidthIn,
             doorGlassHeightIn,
         );
-        rightDoor = addPatchDoorHardware(rightDoor, 'right', resolver);
+        rightDoor = addAssemblyDoorHardware(rightDoor, 'right', pivotStyle, hasRightFixed, hasLock, hasHandle, resolver);
         doors.push(leftDoor, rightDoor);
     }
     sections.push(...doors);
 
     let rightFixed: AssemblySection | null = null;
-    if (fixedCount === 2) {
+    if (hasRightFixed) {
         rightFixed = assemblyRect(
             'Right Fixed Panel',
             'Partition',
@@ -1252,26 +1294,38 @@ function buildFixedDoorAssembly(
         sections.push(rightFixed);
     }
 
-    if (overpanel) {
+    if (overpanel && pivotStyle === 'patch') {
         const overBox = getImagePieceBox({ id: generateUUID(), name: overpanel.name, type: overpanel.type, thickness: 0, shapes: overpanel.shapes });
         if (overBox) {
             const supportY = overBox.topY + overBox.heightU;
             if (doorCount === 1) {
-                overpanel.shapes.push(hardware(overBox.id, 'l_bracket_small', doors[0].outline.x, supportY, resolver, undefined, 'down-right'));
+                const hingeSide = input.hingeSide || 'left';
+                const pivotX = hingeSide === 'left'
+                    ? doors[0].outline.x
+                    : doors[0].outline.x + (doors[0].outline.width || 0);
+                const pivotMeetsFixed = hingeSide === 'left' ? hasLeftFixed : hasRightFixed;
                 overpanel.shapes.push(hardware(
                     overBox.id,
-                    fixedCount === 2 ? 'l_bracket_big' : 'overpanel_patch',
-                    doors[0].outline.x + (doors[0].outline.width || 0),
+                    pivotMeetsFixed ? 'l_bracket_big' : 'overpanel_patch',
+                    pivotX,
                     supportY,
                     resolver,
                     undefined,
-                    'down-left',
+                    hingeSide === 'left' ? 'down-right' : 'down-left',
                 ));
             } else {
-                overpanel.shapes.push(hardware(overBox.id, 'l_bracket_big', doors[0].outline.x, supportY, resolver, undefined, 'down-right'));
                 overpanel.shapes.push(hardware(
                     overBox.id,
-                    fixedCount === 2 ? 'l_bracket_big' : 'overpanel_patch',
+                    hasLeftFixed ? 'l_bracket_big' : 'overpanel_patch',
+                    doors[0].outline.x,
+                    supportY,
+                    resolver,
+                    undefined,
+                    'down-right',
+                ));
+                overpanel.shapes.push(hardware(
+                    overBox.id,
+                    hasRightFixed ? 'l_bracket_big' : 'overpanel_patch',
                     doors[1].outline.x + (doors[1].outline.width || 0),
                     supportY,
                     resolver,
@@ -1281,9 +1335,9 @@ function buildFixedDoorAssembly(
             }
         }
 
-        addAssemblyGlassJoin(leftFixed, overpanel, ORIGIN_Y, overpanelHeightIn * U, resolver);
-        if (rightFixed) addAssemblyGlassJoin(overpanel, rightFixed, ORIGIN_Y, overpanelHeightIn * U, resolver);
     }
+    if (overpanel && leftFixed) addAssemblyGlassJoin(leftFixed, overpanel, ORIGIN_Y, overpanelHeightIn * U, resolver);
+    if (overpanel && rightFixed) addAssemblyGlassJoin(overpanel, rightFixed, ORIGIN_Y, overpanelHeightIn * U, resolver);
 
     return {
         name: `${input.systemType.toUpperCase()} Fixed Panel and Door Assembly`,
@@ -1327,14 +1381,22 @@ function buildDoorOnlyAssembly(
             glassWidthIn,
             glassHeightIn,
         );
-        door = addPatchDoorHardware(door, hingeSide, resolver);
+        door = addAssemblyDoorHardware(
+            door,
+            hingeSide,
+            input.pivotStyle || 'patch',
+            false,
+            input.hasLock !== false,
+            input.hasHandle !== false,
+            resolver,
+        );
         doors.push(door);
     }
     sections.push(...doors);
 
     // With no side fixed panels, the overpanel itself carries each top pivot
     // through TM-30 and is fixed to the wall/ceiling by drilled L Connectors.
-    if (overpanel) {
+    if (overpanel && (input.pivotStyle || 'patch') === 'patch') {
         const overBox = getImagePieceBox({ id: generateUUID(), name: overpanel.name, type: overpanel.type, thickness: 0, shapes: overpanel.shapes });
         if (overBox) {
             doors.forEach((door, index) => {
@@ -1650,12 +1712,18 @@ export function buildGlassSystemDesignData(input: GlassSystemInput, fittings: Gl
     const cuts = generated.reduce((sum, p) => sum + p.shapes.reduce((s, sh) =>
         s + (sh.type === 'cut' ? 1 : Number(sh.accessoryCutCount) || 0), 0), 0);
 
+    const orientation = [
+        input.doorPosition ? `door ${input.doorPosition}` : null,
+        input.hingeSide ? `${input.pivotStyle === 'patch' ? 'pivot' : 'hinges'} ${input.hingeSide}` : null,
+        input.swingDirection ? `opens ${input.swingDirection === 'both' ? 'both ways' : input.swingDirection}` : null,
+        input.pivotStyle ? `${input.pivotStyle === 'hinges' ? 'side hinges' : 'top/bottom patch fittings'}` : null,
+    ].filter(Boolean).join(', ');
     const drawingData: DesignData = {
         shapes: [],
         dimensions: { width: input.widthIn, height: input.heightIn, unit: 'inch' },
         holes: [],
         cuts: [],
-        notes: `Auto-generated ${input.systemType.replace('_', ' ')} -- ${input.widthIn}in x ${input.heightIn}in, ${input.thickness}mm. Hardware placed at standard positions from your fitting catalogue; review and adjust before production.`,
+        notes: `Auto-generated ${input.systemType.replace('_', ' ')} -- ${input.widthIn}in x ${input.heightIn}in, ${input.thickness}mm${orientation ? `. Front-view orientation: ${orientation}` : ''}. Hardware placed at standard positions from your fitting catalogue; review and adjust before production.`,
         items,
         pieces: generated.map(piece => ({ id: generateUUID(), ...piece, source: 'system-designer' })),
     };

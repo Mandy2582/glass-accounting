@@ -17,10 +17,12 @@ import {
     findPendingClarificationOrder,
     getMissingInfo,
     getPendingGlassType,
+    getPendingGlassSystem,
     withClarificationCleared,
     withNeedsApproval,
     withNeedsClarification,
     withOrderSource,
+    withPendingGlassSystem,
 } from '@/lib/orderNotes';
 import { approveAndInvoiceOrder } from '@/lib/orderQuotation';
 import { runAutoReview, sendOrderBookedConfirmation } from '@/lib/autoReview';
@@ -42,8 +44,14 @@ import {
     type CustomGlassOrderResult,
 } from '@/lib/customGlassOrder';
 import { normalizeIntakeImage, type NormalizedIntakeImage } from '@/lib/intakeImage';
-import { looksLikeGlassSystemOrder, parseGlassSystemOrder } from '@/lib/glassSystemOrder';
-import { buildGlassSystemDesignData, describeGlassSystem, type GlassSystemType } from '@/lib/glassSystemDesigner';
+import {
+    applyDoorConfigurationReply,
+    buildDoorConfigurationPrompt,
+    getMissingDoorConfiguration,
+    looksLikeGlassSystemOrder,
+    parseGlassSystemOrder,
+} from '@/lib/glassSystemOrder';
+import { buildGlassSystemDesignData, describeGlassSystem, type GlassSystemInput, type GlassSystemType } from '@/lib/glassSystemDesigner';
 import type { CustomDesign, Invoice, InvoiceItem, Order, Party, PricingConfig } from '@/types';
 
 export const runtime = 'nodejs';
@@ -245,7 +253,7 @@ async function createOrderFromWhatsAppEvent(event: WhatsAppMessageEvent) {
     const pendingClarification = findPendingClarificationOrder(ordersForClarification, 'whatsapp', event.message.from);
     if (pendingClarification) {
         const missing = getMissingInfo(pendingClarification.notes);
-        if (missing === 'colour_or_finish' || !containsUnidentifiedGlassDimensions(body)) {
+        if (missing === 'colour_or_finish' || missing === 'door_configuration' || !containsUnidentifiedGlassDimensions(body)) {
             const clarificationResult = await tryCompleteClarification(pendingClarification, body, event.message.from);
             if (clarificationResult) return { messageId, ...clarificationResult };
         }
@@ -550,6 +558,35 @@ async function createDraftFromWhatsAppImage(event: WhatsAppMessageEvent, caption
 
     const order = await createReviewOrderForImage(event, customer, analysis, caption);
     const design = await createDesignDraftForImage(order, customer, analysis, event.message.id, caption, normalized?.stored);
+    const recognisedDoorSystem = resolveRecognisedSystem(analysis);
+    const pendingSystemInput = recognisedDoorSystem
+        ? { ...recognisedDoorSystem, systemType: recognisedDoorSystem.systemType as GlassSystemType }
+        : null;
+    const missingDoorChoices = pendingSystemInput ? getMissingDoorConfiguration(pendingSystemInput) : [];
+    if (pendingSystemInput && missingDoorChoices.length > 0) {
+        const pendingOrder: Order = {
+            ...order,
+            notes: withPendingGlassSystem(
+                withNeedsClarification(order.notes || '', 'door_configuration'),
+                pendingSystemInput,
+            ),
+        };
+        await db.orders.update(pendingOrder);
+        await sendWhatsAppText(
+            event.message.from,
+            buildDoorConfigurationPrompt(order.number, missingDoorChoices),
+        ).catch(() => {});
+        return {
+            messageId: event.message.id,
+            status: 'drawing_waiting_for_door_configuration',
+            orderId: order.id,
+            orderNumber: order.number,
+            designId: design.id,
+            customerId: customer.id,
+            missing: missingDoorChoices,
+            confidence: analysis.confidence,
+        };
+    }
     const pricedOrder = await priceIntakeDesignOrder(order, design);
     await runAutoReview(pricedOrder);
 
@@ -789,6 +826,9 @@ async function tryCompleteClarification(
     if (missing === 'colour_or_finish') {
         return await tryCompleteColourOrFinishClarification(order, replyText, fromPhone);
     }
+    if (missing === 'door_configuration') {
+        return await tryCompleteDoorConfiguration(order, replyText, fromPhone);
+    }
 
     const reply = parseReplyForMissingInfo(replyText);
     const pendingGlassType = getPendingGlassType(order.notes);
@@ -841,6 +881,83 @@ async function tryCompleteClarification(
     await runAutoReview(updatedOrder);
 
     return { status: 'clarification_completed', orderId: updatedOrder.id, orderNumber: updatedOrder.number, total: updatedOrder.total };
+}
+
+async function tryCompleteDoorConfiguration(
+    order: Order,
+    replyText: string,
+    fromPhone: string,
+): Promise<{ status: string; orderId: string; orderNumber: string; total?: number }> {
+    const pendingInput = getPendingGlassSystem<GlassSystemInput>(order.notes);
+    if (!pendingInput) {
+        await sendWhatsAppText(
+            fromPhone,
+            `We could not recover the saved door dimensions for order ${order.number}. Our staff will review it manually.`,
+        ).catch(() => {});
+        return { status: 'door_configuration_requires_review', orderId: order.id, orderNumber: order.number };
+    }
+
+    const completedInput = applyDoorConfigurationReply(pendingInput, replyText);
+    const stillMissing = getMissingDoorConfiguration(completedInput);
+    if (stillMissing.length > 0) {
+        const updatedOrder: Order = {
+            ...order,
+            notes: withPendingGlassSystem(
+                withNeedsClarification(withClarificationCleared(order.notes), 'door_configuration'),
+                completedInput,
+            ),
+        };
+        await db.orders.update(updatedOrder);
+        await sendWhatsAppText(fromPhone, buildDoorConfigurationPrompt(order.number, stillMissing)).catch(() => {});
+        return { status: 'door_configuration_reply_incomplete', orderId: order.id, orderNumber: order.number };
+    }
+
+    const fittings = (await db.items.getAll()).filter(item => item.category === 'hardware');
+    const designData = buildGlassSystemDesignData(completedInput, fittings);
+    const systemLabel = completedInput.systemType.replaceAll('_', ' ');
+    const existingDesign = (await designsDb.getAll()).find(candidate => candidate.orderId === order.id);
+    const design: CustomDesign = {
+        ...(existingDesign || {}),
+        id: existingDesign?.id || generateUUID(),
+        name: `${systemLabel} - ${order.number}`,
+        customerId: order.partyId,
+        customerName: order.partyName,
+        drawingData: designData.drawingData,
+        baseShape: 'system-designer',
+        totalArea: designData.totalArea,
+        grossArea: designData.grossArea,
+        holes: designData.holes,
+        cuts: designData.cuts,
+        complexityLevel: 'medium',
+        baseRate: 0,
+        complexityCharge: 0,
+        edgeFinishingCharge: 0,
+        estimatedCost: 0,
+        status: 'draft',
+        createdDate: existingDesign?.createdDate || new Date().toISOString().slice(0, 10),
+        notes: `Door configuration completed from WhatsApp reply "${replyText}".`,
+        orderId: order.id,
+    };
+    if (existingDesign) await designsDb.update(design);
+    else await designsDb.add(design);
+    const updatedOrder: Order = {
+        ...order,
+        requiresDesign: true,
+        notes: [
+            withClarificationCleared(order.notes),
+            `Door configuration completed via WhatsApp reply: "${replyText}".`,
+            `Generated ${systemLabel}: ${describeGlassSystem(completedInput, fittings)}.`,
+        ].join('\n'),
+    };
+    await db.orders.update(updatedOrder);
+    const pricedOrder = await priceIntakeDesignOrder(updatedOrder, design);
+    await runAutoReview(pricedOrder);
+    return {
+        status: 'door_configuration_completed',
+        orderId: pricedOrder.id,
+        orderNumber: pricedOrder.number,
+        total: pricedOrder.total,
+    };
 }
 
 async function tryCompleteColourOrFinishClarification(
@@ -940,6 +1057,51 @@ async function handleGlassSystemOrderText(event: WhatsAppMessageEvent, orderText
     const customer = await getOrCreateCustomer(event, parties);
 
     if (!parsed.ok) return null; // named a system but no readable size -- let other parsers try
+
+    if (parsed.missingCustomerChoices.length > 0) {
+        const orderNumber = await db.orders.generateNextOrderNumber('sale_order');
+        const generalNumber = await db.orders.generateNextGeneralNumber();
+        const order: Order = {
+            id: generateUUID(),
+            type: 'sale_order',
+            number: orderNumber,
+            generalNumber,
+            soNumber: orderNumber,
+            requiresDesign: true,
+            date: new Date().toISOString().slice(0, 10),
+            partyId: customer.id,
+            partyName: customer.name,
+            items: [],
+            subtotal: 0,
+            taxRate: 18,
+            taxAmount: 0,
+            total: 0,
+            status: 'pending',
+            notes: withPendingGlassSystem(withNeedsClarification(withNeedsApproval(withOrderSource([
+                `Created automatically from ${source}; waiting for the customer's door configuration.`,
+                `WhatsApp Message ID: ${event.message.id}`,
+                `WhatsApp From: ${event.message.from}`,
+                '',
+                'Original message:',
+                orderText,
+            ].join('\n'), 'whatsapp')), 'door_configuration'), parsed.input),
+            paidAmount: 0,
+            paymentStatus: 'unpaid',
+        };
+        await db.orders.add(order);
+        await sendWhatsAppText(
+            event.message.from,
+            buildDoorConfigurationPrompt(order.number, parsed.missingCustomerChoices),
+        ).catch(() => {});
+        return {
+            messageId: event.message.id,
+            status: 'glass_system_waiting_for_door_configuration',
+            orderId: order.id,
+            orderNumber: order.number,
+            customerId: customer.id,
+            missing: parsed.missingCustomerChoices,
+        };
+    }
 
     const items = await db.items.getAll();
     const fittings = items.filter(i => i.category === 'hardware');
@@ -1250,7 +1412,10 @@ async function createDesignDraftForImage(
     const fittings = await db.items.getAll();
     let designData: ReturnType<typeof buildDesignDataFromImageAnalysis>;
     let generatedNote = '';
-    if (recognised) {
+    if (recognised && getMissingDoorConfiguration({
+        ...recognised,
+        systemType: recognised.systemType as GlassSystemType,
+    }).length === 0) {
         const systemInput = {
             ...recognised,
             systemType: recognised.systemType as GlassSystemType,

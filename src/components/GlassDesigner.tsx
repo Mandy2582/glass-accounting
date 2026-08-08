@@ -1296,7 +1296,8 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
     const [showSystemModal, setShowSystemModal] = useState(false);
     const [systemInput, setSystemInput] = useState<GlassSystemInput>({
         systemType: 'swing_door', widthIn: 36, heightIn: 84, thickness: 12,
-        hingeSide: 'left', pivotStyle: 'hinges', hasLock: true, hasHandle: true, fixedPanelWidthIn: 24, fixingStyle: 'channel',
+        doorPosition: 'right', hingeSide: 'left', swingDirection: 'inward', pivotStyle: 'hinges',
+        hasLock: true, hasHandle: true, fixedPanelWidthIn: 24, fixingStyle: 'channel',
     });
     const [copiedShapes, setCopiedShapes] = useState<{ main: KonvaShape[]; children: KonvaShape[] } | null>(null);
     const [photoDrafts, setPhotoDrafts] = useState<PhotoDraft[]>([]);
@@ -4261,7 +4262,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                 </div>
                             </div>
 
-                            {(systemInput.systemType === 'swing_door' || systemInput.systemType === 'single_door' || systemInput.systemType === 'shower_door' || systemInput.systemType === 'sliding_door') && (
+                            {(systemInput.systemType === 'swing_door' || systemInput.systemType === 'single_door' || systemInput.systemType === 'sfsd' || systemInput.systemType === 'dfsd' || systemInput.systemType === 'shower_door' || systemInput.systemType === 'sliding_door') && (
                                 <div>
                                     <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>{systemInput.systemType === 'sliding_door' ? 'Handle side' : 'Hinge side'}</label>
                                     <select className="input" style={{ width: '100%' }} value={systemInput.hingeSide}
@@ -4271,12 +4272,32 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                 </div>
                             )}
 
-                            {systemInput.systemType === 'swing_door' && (
+                            {(['swing_door', 'single_door', 'double_door', 'sfsd', 'dfsd', 'sfdd', 'dfdd'] as GlassSystemType[]).includes(systemInput.systemType) && (
                                 <div>
-                                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>Pivot</label>
+                                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>Door fitting</label>
                                     <select className="input" style={{ width: '100%' }} value={systemInput.pivotStyle}
                                         onChange={e => setSystemInput(s => ({ ...s, pivotStyle: e.target.value as 'patch' | 'hinges' }))}>
-                                        <option value="hinges">Wall hinges</option><option value="patch">Patch + floor spring</option>
+                                        <option value="hinges">Side hinges</option><option value="patch">Top/bottom patch + floor spring</option>
+                                    </select>
+                                </div>
+                            )}
+
+                            {(systemInput.systemType === 'sfsd' || systemInput.systemType === 'sfdd') && (
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>Door position (front view)</label>
+                                    <select className="input" style={{ width: '100%' }} value={systemInput.doorPosition || 'right'}
+                                        onChange={e => setSystemInput(s => ({ ...s, doorPosition: e.target.value as 'left' | 'right' }))}>
+                                        <option value="left">Left</option><option value="right">Right</option>
+                                    </select>
+                                </div>
+                            )}
+
+                            {(['swing_door', 'single_door', 'double_door', 'sfsd', 'dfsd', 'sfdd', 'dfdd'] as GlassSystemType[]).includes(systemInput.systemType) && (
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>Opening direction</label>
+                                    <select className="input" style={{ width: '100%' }} value={systemInput.swingDirection || 'inward'}
+                                        onChange={e => setSystemInput(s => ({ ...s, swingDirection: e.target.value as 'inward' | 'outward' | 'both' }))}>
+                                        <option value="inward">Inward</option><option value="outward">Outward</option><option value="both">Both ways</option>
                                     </select>
                                 </div>
                             )}
@@ -4309,8 +4330,8 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                             onChange={e => setSystemInput(s => ({ ...s, doorWidthIn: parseFloat(e.target.value) || undefined }))} />
                                     </div>
                                     <div>
-                                        <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>Door opening height (in)</label>
-                                        <input className="input" type="number" min={24} step={0.125} value={systemInput.doorHeightIn ?? 84.25}
+                                        <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>Door glass height (in)</label>
+                                        <input className="input" type="number" min={24} step={0.125} value={systemInput.doorHeightIn ?? 84}
                                             onChange={e => setSystemInput(s => ({ ...s, doorHeightIn: parseFloat(e.target.value) || undefined }))} />
                                     </div>
                                 </>
@@ -4323,7 +4344,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                         {systemInput.systemType === 'shower_door' ? 'Knob' : 'Lock'}
                                     </label>
                                 )}
-                                {(systemInput.systemType === 'swing_door' || systemInput.systemType === 'single_door' || systemInput.systemType === 'double_door' || systemInput.systemType === 'sliding_door') && (
+                                {(systemInput.systemType === 'swing_door' || systemInput.systemType === 'single_door' || systemInput.systemType === 'double_door' || systemInput.systemType === 'sfsd' || systemInput.systemType === 'dfsd' || systemInput.systemType === 'sfdd' || systemInput.systemType === 'dfdd' || systemInput.systemType === 'sliding_door') && (
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem' }}>
                                         <input type="checkbox" checked={!!systemInput.hasHandle} onChange={e => setSystemInput(s => ({ ...s, hasHandle: e.target.checked }))} />
                                         Handle

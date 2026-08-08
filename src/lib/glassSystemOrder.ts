@@ -158,8 +158,90 @@ export function looksLikeGlassSystemOrder(text: string): boolean {
 }
 
 export type GlassSystemOrderResult =
-    | { ok: true; input: GlassSystemInput }
+    | { ok: true; input: GlassSystemInput; missingCustomerChoices: DoorConfigurationField[] }
     | { ok: false; reason: string };
+
+export type DoorConfigurationField = 'fitting' | 'door_position' | 'hinge_side' | 'swing_direction';
+
+const CUSTOMER_CONFIGURED_DOOR_SYSTEMS = new Set<GlassSystemType>([
+    'swing_door',
+    'single_door',
+    'double_door',
+    'sfsd',
+    'dfsd',
+    'sfdd',
+    'dfdd',
+]);
+
+export function parseDoorConfiguration(text: string): Pick<
+    GlassSystemInput,
+    'pivotStyle' | 'doorPosition' | 'hingeSide' | 'swingDirection'
+> {
+    const source = (text || '').toLowerCase();
+    const mentionsHinges = /\b(?:side|wall[-\s]?to[-\s]?glass|glass[-\s]?to[-\s]?glass)\s+hinges?\b|\bhinges\b|\bhinged\s+door\b/.test(source)
+        && !/\b(?:no|without)\s+(?:side\s+)?hinges?\b/.test(source);
+    const mentionsPatch = /\b(?:top\s*(?:and|&)\s*bottom\s*)?patch(?:\s+fittings?)?\b|\bfloor\s*spring\b/.test(source)
+        && !/\b(?:no|without)\s+(?:top\s*(?:and|&)\s*bottom\s*)?patch/.test(source);
+    const fitting: GlassSystemInput['pivotStyle'] =
+        /\bpatch(?:\s+fittings?)?\s+instead\s+of\s+(?:side\s+)?hinges?\b/.test(source)
+            ? 'patch'
+            : /\b(?:side\s+)?hinges?\s+instead\s+of\s+(?:top\s*(?:and|&)\s*bottom\s*)?patch/.test(source)
+                ? 'hinges'
+                : mentionsHinges !== mentionsPatch ? (mentionsHinges ? 'hinges' : 'patch') : undefined;
+    const positionMatch = source.match(/\bdoor\s+(?:(?:position\s*(?:is|:|-)?|on(?:\s+the)?)\s+)?(left|right|centre|center)\b/)
+        || source.match(/\b(left|right|centre|center)\s+(?:side\s+)?door\b/);
+    const hingeMatch = source.match(/\b(?:hinge|pivot)\s*side\s*(?:is|:|-)?\s*(left|right)\b/)
+        || source.match(/\bhinges?\s+(?:are\s+|on\s+(?:the\s+)?)?(left|right)\b/);
+    const swingMatch = source.match(/\b(?:opens?|swing(?:s|ing)?)(?:\s+to)?\s+(inward|outward|inside|outside|both(?:\s+ways?)?|double[-\s]?action)\b/);
+    const swingValue = swingMatch?.[1];
+
+    return {
+        ...(fitting ? { pivotStyle: fitting } : {}),
+        ...(positionMatch ? {
+            doorPosition: positionMatch[1] === 'center' ? 'centre' : positionMatch[1] as GlassSystemInput['doorPosition'],
+        } : {}),
+        ...(hingeMatch ? { hingeSide: hingeMatch[1] as 'left' | 'right' } : {}),
+        ...(swingValue ? {
+            swingDirection: /both|double/.test(swingValue)
+                ? 'both'
+                : /inside|inward/.test(swingValue) ? 'inward' : 'outward',
+        } : {}),
+    };
+}
+
+export function getMissingDoorConfiguration(input: GlassSystemInput): DoorConfigurationField[] {
+    if (!CUSTOMER_CONFIGURED_DOOR_SYSTEMS.has(input.systemType)) return [];
+
+    const missing: DoorConfigurationField[] = [];
+    if (!input.pivotStyle) missing.push('fitting');
+    if ((input.systemType === 'sfsd' || input.systemType === 'sfdd') && !input.doorPosition) {
+        missing.push('door_position');
+    }
+    if (input.systemType !== 'double_door' && input.systemType !== 'sfdd' && input.systemType !== 'dfdd' && !input.hingeSide) {
+        missing.push('hinge_side');
+    }
+    if (!input.swingDirection) missing.push('swing_direction');
+    return missing;
+}
+
+export function applyDoorConfigurationReply(input: GlassSystemInput, reply: string): GlassSystemInput {
+    return { ...input, ...parseDoorConfiguration(reply) };
+}
+
+export function buildDoorConfigurationPrompt(orderNumber: string, missing: DoorConfigurationField[]): string {
+    const questions = [
+        missing.includes('fitting') ? 'Fitting: side hinges or top and bottom patch fittings?' : null,
+        missing.includes('door_position') ? 'Door position: left or right?' : null,
+        missing.includes('hinge_side') ? 'Hinge/pivot side: left or right?' : null,
+        missing.includes('swing_direction') ? 'Opening: inward, outward, or both ways?' : null,
+    ].filter(Boolean);
+    return [
+        `Please confirm the door configuration for order ${orderNumber} while viewing it from the customer/front side:`,
+        ...questions.map((question, index) => `${index + 1}. ${question}`),
+        '',
+        'Example reply: "Door right, hinges left, opens outward, side hinges".',
+    ].join('\n');
+}
 
 export function parseGlassSystemOrder(text: string): GlassSystemOrderResult {
     const t = text || '';
@@ -185,8 +267,7 @@ export function parseGlassSystemOrder(text: string): GlassSystemOrderResult {
 
     const thickness = findThickness(t);
     const lower = t.toLowerCase();
-    const hingeSide: 'left' | 'right' = /\bright\b/.test(lower) && !/\bleft\b/.test(lower) ? 'right' : 'left';
-    const pivotStyle: 'patch' | 'hinges' = /\b(patch|floor\s*spring)\b/.test(lower) ? 'patch' : 'hinges';
+    const doorConfiguration = parseDoorConfiguration(t);
     const fixingStyle: 'channel' | 'spider' | 'standoff' =
         /\bspider\b/.test(lower) ? 'spider' : /\bstand\s*off|standoff\b/.test(lower) ? 'standoff' : 'channel';
     const hasLock = !/\bno\s*lock\b/.test(lower);
@@ -202,8 +283,7 @@ export function parseGlassSystemOrder(text: string): GlassSystemOrderResult {
             systemType,
             ...dimensions,
             thickness,
-            hingeSide,
-            pivotStyle,
+            ...doorConfiguration,
             hasLock,
             hasHandle,
             fixingStyle,
@@ -211,5 +291,11 @@ export function parseGlassSystemOrder(text: string): GlassSystemOrderResult {
             glassType: findGlassType(t),
             ...doorDimensions,
         },
+        missingCustomerChoices: getMissingDoorConfiguration({
+            systemType,
+            ...dimensions,
+            thickness,
+            ...doorConfiguration,
+        }),
     };
 }

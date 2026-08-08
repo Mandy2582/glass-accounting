@@ -16,6 +16,7 @@ export const INTERNAL_NOTE_MARKERS = [
     '[NEEDS_CLARIFICATION:',
     '[MISSING_INFO:',
     '[PENDING_GLASS_TYPE:',
+    '[PENDING_GLASS_SYSTEM_JSON:',
 ] as const;
 
 export type OrderSource = 'online' | 'whatsapp' | 'email' | 'manual';
@@ -60,13 +61,11 @@ export function estimateSent(notes: string | undefined): boolean {
     return (notes || '').includes('[ESTIMATE_SENT:true]');
 }
 
-export type MissingOrderInfo = 'thickness' | 'type_and_thickness' | 'colour_or_finish';
+export type MissingOrderInfo = 'thickness' | 'type_and_thickness' | 'colour_or_finish' | 'door_configuration';
 
-// Set on a Toughened Glass order created with real pieces but missing
-// thickness (and/or glass type), alongside the automatic WhatsApp reply
-// asking the customer for it -- lets the webhook recognise the customer's
-// next message as answering that question (see findPendingClarificationOrder)
-// rather than treating it as an unrelated new order.
+// Set on an intake order that is waiting for a customer choice or missing
+// product detail. It lets the next WhatsApp/email reply resume this order
+// instead of being treated as a new one.
 export function withNeedsClarification(notes: string, missing: MissingOrderInfo, pendingGlassType?: string): string {
     return [
         notes,
@@ -81,8 +80,24 @@ export function needsClarification(notes: string | undefined): boolean {
 }
 
 export function getMissingInfo(notes: string | undefined): MissingOrderInfo | null {
-    const match = (notes || '').match(/\[MISSING_INFO:(thickness|type_and_thickness|colour_or_finish)\]/);
+    const match = (notes || '').match(/\[MISSING_INFO:(thickness|type_and_thickness|colour_or_finish|door_configuration)\]/);
     return match ? (match[1] as MissingOrderInfo) : null;
+}
+
+export function withPendingGlassSystem(notes: string, input: object): string {
+    return [notes, `[PENDING_GLASS_SYSTEM_JSON:${encodeURIComponent(JSON.stringify(input))}]`]
+        .filter(Boolean)
+        .join('\n');
+}
+
+export function getPendingGlassSystem<T extends object>(notes: string | undefined): T | null {
+    const match = (notes || '').match(/\[PENDING_GLASS_SYSTEM_JSON:([^\]]+)\]/);
+    if (!match) return null;
+    try {
+        return JSON.parse(decodeURIComponent(match[1])) as T;
+    } catch {
+        return null;
+    }
 }
 
 export function getPendingGlassType(notes: string | undefined): string | null {
@@ -97,6 +112,7 @@ export function withClarificationCleared(notes: string | undefined): string {
         .replace(/\n?\[NEEDS_CLARIFICATION:(true|false)\]/g, '')
         .replace(/\n?\[MISSING_INFO:[^\]]+\]/g, '')
         .replace(/\n?\[PENDING_GLASS_TYPE:[^\]]+\]/g, '')
+        .replace(/\n?\[PENDING_GLASS_SYSTEM_JSON:[^\]]+\]/g, '')
         .trim();
 }
 
