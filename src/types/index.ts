@@ -71,7 +71,8 @@ export type FittingRole =
     // A continuous base/U channel the glass seats into, priced and drawn as
     // one run spanning the panel width -- not a point fitting like a spigot.
     | 'base_channel'
-    | 'connector' | 'clamp' | 'spigot' | 'handle' | 'sliding_kit' | 'other';
+    | 'connector' | 'clamp' | 'spigot' | 'handle' | 'sliding_handle' | 'sliding_kit'
+    | 'sliding_track' | 'sliding_floor_guide' | 'other';
 
 export interface StockBatch {
     id: string;

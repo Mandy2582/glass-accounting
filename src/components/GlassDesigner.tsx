@@ -70,13 +70,17 @@ const inferFittingRole = (shape: KonvaShape): FittingRole => {
     if (/big l/.test(name)) return 'l_bracket_big';
     if (/small l/.test(name)) return 'l_bracket_small';
     if (/l[- ]?connector/.test(name)) return 'l_connector';
+    if (/sliding.*handle|handle.*sliding/.test(name)) return 'sliding_handle';
     if (/handle|pull/.test(name)) return 'handle';
+    if (/floor guide/.test(name)) return 'sliding_floor_guide';
+    if (/sliding.*track|track.*sliding/.test(name)) return 'sliding_track';
+    if (/sliding.*roller|roller.*sliding/.test(name)) return 'sliding_kit';
     if (/lock|deadbolt|latch/.test(name)) return 'door_lock';
     if (/bottom.*patch|pf[- ]?10/.test(name)) return 'bottom_patch';
     if (/top.*patch|pf[- ]?20/.test(name)) return 'top_patch';
     if (/hinge/.test(name)) return 'wall_hinge';
     if (/floor spring/.test(name)) return 'floor_spring';
-    if (/channel|track/.test(name)) return 'base_channel';
+    if (/channel/.test(name)) return 'base_channel';
     if (/spigot/.test(name)) return 'spigot';
     return shape.accessoryType === 'lock' ? 'door_lock'
         : shape.accessoryType === 'hinge' ? 'wall_hinge'
@@ -86,7 +90,7 @@ const inferFittingRole = (shape: KonvaShape): FittingRole => {
 
 const hardwarePalette = (role: FittingRole) => {
     if (role === 'door_lock' || role === 'sliding_lock') return { c: '#b91c1c', bg: '#fff7f7' };
-    if (role === 'handle') return { c: '#9f1239', bg: '#fff1f2' };
+    if (role === 'handle' || role === 'sliding_handle') return { c: '#9f1239', bg: '#fff1f2' };
     if (role.includes('patch') || role === 'floor_spring') return { c: '#6d28d9', bg: '#faf5ff' };
     if (role.includes('hinge') || role === 'sliding_kit') return { c: '#1d4ed8', bg: '#eff6ff' };
     if (role === 'l_bracket_big') return { c: '#9a3412', bg: '#fff7ed' };
@@ -1297,6 +1301,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
     const [systemInput, setSystemInput] = useState<GlassSystemInput>({
         systemType: 'swing_door', widthIn: 36, heightIn: 84, thickness: 12,
         doorPosition: 'right', hingeSide: 'left', swingDirection: 'inward', pivotStyle: 'hinges',
+        slidingPanelPosition: 'left',
         hasLock: true, hasHandle: true, fixedPanelWidthIn: 24, fixingStyle: 'channel',
     });
     const [copiedShapes, setCopiedShapes] = useState<{ main: KonvaShape[]; children: KonvaShape[] } | null>(null);
@@ -4197,7 +4202,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                             <option value="double_door_transom_sidelites_4pc">Entrance System (Double Door + Transom + Sidelites)</option>
                                             <option value="top_hung_sliding">Top-Hung Barn Slider Door</option>
                                             <option value="sliding_door">Sliding Door with Fixed Panel</option>
-                                            <option value="sliding_4pc_patio">4-Panel Folding/Patio Sliding System</option>
+                                            <option value="sliding_4pc_patio">4-Panel Patio Sliding System</option>
                                         </optgroup>
                                         <optgroup label="Structural & Balustrades">
                                             <option value="fixed_panel">Standard Fixed Partition Panel</option>
@@ -4262,11 +4267,21 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                 </div>
                             </div>
 
-                            {(systemInput.systemType === 'swing_door' || systemInput.systemType === 'single_door' || systemInput.systemType === 'sfsd' || systemInput.systemType === 'dfsd' || systemInput.systemType === 'shower_door' || systemInput.systemType === 'sliding_door') && (
+                            {(systemInput.systemType === 'swing_door' || systemInput.systemType === 'single_door' || systemInput.systemType === 'sfsd' || systemInput.systemType === 'dfsd' || systemInput.systemType === 'shower_door') && (
                                 <div>
-                                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>{systemInput.systemType === 'sliding_door' ? 'Handle side' : 'Hinge side'}</label>
+                                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>Hinge side</label>
                                     <select className="input" style={{ width: '100%' }} value={systemInput.hingeSide}
                                         onChange={e => setSystemInput(s => ({ ...s, hingeSide: e.target.value as 'left' | 'right' }))}>
+                                        <option value="left">Left</option><option value="right">Right</option>
+                                    </select>
+                                </div>
+                            )}
+
+                            {(['sliding_door', 'top_hung_sliding', 'shower_sliding_2pc'] as GlassSystemType[]).includes(systemInput.systemType) && (
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>Moving panel position when closed (front view)</label>
+                                    <select className="input" style={{ width: '100%' }} value={systemInput.slidingPanelPosition || 'left'}
+                                        onChange={e => setSystemInput(s => ({ ...s, slidingPanelPosition: e.target.value as 'left' | 'right' }))}>
                                         <option value="left">Left</option><option value="right">Right</option>
                                     </select>
                                 </div>
@@ -4314,9 +4329,11 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                 </div>
                             )}
 
-                            {(systemInput.systemType === 'shower_door' || systemInput.systemType === 'sliding_door') && (
+                            {(systemInput.systemType === 'shower_door' || systemInput.systemType === 'sliding_door' || systemInput.systemType === 'top_hung_sliding') && (
                                 <div>
-                                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>Fixed panel width (in, 0 = none)</label>
+                                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>
+                                        Fixed panel width (in, 0 = {systemInput.systemType === 'shower_door' ? 'none' : 'equal split'})
+                                    </label>
                                     <input className="input" type="number" min={0} step={0.5} value={systemInput.fixedPanelWidthIn ?? 0}
                                         onChange={e => setSystemInput(s => ({ ...s, fixedPanelWidthIn: parseFloat(e.target.value) || 0 }))} />
                                 </div>
@@ -4344,7 +4361,7 @@ export default function GlassDesigner({ onDesignChange, onAreaChange, onCanvasRe
                                         {systemInput.systemType === 'shower_door' ? 'Knob' : 'Lock'}
                                     </label>
                                 )}
-                                {(systemInput.systemType === 'swing_door' || systemInput.systemType === 'single_door' || systemInput.systemType === 'double_door' || systemInput.systemType === 'sfsd' || systemInput.systemType === 'dfsd' || systemInput.systemType === 'sfdd' || systemInput.systemType === 'dfdd' || systemInput.systemType === 'sliding_door') && (
+                                {(systemInput.systemType === 'swing_door' || systemInput.systemType === 'single_door' || systemInput.systemType === 'double_door' || systemInput.systemType === 'sfsd' || systemInput.systemType === 'dfsd' || systemInput.systemType === 'sfdd' || systemInput.systemType === 'dfdd' || systemInput.systemType === 'sliding_door' || systemInput.systemType === 'top_hung_sliding' || systemInput.systemType === 'shower_sliding_2pc' || systemInput.systemType === 'sliding_4pc_patio') && (
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem' }}>
                                         <input type="checkbox" checked={!!systemInput.hasHandle} onChange={e => setSystemInput(s => ({ ...s, hasHandle: e.target.checked }))} />
                                         Handle

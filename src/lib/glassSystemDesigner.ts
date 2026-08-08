@@ -193,6 +193,10 @@ export interface GlassSystemInput {
     // different slider kit can set its own here.
     slidingAllowanceIn?: number;
     slidingOverlapIn?: number;
+    // Position of the moving leaf while CLOSED, viewed from the customer/front
+    // side. For a two-panel system this also determines the closing jamb and
+    // the direction in which the leaf travels over the fixed panel to open.
+    slidingPanelPosition?: 'left' | 'right';
 }
 
 // Cutting sizes for a sliding system, derived from the OPENING size in
@@ -246,7 +250,10 @@ const ROLE_SPEC: Record<FittingRole, {
     clamp:           { render: 'connector', w: 30, h: 18, holes: 0, cuts: 0, holeRadiusIn: 0,    cutAreaSqIn: 0, label: 'Clamp' },
     spigot:          { render: 'connector', w: 26, h: 26, holes: 1, cuts: 0, holeRadiusIn: 0.5,  cutAreaSqIn: 0, label: 'Spigot' },
     handle:          { render: 'lock',      w: 22, h: 60, holes: 2, cuts: 0, holeRadiusIn: 0.25, cutAreaSqIn: 0, label: 'Handle' },
+    sliding_handle:  { render: 'lock',      w: 22, h: 60, holes: 2, cuts: 0, holeRadiusIn: 0.25, cutAreaSqIn: 0, label: 'Sliding handle' },
     sliding_kit:     { render: 'hinge',     w: 40, h: 22, holes: 2, cuts: 0, holeRadiusIn: 0.25, cutAreaSqIn: 0, label: 'Roller' },
+    sliding_track:   { render: 'profile',   w: 120, h: 12, holes: 0, cuts: 0, holeRadiusIn: 0,    cutAreaSqIn: 0, label: 'Sliding track' },
+    sliding_floor_guide: { render: 'connector', w: 20, h: 20, holes: 0, cuts: 0, holeRadiusIn: 0, cutAreaSqIn: 0, label: 'Floor guide' },
     other:           { render: 'connector', w: 30, h: 24, holes: 0, cuts: 0, holeRadiusIn: 0,    cutAreaSqIn: 0, label: 'Fitting' },
 };
 
@@ -975,18 +982,48 @@ function buildSlidingDoorPiece(name: string, input: GlassSystemInput, originX: n
     for (const xU of evenPositions(2, box.leftX, box.widthU, RAIL_END_INSET_IN * U)) {
         shapes.push(hardware(box.id, 'sliding_kit', xU, box.topY + 3 * U, resolver));
     }
+    shapes.push(hardware(
+        box.id,
+        'sliding_floor_guide',
+        box.leftX + box.widthU / 2,
+        box.topY + box.heightU,
+        resolver,
+    ));
+    const closingX = (input.slidingPanelPosition ?? 'left') === 'left'
+        ? box.leftX + 6
+        : box.leftX + box.widthU - 6;
     if (input.hasLock) {
-        const leadX = (input.hingeSide ?? 'left') === 'left' ? box.leftX + box.widthU - 6 : box.leftX + 6;
-        shapes.push(hardware(box.id, 'sliding_lock', leadX, box.topY + box.heightU / 2, resolver));
+        shapes.push(hardware(box.id, 'sliding_lock', closingX, box.topY + box.heightU / 2, resolver));
     }
     if (input.hasHandle) {
         const by = box.topY + box.heightU;
         const cy = Math.max(box.topY + 40, Math.min(by - 40, by - HANDLE_HEIGHT_IN * U));
-        const leadX = (input.hingeSide ?? 'left') === 'left' ? box.leftX + box.widthU - 6 : box.leftX + 6;
-        shapes.push(hardware(box.id, 'handle', leadX, cy, resolver));
+        shapes.push(hardware(box.id, 'sliding_handle', closingX, cy, resolver));
     }
 
     return { name, type: 'Sliding Door', thickness, quantity: 1, shapes };
+}
+
+function addSlidingTrack(
+    piece: Omit<GlassPiece, 'id'>,
+    openingLeftX: number,
+    openingWidthIn: number,
+    resolver: FittingResolver,
+) {
+    const panel = piece.shapes.find(shape => shape.type.startsWith('glass_'));
+    if (!panel) return piece;
+    const track = hardware(
+        panel.id,
+        'sliding_track',
+        openingLeftX + openingWidthIn * U / 2,
+        ORIGIN_Y - 8,
+        resolver,
+        { w: openingWidthIn * U, h: 12 },
+    );
+    track.accessoryLengthM = Number((openingWidthIn * 0.0254).toFixed(3));
+    track.accessoryRequirementLabel = `continuous run ${openingWidthIn}in (${track.accessoryLengthM.toFixed(2)} m)`;
+    piece.shapes.push(track);
+    return piece;
 }
 
 function buildRailingPiece(name: string, input: GlassSystemInput, originX: number, resolver: FittingResolver): Omit<GlassPiece, 'id'> {
@@ -1476,16 +1513,21 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
             buildOwnerFixedPanelPieces(input, fittings).forEach(piece => advance(piece));
             break;
         case 'sliding_door': {
-            // Panel widths come from the caller here; the norms that always
-            // apply are the slider's shorter height and the lap over the fixed
-            // panel. A lone sliding leaf still loses the slider allowance.
             const s = slidingSystemSizes(input, 2, 1);
-            const hasFixed = !!(input.fixedPanelWidthIn && input.fixedPanelWidthIn > 0);
-            const slider = buildSlidingDoorPiece('Sliding Door', { ...input, heightIn: s.slidingHeightIn }, originX, resolver);
-            if (hasFixed) {
+            const fixedWidthIn = input.fixedPanelWidthIn && input.fixedPanelWidthIn > 0
+                ? input.fixedPanelWidthIn
+                : s.panelWidthIn;
+            const sliderWidthIn = Math.max(input.widthIn + s.overlap - fixedWidthIn, 1);
+            const slider = addSlidingTrack(buildSlidingDoorPiece('Sliding Door', {
+                ...input,
+                widthIn: sliderWidthIn,
+                heightIn: s.slidingHeightIn,
+            }, originX, resolver), originX, input.widthIn, resolver);
+            if ((input.slidingPanelPosition ?? 'left') === 'left') {
                 advanceLapped(slider, s.overlap);
-                advance(buildFixedPanelPiece('Fixed Panel', { ...input, widthIn: input.fixedPanelWidthIn!, heightIn: s.fixedHeightIn }, originX, resolver, 'Partition'));
+                advance(buildFixedPanelPiece('Fixed Panel', { ...input, widthIn: fixedWidthIn, heightIn: s.fixedHeightIn }, originX, resolver, 'Partition'));
             } else {
+                advanceLapped(buildFixedPanelPiece('Fixed Panel', { ...input, widthIn: fixedWidthIn, heightIn: s.fixedHeightIn }, originX, resolver, 'Partition', 'right'), s.overlap);
                 advance(slider);
             }
             break;
@@ -1508,12 +1550,16 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
         }
         case 'top_hung_sliding': {
             const s = slidingSystemSizes(input, 2, 1);
-            advanceLapped(
-                buildSlidingDoorPiece('Top-Hung Barn Slider Door', { ...input, heightIn: s.slidingHeightIn }, originX, resolver),
-                s.overlap
-            );
-            const fixedW = input.fixedPanelWidthIn || input.widthIn;
-            advance(buildFixedPanelPiece('Sliding Fixed Track Panel', { ...input, widthIn: fixedW, heightIn: s.fixedHeightIn }, originX, resolver, 'Partition'));
+            const fixedW = input.fixedPanelWidthIn || s.panelWidthIn;
+            const sliderW = Math.max(input.widthIn + s.overlap - fixedW, 1);
+            const slider = addSlidingTrack(buildSlidingDoorPiece('Top-Hung Slider Door', { ...input, widthIn: sliderW, heightIn: s.slidingHeightIn }, originX, resolver), originX, input.widthIn, resolver);
+            if ((input.slidingPanelPosition ?? 'left') === 'left') {
+                advanceLapped(slider, s.overlap);
+                advance(buildFixedPanelPiece('Sliding Fixed Track Panel', { ...input, widthIn: fixedW, heightIn: s.fixedHeightIn }, originX, resolver, 'Partition'));
+            } else {
+                advanceLapped(buildFixedPanelPiece('Sliding Fixed Track Panel', { ...input, widthIn: fixedW, heightIn: s.fixedHeightIn }, originX, resolver, 'Partition', 'right'), s.overlap);
+                advance(slider);
+            }
             break;
         }
         case 'spider_facade': {
@@ -1553,11 +1599,14 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
             // Two leaves splitting one opening: each covers half the opening
             // plus half the lap, and the sliding leaf is cut shorter.
             const s = slidingSystemSizes(input, 2, 1);
-            advanceLapped(
-                buildFixedPanelPiece('Fixed Shower Panel', { ...input, widthIn: s.panelWidthIn, heightIn: s.fixedHeightIn }, originX, resolver, 'Partition', 'right'),
-                s.overlap
-            );
-            advance(buildSlidingDoorPiece('Frameless Sliding Shower Door', { ...input, widthIn: s.panelWidthIn, heightIn: s.slidingHeightIn }, originX, resolver));
+            const slider = addSlidingTrack(buildSlidingDoorPiece('Frameless Sliding Shower Door', { ...input, widthIn: s.panelWidthIn, heightIn: s.slidingHeightIn }, originX, resolver), originX, input.widthIn, resolver);
+            if ((input.slidingPanelPosition ?? 'left') === 'left') {
+                advanceLapped(slider, s.overlap);
+                advance(buildFixedPanelPiece('Fixed Shower Panel', { ...input, widthIn: s.panelWidthIn, heightIn: s.fixedHeightIn }, originX, resolver, 'Partition'));
+            } else {
+                advanceLapped(buildFixedPanelPiece('Fixed Shower Panel', { ...input, widthIn: s.panelWidthIn, heightIn: s.fixedHeightIn }, originX, resolver, 'Partition', 'right'), s.overlap);
+                advance(slider);
+            }
             break;
         }
         case 'office_partition_3pc': {
@@ -1607,10 +1656,11 @@ export function generateGlassSystem(input: GlassSystemInput, fittings: GlassItem
         case 'sliding_4pc_patio': {
             // Four leaves over one opening, the two centre sliders each
             // lapping their outer fixed neighbour.
+            const startX = originX;
             const s = slidingSystemSizes(input, 4, 2);
             const fixedW = input.fixedPanelWidthIn || s.panelWidthIn;
             advanceLapped(buildFixedPanelPiece('Left Fixed Patio Glass', { ...input, widthIn: fixedW, heightIn: s.fixedHeightIn }, originX, resolver, 'Partition', 'right'), s.overlap);
-            advance(buildSlidingDoorPiece('Left Sliding Patio Door', { ...input, widthIn: s.panelWidthIn, heightIn: s.slidingHeightIn }, originX, resolver));
+            advance(addSlidingTrack(buildSlidingDoorPiece('Left Sliding Patio Door', { ...input, widthIn: s.panelWidthIn, heightIn: s.slidingHeightIn, slidingPanelPosition: 'right' }, originX, resolver), startX, input.widthIn, resolver));
             advanceLapped(buildSlidingDoorPiece('Right Sliding Patio Door', { ...input, widthIn: s.panelWidthIn, heightIn: s.slidingHeightIn }, originX, resolver), s.overlap);
             advance(buildFixedPanelPiece('Right Fixed Patio Glass', { ...input, widthIn: fixedW, heightIn: s.fixedHeightIn }, originX, resolver, 'Partition'));
             break;
@@ -1714,6 +1764,7 @@ export function buildGlassSystemDesignData(input: GlassSystemInput, fittings: Gl
 
     const orientation = [
         input.doorPosition ? `door ${input.doorPosition}` : null,
+        input.slidingPanelPosition ? `moving panel ${input.slidingPanelPosition} when closed` : null,
         input.hingeSide ? `${input.pivotStyle === 'patch' ? 'pivot' : 'hinges'} ${input.hingeSide}` : null,
         input.swingDirection ? `opens ${input.swingDirection === 'both' ? 'both ways' : input.swingDirection}` : null,
         input.pivotStyle ? `${input.pivotStyle === 'hinges' ? 'side hinges' : 'top/bottom patch fittings'}` : null,

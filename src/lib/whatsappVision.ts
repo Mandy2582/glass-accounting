@@ -145,6 +145,7 @@ export type WhatsAppImageAnalysis = {
         fixedPanelWidthIn?: number | null;
         doorWidthIn?: number | null;
         doorHeightIn?: number | null;
+        slidingPanelPosition?: 'left' | 'right' | null;
         confidence: number;
     } | null;
     // True only when the vision call itself errored/couldn't be parsed --
@@ -190,6 +191,7 @@ export const RECOGNISABLE_SYSTEM_TYPES = [
     'shower_sliding_2pc',
     'corner_shower_90',
     'top_hung_sliding',
+    'sliding_4pc_patio',
 ] as const;
 
 // Shared position-reading rules for holes/cuts -- used verbatim by both the
@@ -336,7 +338,7 @@ export async function analyzeWhatsAppImage(input: {
                                 '',
                                 `${HOLE_CUT_UNITS_GUIDANCE} Also report widthUnit/heightUnit for the panel itself the same way.`,
                                 '',
-                                `GLASS SYSTEM RECOGNITION (important): separately from reading the individual marks, decide whether this drawing depicts a standard glass SYSTEM as a whole, and if so fill in glassSystem. Allowed systemType values: ${RECOGNISABLE_SYSTEM_TYPES.join(', ')}. Judge it from the overall arrangement and any written labels, e.g.: a single leaf with hinges/patches down one side and a handle = swing_door; a leaf plus an adjoining narrower fixed panel in a bathroom context = shower_door (give the fixed panel's width in fixedPanelWidthIn); two leaves meeting in the middle = patch_double_door; a leaf that slides across an adjoining panel, or a drawing labelled "sliding" with a top track = sliding_door (or top_hung_sliding for a barn-style slider hung entirely off an overhead rail); a low waist-height run of panels with floor-mounted spigots/base channel = railing; a plain panel with no door = fixed_panel. Treat every left/right value as viewed from the customer/front side. Report doorPosition (left/centre/right), hingeSide, swingDirection (inward/outward/both), and pivotStyle (hinges for side hinges, patch for top/bottom patch fittings) only when visible or explicitly written; otherwise return null so the customer can be asked. Also report the system's OVERALL opening width and height in INCHES (converting if the drawing is dimensioned in mm), the glass thickness in mm, and whether a lock and a handle are marked. If an individual clear door opening width or height is written, report it separately as doorWidthIn/doorHeightIn; do not discard it or replace it with a standard size.`,
+                                `GLASS SYSTEM RECOGNITION (important): separately from reading the individual marks, decide whether this drawing depicts a standard glass SYSTEM as a whole, and if so fill in glassSystem. Allowed systemType values: ${RECOGNISABLE_SYSTEM_TYPES.join(', ')}. Judge it from the overall arrangement and any written labels, e.g.: a single leaf with hinges/patches down one side and a handle = swing_door; a leaf plus an adjoining narrower fixed panel in a bathroom context = shower_door (give the fixed panel's width in fixedPanelWidthIn); two leaves meeting in the middle = patch_double_door; a moving leaf that slides across an adjoining fixed panel = sliding_door; use shower_sliding_2pc for a two-panel shower slider, top_hung_sliding for a barn-style exposed overhead rail, and sliding_4pc_patio for fixed + sliding + sliding + fixed. A low waist-height run of panels with floor-mounted spigots/base channel = railing; a plain panel with no door = fixed_panel. Treat every left/right value as viewed from the customer/front side. For a sliding system report slidingPanelPosition as the LEFT or RIGHT position of the MOVING leaf while CLOSED, only when visible or explicitly written; otherwise return null so the customer can be asked. Report doorPosition (left/centre/right), hingeSide, swingDirection (inward/outward/both), and pivotStyle (hinges for side hinges, patch for top/bottom patch fittings) only when visible or explicitly written; otherwise return null so the customer can be asked. Also report the system's OVERALL opening width and height in INCHES (converting if the drawing is dimensioned in mm), the glass thickness in mm, and whether a lock and a handle are marked. If an individual clear door opening width or height is written, report it separately as doorWidthIn/doorHeightIn; do not discard it or replace it with a standard size.`,
                                 'OWNER FIXED-PANEL + DOOR CODES: recognise these literal names or acronyms with high confidence: "single fixed single door" / SFSD = sfsd; "double fixed single door" / DFSD = dfsd; "single fixed double door" / SFDD = sfdd; "double fixed double door" / DFDD = dfdd. Width and height are the OVERALL installation dimensions a and b, not an individual leaf. Use the written doorWidthIn/doorHeightIn when present. Door glass width is 2/8in less than its clear opening. Door glass height is 84in unless another door height is explicitly written. When an overpanel exists, deduct the 4/8in door-to-overpanel clearance from the overpanel glass height and keep the door at 84in (or its explicit height); without an overpanel, deduct 4/8in from the door glass height.',
                                 'DOOR-ONLY SYSTEMS: a drawing explicitly labelled single door with no side fixed panel = single_door; double door with no side fixed panels = double_door. When overall height leaves an overpanel, generate TM-30 overpanel patch support plus L Connectors, and top patch, bottom patch, lock, and handle on each door.',
                                 'Set glassSystem to null, and set its confidence low, if the drawing is just loose panels or a dimension list with no recognisable system arrangement -- do NOT force one of the values above onto a drawing that is not clearly that system. This field is used to regenerate the panels and hardware from engineering standards, so a wrong systemType produces a confidently wrong drawing; "null" is much better than a guess.',
@@ -397,7 +399,7 @@ export async function analyzeWhatsAppImage(input: {
                             glassSystem: {
                                 type: ['object', 'null'],
                                 additionalProperties: false,
-                                required: ['systemType', 'widthIn', 'heightIn', 'thickness', 'doorPosition', 'hingeSide', 'swingDirection', 'pivotStyle', 'hasLock', 'hasHandle', 'fixedPanelWidthIn', 'doorWidthIn', 'doorHeightIn', 'confidence'],
+                                required: ['systemType', 'widthIn', 'heightIn', 'thickness', 'doorPosition', 'hingeSide', 'swingDirection', 'pivotStyle', 'hasLock', 'hasHandle', 'fixedPanelWidthIn', 'doorWidthIn', 'doorHeightIn', 'slidingPanelPosition', 'confidence'],
                                 properties: {
                                     systemType: { type: ['string', 'null'], enum: [...RECOGNISABLE_SYSTEM_TYPES, null] },
                                     widthIn: { type: ['number', 'null'] },
@@ -412,6 +414,7 @@ export async function analyzeWhatsAppImage(input: {
                                     fixedPanelWidthIn: { type: ['number', 'null'] },
                                     doorWidthIn: { type: ['number', 'null'] },
                                     doorHeightIn: { type: ['number', 'null'] },
+                                    slidingPanelPosition: { type: ['string', 'null'], enum: ['left', 'right', null] },
                                     confidence: { type: 'number' },
                                 },
                             },
@@ -1279,6 +1282,7 @@ export function resolveRecognisedSystem(analysis: WhatsAppImageAnalysis): {
     fixedPanelWidthIn?: number;
     doorWidthIn?: number;
     doorHeightIn?: number;
+    slidingPanelPosition?: 'left' | 'right';
     confidence: number;
 } | null {
     const sys = analysis.glassSystem;
@@ -1330,6 +1334,7 @@ export function resolveRecognisedSystem(analysis: WhatsAppImageAnalysis): {
         ...(Number(sys.fixedPanelWidthIn) > 0 ? { fixedPanelWidthIn: Number(sys.fixedPanelWidthIn) } : {}),
         ...(doorWidthIn ? { doorWidthIn } : {}),
         ...(doorHeightIn ? { doorHeightIn } : {}),
+        ...(sys.slidingPanelPosition ? { slidingPanelPosition: sys.slidingPanelPosition } : {}),
         confidence,
     };
 }

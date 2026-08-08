@@ -96,6 +96,9 @@ const fittingRoles = new Map([
     ['ICSH-2', 'glass_hinge'],
     ['ICGH-01-S/PSS', 'handle'],
     ['ICSL-A1', 'sliding_kit'],
+    ['ICSL-SH-10', 'sliding_handle'],
+    ['ICSL-B3', 'sliding_track'],
+    ['ICSL-FG', 'sliding_floor_guide'],
     ['ICRA-U25', 'base_channel'],
     ['ICSP-2', 'connector'],
     ['ICSH-5', 'clamp'],
@@ -121,6 +124,9 @@ const preparationByRole = {
     spigot: [0, 0],
     handle: [2, 0],
     sliding_kit: [2, 0],
+    sliding_handle: [2, 0],
+    sliding_track: [0, 0],
+    sliding_floor_guide: [0, 0],
 };
 
 const supplementalProducts = [

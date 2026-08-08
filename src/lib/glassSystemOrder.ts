@@ -21,6 +21,9 @@ const SYSTEM_PHRASES: Array<{ re: RegExp; type: GlassSystemType }> = [
     { re: /\b(single\s+(?:glass\s+)?door|single\s+door|sd)\b/i, type: 'single_door' },
     { re: /\b(double\s+(?:glass\s+)?door|double\s+door|dd)\b/i, type: 'double_door' },
     { re: /\b(block|basic)\b/i, type: 'basic' },
+    { re: /\b(?:4|four)[-\s]*(?:panel|piece).*\b(?:patio\s+)?sliding\b|\b(?:patio\s+)?sliding.*\b(?:4|four)[-\s]*(?:panel|piece)\b/i, type: 'sliding_4pc_patio' },
+    { re: /\b(?:top[-\s]?hung|barn[-\s]?style|exposed\s+roller)\s+(?:glass\s+)?slid(?:er|ing)\b/i, type: 'top_hung_sliding' },
+    { re: /\b(?:2|two)[-\s]*(?:panel|piece).*\bshower\s+sliding\b|\bshower\s+sliding(?:\s+(?:system|door))?\b/i, type: 'shower_sliding_2pc' },
     { re: /\bshower\b/i, type: 'shower_door' },
     { re: /\bsliding\b/i, type: 'sliding_door' },
     { re: /\b(railing|balustrade|baluster)\b/i, type: 'railing' },
@@ -116,7 +119,8 @@ export function parseDoorOpeningDimensions(text: string): { doorWidthIn?: number
 }
 
 function findGlassType(text: string): string | undefined {
-    const labelled = text.match(/\b(?:glass\s*type|glass|finish|colour|color)\s*(?:is|[:=\-])?\s*([^\n,;]+)/i)?.[1]
+    const labelled = (text.match(/\b(?:glass\s*type|finish|colour|color)\s*(?:is|[:=\-])?\s*([^\n,;]+)/i)
+        || text.match(/\bglass\s*[:=]\s*([^\n,;]+)/i))?.[1]
         ?.replace(/\b(?:thickness|design|width|height)\b.*$/i, '')
         .trim();
     if (labelled) return labelled;
@@ -161,7 +165,7 @@ export type GlassSystemOrderResult =
     | { ok: true; input: GlassSystemInput; missingCustomerChoices: DoorConfigurationField[] }
     | { ok: false; reason: string };
 
-export type DoorConfigurationField = 'fitting' | 'door_position' | 'hinge_side' | 'swing_direction';
+export type DoorConfigurationField = 'fitting' | 'door_position' | 'hinge_side' | 'swing_direction' | 'sliding_panel_position';
 
 const CUSTOMER_CONFIGURED_DOOR_SYSTEMS = new Set<GlassSystemType>([
     'swing_door',
@@ -171,11 +175,20 @@ const CUSTOMER_CONFIGURED_DOOR_SYSTEMS = new Set<GlassSystemType>([
     'dfsd',
     'sfdd',
     'dfdd',
+    'sliding_door',
+    'top_hung_sliding',
+    'shower_sliding_2pc',
+]);
+
+const CUSTOMER_CONFIGURED_SLIDING_SYSTEMS = new Set<GlassSystemType>([
+    'sliding_door',
+    'top_hung_sliding',
+    'shower_sliding_2pc',
 ]);
 
 export function parseDoorConfiguration(text: string): Pick<
     GlassSystemInput,
-    'pivotStyle' | 'doorPosition' | 'hingeSide' | 'swingDirection'
+    'pivotStyle' | 'doorPosition' | 'hingeSide' | 'swingDirection' | 'slidingPanelPosition'
 > {
     const source = (text || '').toLowerCase();
     const mentionsHinges = /\b(?:side|wall[-\s]?to[-\s]?glass|glass[-\s]?to[-\s]?glass)\s+hinges?\b|\bhinges\b|\bhinged\s+door\b/.test(source)
@@ -194,6 +207,8 @@ export function parseDoorConfiguration(text: string): Pick<
         || source.match(/\bhinges?\s+(?:are\s+|on\s+(?:the\s+)?)?(left|right)\b/);
     const swingMatch = source.match(/\b(?:opens?|swing(?:s|ing)?)(?:\s+to)?\s+(inward|outward|inside|outside|both(?:\s+ways?)?|double[-\s]?action)\b/);
     const swingValue = swingMatch?.[1];
+    const slidingPositionMatch = source.match(/\b(?:moving|sliding)\s+(?:glass\s+)?(?:panel|door|leaf)\s+(?:(?:position\s*(?:is|:|-)?|on(?:\s+the)?)\s+)?(left|right)\b/)
+        || source.match(/\b(left|right)\s+(?:side\s+)?(?:moving|sliding)\s+(?:glass\s+)?(?:panel|door|leaf)\b/);
 
     return {
         ...(fitting ? { pivotStyle: fitting } : {}),
@@ -206,6 +221,7 @@ export function parseDoorConfiguration(text: string): Pick<
                 ? 'both'
                 : /inside|inward/.test(swingValue) ? 'inward' : 'outward',
         } : {}),
+        ...(slidingPositionMatch ? { slidingPanelPosition: slidingPositionMatch[1] as 'left' | 'right' } : {}),
     };
 }
 
@@ -213,6 +229,10 @@ export function getMissingDoorConfiguration(input: GlassSystemInput): DoorConfig
     if (!CUSTOMER_CONFIGURED_DOOR_SYSTEMS.has(input.systemType)) return [];
 
     const missing: DoorConfigurationField[] = [];
+    if (CUSTOMER_CONFIGURED_SLIDING_SYSTEMS.has(input.systemType)) {
+        if (!input.slidingPanelPosition) missing.push('sliding_panel_position');
+        return missing;
+    }
     if (!input.pivotStyle) missing.push('fitting');
     if ((input.systemType === 'sfsd' || input.systemType === 'sfdd') && !input.doorPosition) {
         missing.push('door_position');
@@ -234,12 +254,15 @@ export function buildDoorConfigurationPrompt(orderNumber: string, missing: DoorC
         missing.includes('door_position') ? 'Door position: left or right?' : null,
         missing.includes('hinge_side') ? 'Hinge/pivot side: left or right?' : null,
         missing.includes('swing_direction') ? 'Opening: inward, outward, or both ways?' : null,
+        missing.includes('sliding_panel_position') ? 'Moving panel position when closed (front view): left or right?' : null,
     ].filter(Boolean);
     return [
-        `Please confirm the door configuration for order ${orderNumber} while viewing it from the customer/front side:`,
+        `Please confirm the configuration for order ${orderNumber} while viewing it from the customer/front side:`,
         ...questions.map((question, index) => `${index + 1}. ${question}`),
         '',
-        'Example reply: "Door right, hinges left, opens outward, side hinges".',
+        missing.includes('sliding_panel_position')
+            ? 'Example reply: "Moving sliding panel left".'
+            : 'Example reply: "Door right, hinges left, opens outward, side hinges".',
     ].join('\n');
 }
 
@@ -274,8 +297,14 @@ export function parseGlassSystemOrder(text: string): GlassSystemOrderResult {
     const hasHandle = !/\bno\s*handle\b/.test(lower);
 
     let fixedPanelWidthIn = 0;
-    const fixedMatch = lower.match(/fixed(?:\s*panel)?\s*(\d+(?:\.\d+)?)/) || lower.match(/(\d+(?:\.\d+)?)\s*(?:in|")?\s*fixed/);
-    if (fixedMatch) fixedPanelWidthIn = Number(fixedMatch[1]) || 0;
+    const fixedMatch = t.match(new RegExp(
+        String.raw`fixed(?:\s*panel)?(?:\s*width)?\s*(?:is|[:=\-])?\s*(${NUMBER_SOURCE})\s*(${UNIT_SOURCE})?`,
+        'i',
+    )) || t.match(new RegExp(
+        String.raw`(${NUMBER_SOURCE})\s*(${UNIT_SOURCE})?\s*fixed(?:\s*panel)?`,
+        'i',
+    ));
+    if (fixedMatch) fixedPanelWidthIn = measurementInches(fixedMatch[1], fixedMatch[2]) || 0;
 
     return {
         ok: true,
