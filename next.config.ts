@@ -24,7 +24,7 @@ const nextConfig: NextConfig = {
           "style-src 'self' 'unsafe-inline'",
           "img-src 'self' data: blob:",
           "font-src 'self' data:",
-          "connect-src 'self' https://www.arjunglasshouse.com wss://www.arjunglasshouse.com",
+          "connect-src 'self' https://arjunglasshouse.com https://www.arjunglasshouse.com wss://arjunglasshouse.com wss://www.arjunglasshouse.com",
           "frame-ancestors 'none'",
           "base-uri 'self'",
           "form-action 'self'",

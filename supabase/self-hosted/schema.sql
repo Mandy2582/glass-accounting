@@ -27,6 +27,9 @@ create table if not exists public.items (
   purchase_rate_unit text,
   hsn_code text,
   conversion_factor numeric,
+  fitting_role text,
+  holes_required integer,
+  cuts_required integer,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -178,6 +181,9 @@ create table if not exists public.orders (
   delivered_to_us numeric default 0,
   delivered_to_customer numeric default 0,
   deliveries jsonb not null default '[]'::jsonb,
+  eway_bill_number text,
+  eway_bill_date text,
+  eway_bill_valid_upto text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

@@ -33,7 +33,7 @@ function loadState() {
     try {
         return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
     } catch {
-        return { lastProcessedUid: 0 };
+        return { lastProcessedUid: 0, initialized: false };
     }
 }
 
@@ -145,6 +145,16 @@ async function watchMailbox(state) {
     await client.connect();
     console.log(`[email-intake] Connected to ${IMAP_HOST} as ${process.env.EMAIL_USER}. Watching INBOX...`);
     await client.mailboxOpen('INBOX');
+
+    // A fresh deployment must not turn the mailbox's entire history into new
+    // orders. Start at the current end of the inbox; persisted installations
+    // still resume from their last successfully processed UID.
+    if (state.initialized === false) {
+        state.lastProcessedUid = Math.max(0, Number(client.mailbox?.uidNext || 1) - 1);
+        state.initialized = true;
+        saveState(state);
+        console.log(`[email-intake] Initialized at mailbox UID ${state.lastProcessedUid}.`);
+    }
 
     await processNewMessages(client, state); // catch up on anything since we last ran
 

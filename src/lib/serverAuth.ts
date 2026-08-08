@@ -2,7 +2,7 @@ import { createClient, User } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { getUserRole } from '@/lib/roles';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseUrl = process.env.SUPABASE_INTERNAL_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
