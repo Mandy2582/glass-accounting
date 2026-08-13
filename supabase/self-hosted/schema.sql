@@ -239,7 +239,8 @@ create table if not exists public.settings (
 
 create table if not exists public.thickness_pricing (
   id uuid primary key default gen_random_uuid(),
-  thickness numeric not null unique,
+  thickness numeric not null,
+  glass_type text,
   rate_per_sqft numeric not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -266,6 +267,8 @@ create table if not exists public.custom_designs (
   approved_date text,
   notes text,
   order_id uuid,
+  source_image_base64 text,
+  source_image_mime_type text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -279,6 +282,8 @@ create index if not exists idx_orders_created_at on public.orders(created_at des
 create index if not exists idx_orders_type on public.orders(type);
 create index if not exists idx_stock_batches_item_id on public.stock_batches(item_id);
 create index if not exists idx_custom_designs_created_date on public.custom_designs(created_date desc);
+create unique index if not exists idx_thickness_pricing_type
+  on public.thickness_pricing (thickness, coalesce(lower(glass_type), ''));
 
 insert into public.thickness_pricing (thickness, rate_per_sqft) values
   (3.5, 100), (4, 110), (5, 120), (6, 130), (8, 150),
