@@ -1821,6 +1821,7 @@ function imageFallbackAnalysis(caption: string): WhatsAppImageAnalysis {
             notes: 'Image was received, but automatic media download or vision analysis was not available. Please review manually.',
             pieces: [],
         },
+        analysisFailed: true,
     };
 }
 

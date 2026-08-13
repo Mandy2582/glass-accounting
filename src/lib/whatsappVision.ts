@@ -280,7 +280,7 @@ export async function analyzeWhatsAppImage(input: {
 }): Promise<WhatsAppImageAnalysis> {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-        return emptyAnalysis('unknown', input.caption || '');
+        return emptyAnalysis('unknown', input.caption || '', true);
     }
 
     const model = process.env.OPENAI_VISION_MODEL || 'gpt-4.1-mini';
