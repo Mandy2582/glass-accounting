@@ -204,7 +204,8 @@ export function parseDoorConfiguration(text: string): Pick<
     const positionMatch = source.match(/\bdoor\s+(?:(?:position\s*(?:is|:|-)?|on(?:\s+the)?)\s+)?(left|right|centre|center)\b/)
         || source.match(/\b(left|right|centre|center)\s+(?:side\s+)?door\b/);
     const hingeMatch = source.match(/\b(?:hinge|pivot)\s*side\s*(?:is|:|-)?\s*(left|right)\b/)
-        || source.match(/\bhinges?\s+(?:are\s+|on\s+(?:the\s+)?)?(left|right)\b/);
+        || source.match(/\bhinges?\s+(?:are\s+|on\s+(?:the\s+)?)?(left|right)\b/)
+        || source.match(/\b(?:patch(?:\s+fittings?)?|floor\s+spring)\s+(?:on\s+(?:the\s+)?)?(left|right)\b/);
     const swingMatch = source.match(/\b(?:opens?|opening|swing(?:s|ing)?)(?:\s+direction)?(?:\s*(?:is|:|-))?(?:\s+to)?\s+(inwards?|outwards?|inside|outside|both(?:\s+ways?)?|double[-\s]?action)\b/)
         || source.match(/\b(inwards?|outwards?|inside|outside|both(?:\s+ways?)?|double[-\s]?action)\s+(?:opening|swing)\b/);
     const swingValue = swingMatch?.[1];
@@ -247,7 +248,19 @@ export function getMissingDoorConfiguration(input: GlassSystemInput): DoorConfig
 
 export function applyDoorConfigurationReply(input: GlassSystemInput, reply: string): GlassSystemInput {
     const originallyMissing = getMissingDoorConfiguration(input);
-    let completed = { ...input, ...parseDoorConfiguration(reply) };
+    const parsedReply = parseDoorConfiguration(reply);
+    let completed = { ...input };
+
+    // A clarification reply normally answers only the questions still open.
+    // Preserve choices read from the original order so incidental wording in a
+    // later reply cannot silently change patch fittings into hinges (or vice versa).
+    if (!completed.pivotStyle && parsedReply.pivotStyle) completed.pivotStyle = parsedReply.pivotStyle;
+    if (!completed.doorPosition && parsedReply.doorPosition) completed.doorPosition = parsedReply.doorPosition;
+    if (!completed.hingeSide && parsedReply.hingeSide) completed.hingeSide = parsedReply.hingeSide;
+    if (!completed.swingDirection && parsedReply.swingDirection) completed.swingDirection = parsedReply.swingDirection;
+    if (!completed.slidingPanelPosition && parsedReply.slidingPanelPosition) {
+        completed.slidingPanelPosition = parsedReply.slidingPanelPosition;
+    }
 
     const parseChoice = (field: DoorConfigurationField, rawValue: string): Partial<GlassSystemInput> => {
         const value = rawValue.toLowerCase().trim().replace(/^[\d]+\s*[).:-]\s*/, '').replace(/[.!]+$/g, '').trim();
