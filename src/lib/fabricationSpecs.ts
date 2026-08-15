@@ -1548,28 +1548,41 @@ export function deriveAccessoryGeometry(
     const h = shape.height || 20;
     const cx = (shape.x || 0) + w / 2;
     const cy = (shape.y || 0) + h / 2;
+    const recordedHoleCount = shape.accessoryHoleCount === undefined
+        ? undefined
+        : Math.max(0, Math.round(Number(shape.accessoryHoleCount) || 0));
+    const recordedCutCount = shape.accessoryCutCount === undefined
+        ? undefined
+        : Math.max(0, Math.round(Number(shape.accessoryCutCount) || 0));
 
     const item = shape.hardwareItemId ? fittingsById?.get(shape.hardwareItemId) : undefined;
     if (item) {
         const spec = getCutoutSpecsForItem(item);
-        const holes: DerivedHole[] = spec.holes.map(hole => ({
-            x: cx + hole.offsetXMm / MM_PER_CANVAS_UNIT,
-            y: cy + hole.offsetYMm / MM_PER_CANVAS_UNIT,
-            radius: hole.radiusMm / MM_PER_CANVAS_UNIT
-        }));
-        const cuts: DerivedCut[] = spec.notchWidthMm > 0 ? [{
-            x: cx - (spec.notchWidthMm / MM_PER_CANVAS_UNIT) / 2,
-            y: cy - (spec.notchHeightMm / MM_PER_CANVAS_UNIT) / 2,
-            width: spec.notchWidthMm / MM_PER_CANVAS_UNIT,
-            height: spec.notchHeightMm / MM_PER_CANVAS_UNIT
-        }] : [];
-        return { holes, cuts };
+        // The accessory stores the configured catalogue requirement. It is
+        // authoritative, including an explicit zero. A generic fallback CAD
+        // template must never invent a notch for a drilled-only connector.
+        if (spec.id !== 'generic_fitting') {
+            const holeCount = recordedHoleCount ?? spec.holes.length;
+            const cutCount = recordedCutCount ?? (spec.notchWidthMm > 0 ? 1 : 0);
+            const holes: DerivedHole[] = spec.holes.slice(0, holeCount).map(hole => ({
+                x: cx + hole.offsetXMm / MM_PER_CANVAS_UNIT,
+                y: cy + hole.offsetYMm / MM_PER_CANVAS_UNIT,
+                radius: hole.radiusMm / MM_PER_CANVAS_UNIT
+            }));
+            const cuts: DerivedCut[] = cutCount > 0 && spec.notchWidthMm > 0 ? [{
+                x: cx - (spec.notchWidthMm / MM_PER_CANVAS_UNIT) / 2,
+                y: cy - (spec.notchHeightMm / MM_PER_CANVAS_UNIT) / 2,
+                width: spec.notchWidthMm / MM_PER_CANVAS_UNIT,
+                height: spec.notchHeightMm / MM_PER_CANVAS_UNIT
+            }] : [];
+            return { holes, cuts };
+        }
     }
 
     // No linked catalogue item -- spread the recorded hole/cut counts evenly across the
     // marker footprint, same layout the canvas marker itself uses to preview them.
-    const holeCount = Math.max(0, Math.round(Number(shape.accessoryHoleCount) || 0));
-    const cutCount = Math.max(0, Math.round(Number(shape.accessoryCutCount) || 0));
+    const holeCount = recordedHoleCount ?? 0;
+    const cutCount = recordedCutCount ?? 0;
     const total = holeCount + cutCount;
     if (total === 0) return { holes: [], cuts: [] };
 

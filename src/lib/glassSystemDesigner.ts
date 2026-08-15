@@ -1350,6 +1350,23 @@ function buildFixedDoorAssembly(
                     undefined,
                     hingeSide === 'left' ? 'down-right' : 'down-left',
                 ));
+                // In a DFSD assembly the overpanel spans between two fixed
+                // panels. Big L carries the door's top pivot; Small L secures
+                // the opposite lower corner to the other fixed panel.
+                if (fixedCount === 2) {
+                    const oppositeX = hingeSide === 'left'
+                        ? doors[0].outline.x + (doors[0].outline.width || 0)
+                        : doors[0].outline.x;
+                    overpanel.shapes.push(hardware(
+                        overBox.id,
+                        'l_bracket_small',
+                        oppositeX,
+                        supportY,
+                        resolver,
+                        undefined,
+                        hingeSide === 'left' ? 'down-left' : 'down-right',
+                    ));
+                }
             } else {
                 overpanel.shapes.push(hardware(
                     overBox.id,
