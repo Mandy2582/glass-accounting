@@ -205,7 +205,8 @@ export function parseDoorConfiguration(text: string): Pick<
         || source.match(/\b(left|right|centre|center)\s+(?:side\s+)?door\b/);
     const hingeMatch = source.match(/\b(?:hinge|pivot)\s*side\s*(?:is|:|-)?\s*(left|right)\b/)
         || source.match(/\bhinges?\s+(?:are\s+|on\s+(?:the\s+)?)?(left|right)\b/);
-    const swingMatch = source.match(/\b(?:opens?|swing(?:s|ing)?)(?:\s+to)?\s+(inward|outward|inside|outside|both(?:\s+ways?)?|double[-\s]?action)\b/);
+    const swingMatch = source.match(/\b(?:opens?|opening|swing(?:s|ing)?)(?:\s+direction)?(?:\s*(?:is|:|-))?(?:\s+to)?\s+(inwards?|outwards?|inside|outside|both(?:\s+ways?)?|double[-\s]?action)\b/)
+        || source.match(/\b(inwards?|outwards?|inside|outside|both(?:\s+ways?)?|double[-\s]?action)\s+(?:opening|swing)\b/);
     const swingValue = swingMatch?.[1];
     const slidingPositionMatch = source.match(/\b(?:moving|sliding)\s+(?:glass\s+)?(?:panel|door|leaf)\s+(?:(?:position\s*(?:is|:|-)?|on(?:\s+the)?)\s+)?(left|right)\b/)
         || source.match(/\b(left|right)\s+(?:side\s+)?(?:moving|sliding)\s+(?:glass\s+)?(?:panel|door|leaf)\b/);
@@ -245,7 +246,48 @@ export function getMissingDoorConfiguration(input: GlassSystemInput): DoorConfig
 }
 
 export function applyDoorConfigurationReply(input: GlassSystemInput, reply: string): GlassSystemInput {
-    return { ...input, ...parseDoorConfiguration(reply) };
+    const originallyMissing = getMissingDoorConfiguration(input);
+    let completed = { ...input, ...parseDoorConfiguration(reply) };
+
+    const parseChoice = (field: DoorConfigurationField, rawValue: string): Partial<GlassSystemInput> => {
+        const value = rawValue.toLowerCase().trim().replace(/^[\d]+\s*[).:-]\s*/, '').replace(/[.!]+$/g, '').trim();
+        if (field === 'fitting') {
+            if (/\b(?:side\s+)?hinges?\b/.test(value)) return { pivotStyle: 'hinges' };
+            if (/\bpatch(?:\s+fittings?)?\b|\bfloor\s+spring\b/.test(value)) return { pivotStyle: 'patch' };
+        }
+        if (field === 'swing_direction') {
+            if (/^(?:in|inside|inward|inwards)$/.test(value)) return { swingDirection: 'inward' };
+            if (/^(?:out|outside|outward|outwards)$/.test(value)) return { swingDirection: 'outward' };
+            if (/^(?:both|both\s+ways?|double[-\s]?action|in\s+and\s+out|inside\s+and\s+outside)$/.test(value)) {
+                return { swingDirection: 'both' };
+            }
+        }
+        if (/^(?:left|right)$/.test(value)) {
+            const side = value as 'left' | 'right';
+            if (field === 'door_position') return { doorPosition: side };
+            if (field === 'hinge_side') return { hingeSide: side };
+            if (field === 'sliding_panel_position') return { slidingPanelPosition: side };
+        }
+        return {};
+    };
+
+    // Customers commonly answer the numbered prompt as a matching list of
+    // short values rather than repeating every label. Respect that order.
+    const choices = reply.split(/[\n;,]+/).map(value => value.trim()).filter(Boolean);
+    if (originallyMissing.length > 1 && choices.length === originallyMissing.length) {
+        originallyMissing.forEach((field, index) => {
+            completed = { ...completed, ...parseChoice(field, choices[index]) };
+        });
+    }
+
+    // Once only one question remains, a concise answer is unambiguous:
+    // "outwards", "patch", or "right" should finish the conversation.
+    const stillMissing = getMissingDoorConfiguration(completed);
+    if (stillMissing.length === 1) {
+        completed = { ...completed, ...parseChoice(stillMissing[0], reply) };
+    }
+
+    return completed;
 }
 
 export function buildDoorConfigurationPrompt(orderNumber: string, missing: DoorConfigurationField[]): string {

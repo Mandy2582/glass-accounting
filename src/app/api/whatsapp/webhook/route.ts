@@ -900,6 +900,9 @@ async function tryCompleteDoorConfiguration(
     const completedInput = applyDoorConfigurationReply(pendingInput, replyText);
     const stillMissing = getMissingDoorConfiguration(completedInput);
     if (stillMissing.length > 0) {
+        console.log(
+            `[whatsapp] Configuration reply for ${order.number} left ${stillMissing.join(', ')} unresolved: ${JSON.stringify(replyText.slice(0, 500))}`,
+        );
         const updatedOrder: Order = {
             ...order,
             notes: withPendingGlassSystem(
